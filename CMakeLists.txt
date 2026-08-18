@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Set minimum policy version for Capstone/Funchook compatibility on CMake 3.31+ / 4.x
-set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
-
-# Modern CMake policy overrides
 if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
@@ -49,17 +45,53 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-# 3. funchook (Cross-platform x86/x64/ARM Hook engine)
+# 3. Modern Capstone 5.0.1 (CMake 3.31+ / 4.x compatible, supports x86/x64/ARM64)
 FetchContent_Declare(
-    funchook
+    capstone
+    GIT_REPOSITORY https://github.com/capstone-engine/capstone.git
+    GIT_TAG        5.0.1
+)
+set(CAPSTONE_BUILD_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+set(CAPSTONE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CAPSTONE_BUILD_CSTOOL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(capstone)
+
+# 4. funchook (Build directly with Capstone 5.0 without legacy Capstone 4.0.2 download)
+FetchContent_Declare(
+    funchook_src
     GIT_REPOSITORY https://github.com/kubo/funchook.git
     GIT_TAG        v1.1.3
 )
-set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(funchook)
+FetchContent_GetProperties(funchook_src)
+if(NOT funchook_src_POPULATED)
+    FetchContent_Populate(funchook_src)
+    
+    set(FUNCHOOK_SOURCES
+        "${funchook_src_SOURCE_DIR}/src/funchook.c"
+    )
+    if(WIN32)
+        list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_windows.c")
+    else()
+        list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_unix.c")
+    endif()
 
-# 4. Lua (embedded scripting engine with cross-platform fallback)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+        list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_arm64.c")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM")
+        list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_arm.c")
+    else()
+        list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_x86.c")
+    endif()
+
+    add_library(funchook STATIC ${FUNCHOOK_SOURCES})
+    target_include_directories(funchook PUBLIC 
+        "${funchook_src_SOURCE_DIR}/include"
+        "${capstone_SOURCE_DIR}/include"
+    )
+    target_link_libraries(funchook PRIVATE capstone)
+endif()
+
+# 5. Lua (embedded scripting engine with cross-platform fallback)
 find_package(Lua QUIET)
 if(LUA_FOUND)
     set(LUA_LIB_TARGET ${LUA_LIBRARIES})
@@ -70,13 +102,16 @@ else()
         GIT_REPOSITORY https://github.com/lua/lua.git
         GIT_TAG        v5.4.6
     )
-    FetchContent_MakeAvailable(lua_source)
-    file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
-    list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
-    add_library(lua_static STATIC ${LUA_SOURCES})
-    target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
-    set(LUA_LIB_TARGET lua_static)
-    set(LUA_INC_DIR "${lua_source_SOURCE_DIR}")
+    FetchContent_GetProperties(lua_source)
+    if(NOT lua_source_POPULATED)
+        FetchContent_Populate(lua_source)
+        file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
+        list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
+        add_library(lua_static STATIC ${LUA_SOURCES})
+        target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
+        set(LUA_LIB_TARGET lua_static)
+        set(LUA_INC_DIR "${lua_source_SOURCE_DIR}")
+    endif()
 endif()
 
 # Platform specific dependencies
