@@ -31,7 +31,7 @@ enable_api = true
 
 [lua]
 # ------------------------------------------------------------------------------
-# Lua 脚本监听目录配置
+# Lua 脚本监听目录配置 (支持递归扫描子目录)
 # 
 # 默认加载目录 (无需配置自动包含):
 #   - Windows: <Steam 根目录>/config/lua/
@@ -44,6 +44,10 @@ paths = [
     # "D:/MyGameConfigs/lua",
     # "/home/deck/my_steam_lua"
 ]
+
+[onlinefix]
+# 自定义 -onlinefix 联机伪装 AppID (默认 480 即 Spacewar，亦可配置为 251040 / 1007 等)
+fake_appid = 480
 
 [inject]
 # 是否开启向游戏子进程注入辅助动态库 (用于绕过部分游戏内鉴权)

@@ -91,44 +91,43 @@ std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& target
     std::string dir = targetDir.empty() ? GetDefaultLuaDirectory() : targetDir;
     if (!fs::exists(dir)) return list;
 
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
+    try {
+        for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+            if (!entry.is_regular_file()) continue;
 
-        std::string filename = entry.path().filename().string();
-        bool isLua = filename.ends_with(".lua");
-        bool isDisabled = filename.ends_with(".lua.disabled");
+            std::string filename = entry.path().filename().string();
+            bool isLua = filename.ends_with(".lua");
+            bool isDisabled = filename.ends_with(".lua.disabled");
 
-        if (isLua || isDisabled) {
-            ScriptFileInfo info;
-            info.fileName = filename;
-            info.fullPath = entry.path().string();
-            info.fileSize = entry.file_size();
-            info.enabled = isLua;
+            if (isLua || isDisabled) {
+                ScriptFileInfo info;
+                info.fileName = filename;
+                info.fullPath = entry.path().string();
+                info.fileSize = entry.file_size();
+                info.enabled = isLua;
 
-            // Try to extract AppID from filename or first lines
-            std::regex idRegex("^(\\d+)");
-            std::smatch match;
-            if (std::regex_search(filename, match, idRegex)) {
-                info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
-            }
-
-            // Read title from comment if present
-            std::ifstream in(info.fullPath);
-            std::string line;
-            while (std::getline(in, line)) {
-                if (line.rfind("-- Game: ", 0) == 0) {
-                    info.title = line.substr(9);
-                    break;
+                std::regex idRegex("^(\\d+)");
+                std::smatch match;
+                if (std::regex_search(filename, match, idRegex)) {
+                    info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
                 }
-            }
 
-            list.push_back(info);
+                std::ifstream in(info.fullPath);
+                std::string line;
+                while (std::getline(in, line)) {
+                    if (line.rfind("-- Game: ", 0) == 0) {
+                        info.title = line.substr(9);
+                        break;
+                    }
+                }
+
+                list.push_back(info);
+            }
         }
-    }
+    } catch (...) {}
 
     return list;
 }
-
 bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
     try {
         if (!fs::exists(filePath)) return false;

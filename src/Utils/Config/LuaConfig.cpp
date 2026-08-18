@@ -112,11 +112,15 @@ void ParseDirectory(const std::string& dirPath) {
         return;
     }
 
-    for (const auto& entry : fs::directory_iterator(dirPath)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".lua") {
-            spdlog::info("Loading Lua file: {}", entry.path().string());
-            ParseFile(entry.path().string());
+    try {
+        for (const auto& entry : fs::recursive_directory_iterator(dirPath)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".lua") {
+                spdlog::info("Loading Lua file: {}", entry.path().string());
+                ParseFile(entry.path().string());
+            }
         }
+    } catch (const std::exception& e) {
+        spdlog::warn("LuaConfig: Directory recursion error: {}", e.what());
     }
 }
 
