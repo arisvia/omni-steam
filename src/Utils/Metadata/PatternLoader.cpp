@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 #include <mutex>
 #include <filesystem>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -13,6 +14,16 @@ namespace {
     std::mutex g_patternMutex;
     std::unordered_map<std::string, PatternEntry> g_patterns;
     std::unordered_map<std::string, uintptr_t> g_resolvedAddresses;
+
+    const char* GetRemotePatternUrl() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/windows_x64.toml";
+#elif defined(OMNI_PLATFORM_MACOS)
+        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/macos_x64.toml";
+#else
+        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/linux_x64.toml";
+#endif
+    }
 
     void RegisterBuiltinPatterns() {
 #if defined(OMNI_PLATFORM_WINDOWS)
@@ -34,13 +45,48 @@ void Initialize(const std::string& patternDir) {
     std::lock_guard<std::mutex> lock(g_patternMutex);
     g_patterns.clear();
     g_resolvedAddresses.clear();
+
+    // 1. Built-in hardcoded signatures (Zero-configuration fallback)
     RegisterBuiltinPatterns();
 
-    if (!patternDir.empty() && fs::exists(patternDir)) {
-        for (const auto& entry : fs::directory_iterator(patternDir)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".toml") {
-                LoadFromToml(entry.path().string());
+    // 2. Local TOML overrides if present
+    bool foundLocal = false;
+    std::vector<std::string> candidateDirs = { patternDir, "patterns", "../patterns", "../../patterns" };
+    for (const auto& dir : candidateDirs) {
+        if (!dir.empty() && fs::exists(dir)) {
+            for (const auto& entry : fs::directory_iterator(dir)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".toml") {
+                    LoadFromToml(entry.path().string());
+                    foundLocal = true;
+                }
             }
+            if (foundLocal) break;
+        }
+    }
+
+    // 3. Fallback: If no local file found, fetch latest signatures from GitHub Raw
+    if (!foundLocal) {
+        const char* remoteUrl = GetRemotePatternUrl();
+        spdlog::debug("PatternLoader: Fetching remote patterns from {}", remoteUrl);
+        auto resp = OmniPlatform::Http::Get(remoteUrl, 5000);
+        if (resp.statusCode == 200 && !resp.body.empty()) {
+            try {
+                auto tbl = toml::parse(resp.body);
+                if (auto patterns = tbl["patterns"].as_table()) {
+                    for (const auto& [key, val] : *patterns) {
+                        if (auto node = val.as_table()) {
+                            std::string funcName(key.str());
+                            std::string mod = node->get("module")->value_or("");
+                            std::string pat = node->get("pattern")->value_or("");
+                            int32_t off = static_cast<int32_t>(node->get("offset")->value_or(0));
+                            if (!mod.empty() && !pat.empty()) {
+                                RegisterPattern(funcName, mod, pat, off);
+                            }
+                        }
+                    }
+                }
+                spdlog::info("PatternLoader: Updated latest signatures from GitHub Raw");
+            } catch (...) {}
         }
     }
 }
