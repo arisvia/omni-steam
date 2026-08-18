@@ -194,8 +194,8 @@ set(MANAGER_SOURCES
     apps/manager/src/WebDavClient.cpp
     apps/manager/src/CloudSaveManager.cpp
     apps/manager/src/ConfigManager.cpp
+    apps/manager/src/DepotKeyStore.cpp
 )
-target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
     OmniPlatform
     spdlog::spdlog
@@ -222,6 +222,10 @@ if(BUILD_TESTS)
     add_test(NAME Phase4Tests COMMAND test_phase4)
     add_test(NAME Phase2Tests COMMAND test_phase2)
     add_executable(test_phase5 tests/test_phase5.cpp)
+    add_executable(test_depotkeys tests/test_depotkeys.cpp apps/manager/src/DepotKeyStore.cpp)
+    target_include_directories(test_depotkeys PRIVATE apps/manager/src)
+    target_link_libraries(test_depotkeys PRIVATE OmniPlatform)
+    add_test(NAME DepotKeyTests COMMAND test_depotkeys)
     target_link_libraries(test_phase5 PRIVATE OmniPlatform)
     add_test(NAME Phase5Tests COMMAND test_phase5)
 endif()

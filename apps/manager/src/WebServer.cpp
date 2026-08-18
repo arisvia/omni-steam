@@ -1,3 +1,4 @@
+#include "DepotKeyStore.h"
 #include "WebServer.h"
 #include "SteamApi.h"
 #include "ScriptManager.h"
@@ -169,7 +170,6 @@ namespace {
             size_t bodyPos = request.find("\r\n\r\n");
             if (bodyPos != std::string::npos) {
                 std::string body = request.substr(bodyPos + 4);
-                // Parse appId
                 std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
                 std::smatch m;
                 if (std::regex_search(body, m, idRegex)) {
@@ -179,6 +179,13 @@ namespace {
                     spec.appId = appId;
                     spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
                     spec.dlcAppIds = details.dlcAppIds;
+                    
+                    // Auto-fill depot key from local depotkeys.json if available
+                    std::string key = DepotKeyStore::GetKeyForDepot(appId);
+                    if (!key.empty()) {
+                        spec.depotKeyHex = key;
+                    }
+
                     ScriptManager::SaveGameUnlock(spec);
                 }
             }
