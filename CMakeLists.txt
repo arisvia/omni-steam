@@ -261,10 +261,10 @@ add_executable(omnisteam-manager ${MANAGER_SOURCES})
 target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
     OmniPlatform
+    tomlplusplus::tomlplusplus
     spdlog::spdlog
     ${PLATFORM_LIBS}
 )
-
 # ---------------------------------------------------------------------------
 # Test Suite
 # ---------------------------------------------------------------------------
@@ -285,9 +285,8 @@ if(BUILD_TESTS)
 
     add_executable(test_phase4 tests/test_phase4.cpp apps/manager/src/SavePathResolver.cpp apps/manager/src/WebDavClient.cpp apps/manager/src/CloudSaveManager.cpp)
     target_include_directories(test_phase4 PRIVATE apps/manager/src)
-    target_link_libraries(test_phase4 PRIVATE OmniPlatform ${PLATFORM_LIBS})
+    target_link_libraries(test_phase4 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${PLATFORM_LIBS})
     add_test(NAME Phase4Tests COMMAND test_phase4)
-
     add_executable(test_phase5 tests/test_phase5.cpp)
     target_link_libraries(test_phase5 PRIVATE OmniPlatform)
     add_test(NAME Phase5Tests COMMAND test_phase5)

@@ -1,10 +1,13 @@
 #include "LuaConfig.h"
 #include "OmniPlatform/OmniPlatform.h"
-#include <lua.hpp>
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+}
 #include <filesystem>
 #include <mutex>
 #include <spdlog/spdlog.h>
-
 namespace fs = std::filesystem;
 
 namespace {

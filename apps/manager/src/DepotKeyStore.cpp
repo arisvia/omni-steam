@@ -13,9 +13,9 @@ namespace Manager {
 
 namespace {
     std::mutex g_storeMutex;
+    bool g_initialized = false;
     std::unordered_map<uint32_t, std::string> g_depotKeys;
     const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysJson;
-
     void ParseJsonContent(const std::string& content) {
         std::regex pairRegex("\"(\\d+)\"\\s*:\\s*\"([0-9a-fA-F]{64})\"");
         auto begin = std::sregex_iterator(content.begin(), content.end(), pairRegex);

@@ -8,7 +8,7 @@
 #include <atomic>
 #include <sstream>
 #include <cstring>
-
+#include <regex>
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <winsock2.h>
 #include <ws2tcpip.h>
