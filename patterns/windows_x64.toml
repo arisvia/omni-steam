@@ -1,0 +1,14 @@
+[patterns.ConfigStore_GetBinary]
+module = "steamclient64.dll"
+pattern = "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B D9 48 8B FA 8B F2"
+offset = 0
+
+[patterns.IPCProcessMessage]
+module = "steamclient64.dll"
+pattern = "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24"
+offset = 0
+
+[patterns.BGetCallback]
+module = "steamclient64.dll"
+pattern = "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B F9 49 8B D8"
+offset = 0
