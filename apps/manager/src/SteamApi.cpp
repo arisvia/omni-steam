@@ -1,5 +1,6 @@
 #include "SteamApi.h"
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/OmniEndpoints.h"
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <regex>
@@ -35,7 +36,7 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     std::vector<SearchResultItem> results;
     if (query.empty()) return results;
 
-    std::string url = "https://store.steampowered.com/api/storesearch/?term=" + UrlEncode(query) +
+    std::string url = std::string(OmniEndpoints::Steam::kStoreSearchApi) + "?term=" + UrlEncode(query) +
                       "&l=" + language + "&cc=" + countryCode;
 
     spdlog::info("SteamApi: Querying store search: {}", url);
@@ -55,7 +56,7 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
         SearchResultItem item;
         item.appId = static_cast<uint32_t>(std::stoul(match[1].str()));
         item.name = match[2].str();
-        item.tinyImage = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + std::to_string(item.appId) + "/capsule_sm_120.jpg";
+        item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) + "/capsule_sm_120.jpg";
         results.push_back(item);
     }
 
@@ -67,7 +68,7 @@ AppDetails SteamApi::GetAppDetails(uint32_t appId, const std::string& language) 
     AppDetails details;
     details.appId = appId;
 
-    std::string url = "https://store.steampowered.com/api/appdetails?appids=" + std::to_string(appId) +
+    std::string url = std::string(OmniEndpoints::Steam::kAppDetailsApi) + "?appids=" + std::to_string(appId) +
                       "&l=" + language;
 
     spdlog::info("SteamApi: Fetching app details: {}", url);

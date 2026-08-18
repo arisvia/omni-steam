@@ -1,5 +1,6 @@
 #include "DepotKeyStore.h"
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/OmniEndpoints.h"
 #include <fstream>
 #include <regex>
 #include <spdlog/spdlog.h>
@@ -13,8 +14,7 @@ namespace Manager {
 namespace {
     std::mutex g_storeMutex;
     std::unordered_map<uint32_t, std::string> g_depotKeys;
-    bool g_initialized = false;
-    const char* kRemoteDepotKeysUrl = "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.json";
+    const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysJson;
 
     void ParseJsonContent(const std::string& content) {
         std::regex pairRegex("\"(\\d+)\"\\s*:\\s*\"([0-9a-fA-F]{64})\"");

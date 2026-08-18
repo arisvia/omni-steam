@@ -1,5 +1,6 @@
 #include "ManifestClient.h"
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/OmniEndpoints.h"
 #include "Utils/Config/Config.h"
 #include "Utils/Config/LuaConfig.h"
 #include <spdlog/spdlog.h>
@@ -14,15 +15,15 @@ namespace {
 
         std::string configured = Config::GetManifestApiUrl();
         if (configured == "opensteamtool") {
-            return "https://manifest.opensteamtool.com";
+            return OmniEndpoints::Manifest::kOpenSteamToolUrl;
         } else if (configured == "steamrun") {
-            return "https://api.steamrun.net";
+            return OmniEndpoints::Manifest::kSteamRunUrl;
         } else if (configured == "wudrm") {
-            return "https://manifest.wudrm.com";
+            return OmniEndpoints::Manifest::kWuDrmUrl;
         } else if (!configured.empty()) {
             return configured;
         }
-        return "https://manifest.opensteamtool.com";
+        return OmniEndpoints::Manifest::kOpenSteamToolUrl;
     }
 }
 
