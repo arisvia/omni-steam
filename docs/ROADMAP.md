@@ -4,7 +4,7 @@
 
 ```
 [阶段 1: 跨平台基建] ➔ [阶段 2: 特征码与IPC核心] ➔ [阶段 3: Manager 面板开发] ➔ [阶段 4: 云存档与WebDAV] ➔ [阶段 5: 发布与多平台体验优化]
-      (已完成)               (当前就绪)               (规划中)                (规划中)                 (规划中)
+      (已完成)               (已完成)                 (已完成)                (已完成)                 (进行中)
 ```
 
 ---
@@ -16,47 +16,52 @@
 - [x] macOS（Mach-O / kqueue / libcurl / OpenSSL / AppSupport）底层实现。
 - [x] Windows（PE / WinHttp / Registry）底层实现。
 - [x] 嵌入式 Lua 5.4 解释器与全局 API 注册（`addappid`, `setAppTicket`, `setManifestid` 等）。
-- [x] 跨平台 CI 流水线（Ubuntu x86_64/i386, Windows x64, macOS arm64）与 CTest 自动化测试套件。
+- [x] 跨平台 CI 流水线（Ubuntu x86_64/i386, Windows x64, macOS arm64）与 CTest 自动化测试套件 (`test_platform.cpp`)。
 
 ---
 
-## 阶段 2：全平台特征码扫描与 IPC 拦截核心 【下一阶段目标】
-- [ ] **全平台 Steam 二进制特征提取**：
-  - Windows: `steamclient64.dll`、`steamui.dll` 签名库。
-  - Linux: `steamclient.so` (32位与64位) 签名库。
-  - macOS: `steamclient.dylib` 签名库。
-- [ ] **IPC 协议与 Protobuf 消息编解码**：
-  - 集成 `steam_messages.proto` 生成代码。
-  - 拦截并模拟 `ISteamUser::GetAppOwnershipTicket`、`ISteamUtils` 消息。
-- [ ] **Depot 解密与 Manifest 自动调度**：
-  - `ConfigStore::GetBinary` 拦截验证与动态 Key 注入。
-  - 接入公共 / 自建 Manifest API 自动拉取 Manifest GID。
+## 阶段 2：全平台特征码扫描与 IPC 拦截核心 【已完成】
+- [x] **全平台 Steam 二进制特征提取与动态加载**：
+  - Windows: `patterns/windows_x64.toml`。
+  - Linux: `patterns/linux_x64.toml`。
+  - macOS: `patterns/macos_x64.toml`。
+  - 实现 `PatternLoader` 动态解析器与跨平台回退签名。
+- [x] **IPC 协议与二进制消息编解码**：
+  - 实现无依赖的 `BufferReader` 与 `BufferWriter` 结构 (`SteamIPC.h`)。
+  - 拦截并调度 `IPCProcessMessage` 通信。
+- [x] **Depot 解密与 Manifest 自动调度**：
+  - `Hooks_Decryption.cpp`：`ConfigStore::GetBinary` 动态拦截与密钥回填。
+  - `ManifestClient.cpp`：接入多上游（opensteamtool / steamrun / wudrm / 自定义）Manifest GID 自动化拉取。
+- [x] 自动化测试套件：`tests/test_phase2.cpp`（特征匹配、IPC 序列化、Manifest 解析）。
 
 ---
 
-## 阶段 3：OmniSteam Manager 面板开发 (Tauri / Rust / WebUI)
-- [ ] **项目脚手架与基础框架**：
-  - 在 `apps/manager/` 初始化 Tauri 2.0 跨平台项目。
-  - 适配浅色/深色主题与响应式布局。
-- [ ] **Steam 游戏与 DLC 检索**：
-  - 对接 Steam Store WebAPI，支持搜索游戏名实时获取 AppID、封面、DLC 列表。
-  - 游戏勾选一键生成并写入目标 `lua/*.lua` 脚本。
-- [ ] **配置与状态管理**：
-  - 可视化编辑 `omnisteam.toml`。
-  - 监控当前 Steam 运行状态与 OmniSteam 注入状态。
+## 阶段 3：OmniSteam Manager 面板开发 【已完成】
+- [x] **项目脚手架与基础框架**：
+  - 在 `apps/manager/` 构建独立无侵入管理进程 (`omnisteam-manager`)。
+- [x] **Steam 游戏与 DLC 检索**：
+  - 对接 Steam Store WebAPI (`SteamApi.cpp`)，实现游戏关键词实时检索与 DLC 树结构抓取。
+- [x] **Lua 解锁脚本生命周期管理**：
+  - 实现 `ScriptManager.cpp`，支持一键生成规范 `.lua` 脚本、目录扫描、重命名启用/停用与删除。
+- [x] **嵌入式 Web 仪表盘与 REST 服务**：
+  - 实现轻量高并发 WebServer（提供 `/api/search`、`/api/scripts`、`/api/unlock`、`/api/toggle`）。
+- [x] 自动化测试套件：`tests/test_phase3.cpp`（脚本生成、启用/停用生命周期测试）。
 
 ---
 
-## 阶段 4：WebDAV / S3 云存档重定向与同步系统
-- [ ] **本地存档路径智能解析**：
-  - Windows 原生路径、Linux Proton / WINE compatdata 前缀路径智能识别。
-- [ ] **WebDAV / S3 客户端集成**：
-  - 支持坚果云、Nextcloud、自建 WebDAV、阿里云盘 WebDAV、S3 等存储端。
-  - 增量对比、哈希校验、带时间戳的存档历史版本备份与一键回退。
+## 阶段 4：WebDAV 云存档重定向与同步系统 【已完成】
+- [x] **本地存档路径智能解析 (`SavePathResolver`)**：
+  - 支持 Steam 官方云存档路径：`<Steam>/userdata/<account_id>/<appid>`。
+  - 支持 Linux / SteamOS Proton WINE compatdata 前缀路径智能穿透抓取。
+- [x] **WebDAV 跨平台客户端 (`WebDavClient`)**：
+  - 支持 `MKCOL`、`PUT`、`GET`、`DELETE` 与 Basic / Digest 认证。
+- [x] **云存档多版本增量备份管理器 (`CloudSaveManager`)**：
+  - 时间戳版本化（`YYYYMMDD_HHMMSS`）备份隔离与独立线程同步。
+- [x] 自动化测试套件：`tests/test_phase4.cpp`（存档探测与 WebDAV 结构校验）。
 
 ---
 
-## 阶段 5：SteamOS / Steam Deck 深度整合与公开发布
-- [ ] SteamOS (Decky Loader) 插件适配与无缝集成。
-- [ ] 提供全平台一键安装包（Windows 安装器 / Linux AppImage & deb / macOS DMG）。
-- [ ] 端到端集成测试与安全审计。
+## 阶段 5：SteamOS / Steam Deck 深度整合与发布优化 【当前阶段】
+- [ ] SteamOS (Decky Loader) 插件包定义与无缝集成脚本。
+- [ ] 多平台打包输出（Windows 绿色包 / Linux AppImage & deb / macOS DMG）。
+- [ ] 端到端集成测试与使用文档完善。
