@@ -37,11 +37,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
-# 2. spdlog
+# 2. spdlog (v1.14.1 - C++20 clean, zero AppleClang/MSVC warnings)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.13.0
+    GIT_TAG        v1.14.1
 )
 FetchContent_MakeAvailable(spdlog)
 
@@ -95,8 +95,7 @@ if(NOT funchook_src_POPULATED)
     target_include_directories(funchook PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/funchook_include")
     target_link_libraries(funchook PRIVATE capstone)
 endif()
-
-# 5. Lua (embedded scripting engine with cross-platform fallback)
+# 5. Lua 5.4 (Clean single-compilation unit without duplicate onelua.c symbols)
 find_package(Lua QUIET)
 if(LUA_FOUND)
     set(LUA_LIB_TARGET ${LUA_LIBRARIES})
@@ -105,13 +104,18 @@ else()
     FetchContent_Declare(
         lua_source
         GIT_REPOSITORY https://github.com/lua/lua.git
-        GIT_TAG        v5.4.6
+        GIT_TAG        v5.4.7
     )
     FetchContent_GetProperties(lua_source)
     if(NOT lua_source_POPULATED)
         FetchContent_Populate(lua_source)
         file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
-        list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
+        # Exclude CLI executables and the amalgamation onelua.c to prevent LNK4006 duplicate symbol warnings
+        list(REMOVE_ITEM LUA_SOURCES 
+            "${lua_source_SOURCE_DIR}/lua.c" 
+            "${lua_source_SOURCE_DIR}/luac.c" 
+            "${lua_source_SOURCE_DIR}/onelua.c"
+        )
         add_library(lua_static STATIC ${LUA_SOURCES})
         target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
         set(LUA_LIB_TARGET lua_static)
