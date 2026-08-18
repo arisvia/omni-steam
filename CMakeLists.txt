@@ -193,8 +193,8 @@ set(MANAGER_SOURCES
     apps/manager/src/SavePathResolver.cpp
     apps/manager/src/WebDavClient.cpp
     apps/manager/src/CloudSaveManager.cpp
+    apps/manager/src/ConfigManager.cpp
 )
-add_executable(omnisteam-manager ${MANAGER_SOURCES})
 target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
     OmniPlatform
