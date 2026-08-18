@@ -190,8 +190,10 @@ set(MANAGER_SOURCES
     apps/manager/src/SteamApi.cpp
     apps/manager/src/ScriptManager.cpp
     apps/manager/src/WebServer.cpp
+    apps/manager/src/SavePathResolver.cpp
+    apps/manager/src/WebDavClient.cpp
+    apps/manager/src/CloudSaveManager.cpp
 )
-
 add_executable(omnisteam-manager ${MANAGER_SOURCES})
 target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
@@ -214,5 +216,9 @@ if(BUILD_TESTS)
     target_include_directories(test_phase3 PRIVATE apps/manager/src)
     target_link_libraries(test_phase3 PRIVATE OmniPlatform)
     add_test(NAME Phase3Tests COMMAND test_phase3)
+    add_executable(test_phase4 tests/test_phase4.cpp apps/manager/src/SavePathResolver.cpp apps/manager/src/WebDavClient.cpp apps/manager/src/CloudSaveManager.cpp)
+    target_include_directories(test_phase4 PRIVATE apps/manager/src)
+    target_link_libraries(test_phase4 PRIVATE OmniPlatform CURL::libcurl)
+    add_test(NAME Phase4Tests COMMAND test_phase4)
     add_test(NAME Phase2Tests COMMAND test_phase2)
 endif()
