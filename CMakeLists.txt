@@ -183,6 +183,24 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# OmniSteam Manager Application (Decoupled Dashboard)
+# ---------------------------------------------------------------------------
+set(MANAGER_SOURCES
+    apps/manager/src/main.cpp
+    apps/manager/src/SteamApi.cpp
+    apps/manager/src/ScriptManager.cpp
+    apps/manager/src/WebServer.cpp
+)
+
+add_executable(omnisteam-manager ${MANAGER_SOURCES})
+target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
+target_link_libraries(omnisteam-manager PRIVATE
+    OmniPlatform
+    spdlog::spdlog
+    ${PLATFORM_LIBS}
+)
+
+# ---------------------------------------------------------------------------
 # Test Suite
 # ---------------------------------------------------------------------------
 if(BUILD_TESTS)
@@ -192,5 +210,9 @@ if(BUILD_TESTS)
     add_test(NAME PlatformTests COMMAND test_platform)
     add_executable(test_phase2 tests/test_phase2.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
     target_link_libraries(test_phase2 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIBRARIES})
+    add_executable(test_phase3 tests/test_phase3.cpp apps/manager/src/ScriptManager.cpp)
+    target_include_directories(test_phase3 PRIVATE apps/manager/src)
+    target_link_libraries(test_phase3 PRIVATE OmniPlatform)
+    add_test(NAME Phase3Tests COMMAND test_phase3)
     add_test(NAME Phase2Tests COMMAND test_phase2)
 endif()
