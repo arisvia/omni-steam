@@ -1,9 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Allow CMake 3.5+ compatibility for Capstone inside funchook on modern CMake 3.31+ / 4.x
+# Set minimum policy version for Capstone/Funchook compatibility on CMake 3.31+ / 4.x
 set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
+
+# Modern CMake policy overrides
 if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
+endif()
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+if(POLICY CMP0194)
+    cmake_policy(SET CMP0194 NEW)
 endif()
 
 project(OmniSteam VERSION 1.0.0 LANGUAGES C CXX)
@@ -62,16 +70,13 @@ else()
         GIT_REPOSITORY https://github.com/lua/lua.git
         GIT_TAG        v5.4.6
     )
-    FetchContent_GetProperties(lua_source)
-    if(NOT lua_source_POPULATED)
-        FetchContent_Populate(lua_source)
-        file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
-        list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
-        add_library(lua_static STATIC ${LUA_SOURCES})
-        target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
-        set(LUA_LIB_TARGET lua_static)
-        set(LUA_INC_DIR "${lua_source_SOURCE_DIR}")
-    endif()
+    FetchContent_MakeAvailable(lua_source)
+    file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
+    list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
+    add_library(lua_static STATIC ${LUA_SOURCES})
+    target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
+    set(LUA_LIB_TARGET lua_static)
+    set(LUA_INC_DIR "${lua_source_SOURCE_DIR}")
 endif()
 
 # Platform specific dependencies
