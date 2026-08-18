@@ -1,7 +1,9 @@
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <cstdlib>
 
 namespace OmniPlatform {
 namespace Encoding {
