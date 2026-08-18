@@ -66,8 +66,12 @@ FetchContent_GetProperties(funchook_src)
 if(NOT funchook_src_POPULATED)
     FetchContent_Populate(funchook_src)
     
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/funchook_include")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/funchook_config.h" "${CMAKE_CURRENT_BINARY_DIR}/funchook_include/config.h" COPYONLY)
+
     set(FUNCHOOK_SOURCES
         "${funchook_src_SOURCE_DIR}/src/funchook.c"
+        "${funchook_src_SOURCE_DIR}/src/disasm_capstone.c"
     )
     if(WIN32)
         list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_windows.c")
@@ -88,6 +92,7 @@ if(NOT funchook_src_POPULATED)
         "${funchook_src_SOURCE_DIR}/include"
         "${capstone_SOURCE_DIR}/include"
     )
+    target_include_directories(funchook PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/funchook_include")
     target_link_libraries(funchook PRIVATE capstone)
 endif()
 
