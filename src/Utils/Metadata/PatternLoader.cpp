@@ -1,5 +1,6 @@
 #include "PatternLoader.h"
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/OmniEndpoints.h"
 #include <toml++/toml.hpp>
 #include <spdlog/spdlog.h>
 #include <mutex>
@@ -14,14 +15,13 @@ namespace {
     std::mutex g_patternMutex;
     std::unordered_map<std::string, PatternEntry> g_patterns;
     std::unordered_map<std::string, uintptr_t> g_resolvedAddresses;
-
     const char* GetRemotePatternUrl() {
 #if defined(OMNI_PLATFORM_WINDOWS)
-        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/windows_x64.toml";
+        return OmniEndpoints::GitHub::kPatternsWindowsX64;
 #elif defined(OMNI_PLATFORM_MACOS)
-        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/macos_x64.toml";
+        return OmniEndpoints::GitHub::kPatternsMacosX64;
 #else
-        return "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/linux_x64.toml";
+        return OmniEndpoints::GitHub::kPatternsLinuxX64;
 #endif
     }
 
