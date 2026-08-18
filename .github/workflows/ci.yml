@@ -17,16 +17,16 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x86_64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
           - os: ubuntu-latest
             arch: i386
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
           - os: windows-latest
             arch: x86_64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
           - os: macos-latest
             arch: arm64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64"
 
     steps:
       - name: Checkout repository
@@ -41,15 +41,15 @@ jobs:
           if [ "${{ matrix.arch }}" = "i386" ]; then
             sudo dpkg --add-architecture i386
             sudo apt-get update
-            sudo apt-get install -y gcc-multilib g++-multilib liblua5.4-dev:i386 libssl-dev:i386 libcurl4-openssl-dev:i386
+            sudo apt-get install -y gcc-multilib g++-multilib libssl-dev:i386 libcurl4-openssl-dev:i386
           else
-            sudo apt-get install -y liblua5.4-dev libssl-dev libcurl4-openssl-dev
+            sudo apt-get install -y libssl-dev libcurl4-openssl-dev
           fi
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install lua openssl curl
+          brew install openssl curl
 
       - name: Configure CMake
         run: |

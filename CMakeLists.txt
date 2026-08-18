@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Allow CMake 3.5+ compatibility for Capstone inside funchook on modern CMake 3.31+ / 4.x
+set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
 project(OmniSteam VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -44,8 +51,28 @@ set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(funchook)
 
-# 4. Lua (embedded scripting engine)
-find_package(Lua REQUIRED)
+# 4. Lua (embedded scripting engine with cross-platform fallback)
+find_package(Lua QUIET)
+if(LUA_FOUND)
+    set(LUA_LIB_TARGET ${LUA_LIBRARIES})
+    set(LUA_INC_DIR ${LUA_INCLUDE_DIR})
+else()
+    FetchContent_Declare(
+        lua_source
+        GIT_REPOSITORY https://github.com/lua/lua.git
+        GIT_TAG        v5.4.6
+    )
+    FetchContent_GetProperties(lua_source)
+    if(NOT lua_source_POPULATED)
+        FetchContent_Populate(lua_source)
+        file(GLOB LUA_SOURCES "${lua_source_SOURCE_DIR}/*.c")
+        list(REMOVE_ITEM LUA_SOURCES "${lua_source_SOURCE_DIR}/lua.c" "${lua_source_SOURCE_DIR}/luac.c")
+        add_library(lua_static STATIC ${LUA_SOURCES})
+        target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
+        set(LUA_LIB_TARGET lua_static)
+        set(LUA_INC_DIR "${lua_source_SOURCE_DIR}")
+    endif()
+endif()
 
 # Platform specific dependencies
 if(WIN32)
@@ -69,7 +96,7 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${LUA_INCLUDE_DIR}
+    ${LUA_INC_DIR}
 )
 
 # ---------------------------------------------------------------------------
@@ -86,15 +113,7 @@ if(WIN32)
         ${OMNIPLATFORM_COMMON_SOURCES}
         src/Platform/Windows/Detour.cpp
         src/Platform/Windows/DynamicLibrary.cpp
-        src/Platform/Windows/Memory.cpp
-        src/Platform/Windows/BinaryParser.cpp
-        src/Platform/Windows/ByteSearch.cpp
-        src/Platform/Windows/DirectoryWatch.cpp
-        src/Platform/Windows/Http.cpp
-        src/Platform/Windows/Hash.cpp
-        src/Platform/Windows/Process.cpp
-        src/Platform/Windows/Thread.cpp
-        src/Platform/Windows/CredentialStore.cpp
+        src/Platform/Windows/WindowsUtils.cpp
     )
 elseif(APPLE)
     set(OMNIPLATFORM_SOURCES
@@ -108,7 +127,6 @@ elseif(APPLE)
         src/Platform/Darwin/Http.cpp
         src/Platform/Darwin/Hash.cpp
         src/Platform/Darwin/Process.cpp
-        src/Platform/Darwin/Thread.cpp
         src/Platform/Darwin/CredentialStore.cpp
     )
 else()
@@ -123,7 +141,6 @@ else()
         src/Platform/Linux/Http.cpp
         src/Platform/Linux/Hash.cpp
         src/Platform/Linux/Process.cpp
-        src/Platform/Linux/Thread.cpp
         src/Platform/Linux/CredentialStore.cpp
     )
 endif()
@@ -142,19 +159,13 @@ set(OMNISTEAM_SOURCES
     src/main.cpp
     src/Utils/Config/Config.cpp
     src/Utils/Config/LuaConfig.cpp
-    src/Utils/Config/ConfigFileWatcher.cpp
-    src/Utils/Config/LuaFileWatcher.cpp
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
-    src/Utils/Metadata/IPCLoader.cpp
     src/Hook/HookManager.cpp
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
     src/Hook/Hooks_Manifest.cpp
     src/Hook/Hooks_Package.cpp
-    src/Hook/Hooks_KeyValues.cpp
-    src/Hook/Hooks_CallBack.cpp
-    src/Hook/Hooks_SteamUI.cpp
 )
 
 add_library(OmniSteam SHARED ${OMNISTEAM_SOURCES})
@@ -166,7 +177,7 @@ set_target_properties(OmniSteam PROPERTIES
 target_link_libraries(OmniSteam PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
-    ${LUA_LIBRARIES}
+    ${LUA_LIB_TARGET}
     spdlog::spdlog
     ${PLATFORM_LIBS}
 )
@@ -196,6 +207,9 @@ set(MANAGER_SOURCES
     apps/manager/src/ConfigManager.cpp
     apps/manager/src/DepotKeyStore.cpp
 )
+
+add_executable(omnisteam-manager ${MANAGER_SOURCES})
+target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
     OmniPlatform
     spdlog::spdlog
@@ -210,24 +224,29 @@ if(BUILD_TESTS)
     add_executable(test_platform tests/test_platform.cpp)
     target_link_libraries(test_platform PRIVATE OmniPlatform)
     add_test(NAME PlatformTests COMMAND test_platform)
+
     add_executable(test_phase2 tests/test_phase2.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
-    target_link_libraries(test_phase2 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIBRARIES})
+    target_link_libraries(test_phase2 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
+    add_test(NAME Phase2Tests COMMAND test_phase2)
+
     add_executable(test_phase3 tests/test_phase3.cpp apps/manager/src/ScriptManager.cpp)
     target_include_directories(test_phase3 PRIVATE apps/manager/src)
     target_link_libraries(test_phase3 PRIVATE OmniPlatform)
     add_test(NAME Phase3Tests COMMAND test_phase3)
+
     add_executable(test_phase4 tests/test_phase4.cpp apps/manager/src/SavePathResolver.cpp apps/manager/src/WebDavClient.cpp apps/manager/src/CloudSaveManager.cpp)
     target_include_directories(test_phase4 PRIVATE apps/manager/src)
-    target_link_libraries(test_phase4 PRIVATE OmniPlatform CURL::libcurl)
+    target_link_libraries(test_phase4 PRIVATE OmniPlatform ${PLATFORM_LIBS})
     add_test(NAME Phase4Tests COMMAND test_phase4)
-    add_test(NAME Phase2Tests COMMAND test_phase2)
+
     add_executable(test_phase5 tests/test_phase5.cpp)
+    target_link_libraries(test_phase5 PRIVATE OmniPlatform)
+    add_test(NAME Phase5Tests COMMAND test_phase5)
+
     add_executable(test_depotkeys tests/test_depotkeys.cpp apps/manager/src/DepotKeyStore.cpp)
     target_include_directories(test_depotkeys PRIVATE apps/manager/src)
     target_link_libraries(test_depotkeys PRIVATE OmniPlatform)
     add_test(NAME DepotKeyTests COMMAND test_depotkeys)
-    target_link_libraries(test_phase5 PRIVATE OmniPlatform)
-    add_test(NAME Phase5Tests COMMAND test_phase5)
 endif()
 
 # ---------------------------------------------------------------------------
