@@ -1,0 +1,11 @@
+build/
+build32/
+build64/
+.deps/
+.cache/
+*.log
+*.so
+*.dll
+*.dylib
+.vscode/
+.idea/
