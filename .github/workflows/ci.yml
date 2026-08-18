@@ -17,16 +17,16 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x86_64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release"
           - os: ubuntu-latest
             arch: i386
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
           - os: windows-latest
             arch: x86_64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"
           - os: macos-latest
             arch: arm64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64"
 
     steps:
       - name: Checkout repository
