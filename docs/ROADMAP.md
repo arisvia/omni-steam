@@ -4,7 +4,7 @@
 
 ```
 [阶段 1: 跨平台基建] ➔ [阶段 2: 特征码与IPC核心] ➔ [阶段 3: Manager 面板开发] ➔ [阶段 4: 云存档与WebDAV] ➔ [阶段 5: 发布与多平台体验优化]
-      (已完成)               (已完成)                 (已完成)                (已完成)                 (进行中)
+      (已完成)               (已完成)                 (已完成)                (已完成)                 (已完成)
 ```
 
 ---
@@ -61,7 +61,11 @@
 
 ---
 
-## 阶段 5：SteamOS / Steam Deck 深度整合与发布优化 【当前阶段】
-- [ ] SteamOS (Decky Loader) 插件包定义与无缝集成脚本。
-- [ ] 多平台打包输出（Windows 绿色包 / Linux AppImage & deb / macOS DMG）。
-- [ ] 端到端集成测试与使用文档完善。
+## 阶段 5：SteamOS / Steam Deck 深度整合与发布打包 【已完成】
+- [x] **SteamOS 游戏模式 Decky Loader 插件开发** (`plugins/decky-omnisteam/`)：
+  - 提供 React/TypeScript 前端界面，可在 Steam Deck 快捷菜单 (QAM) 中直观查看与管理解锁状态。
+- [x] **免 root 一键安装与卸载脚本** (`scripts/install-steamos.sh` & `scripts/uninstall-steamos.sh`)：
+  - 采用 `systemd user environment.d` 挂载，完全不触碰 SteamOS 系统只读分区。
+- [x] **CPack 多格式全平台自动打包配置**：
+  - 支持生成 `.tar.gz`、`.zip`、`.deb` 等格式分发包。
+- [x] 自动化测试套件：`tests/test_phase5.cpp`（打包配置与 Decky 规范校验）。

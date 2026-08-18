@@ -1,0 +1,8 @@
+{
+  "name": "OmniSteam",
+  "author": "arisvia",
+  "flags": [],
+  "version": "1.0.0",
+  "description": "Control OmniSteam game unlocks and cloud save sync directly from Steam Deck Quick Access Menu",
+  "api_version": 2
+}

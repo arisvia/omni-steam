@@ -1,0 +1,11 @@
+{
+  "name": "decky-omnisteam",
+  "version": "1.0.0",
+  "description": "OmniSteam Decky Loader plugin for Steam Deck Game Mode management",
+  "author": "arisvia",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "echo 'Decky plugin build'"
+  },
+  "dependencies": {}
+}

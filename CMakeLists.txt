@@ -221,4 +221,21 @@ if(BUILD_TESTS)
     target_link_libraries(test_phase4 PRIVATE OmniPlatform CURL::libcurl)
     add_test(NAME Phase4Tests COMMAND test_phase4)
     add_test(NAME Phase2Tests COMMAND test_phase2)
+    add_executable(test_phase5 tests/test_phase5.cpp)
+    target_link_libraries(test_phase5 PRIVATE OmniPlatform)
+    add_test(NAME Phase5Tests COMMAND test_phase5)
 endif()
+
+# ---------------------------------------------------------------------------
+# CPack Multi-Platform Packaging
+# ---------------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME "OmniSteam")
+set(CPACK_PACKAGE_VENDOR "arisvia")
+set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Universal Cross-Platform Steam Enhancement & Unlocker")
+set(CPACK_GENERATOR "TGZ;ZIP")
+if(UNIX AND NOT APPLE)
+    set(CPACK_GENERATOR "TGZ;DEB")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "arisvia")
+endif()
+include(CPack)
