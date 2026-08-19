@@ -10,6 +10,17 @@
 #define HOOK_BEGIN() \
     OmniPlatform::Detour::BeginTransaction()
 
+#define ATTACH_HOOK(addr, name) \
+    do { \
+        o##name = reinterpret_cast<name##_t>(addr); \
+        OmniPlatform::Detour::Attach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(h##name)); \
+    } while (0)
+
+#define DETACH_HOOK(addr, name) \
+    do { \
+        OmniPlatform::Detour::Detach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(h##name)); \
+    } while (0)
+
 #define INSTALL_HOOK_C(name) \
     OmniPlatform::Detour::Attach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(h##name))
 
