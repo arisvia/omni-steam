@@ -20,14 +20,13 @@ jobs:
             cmake_args: "-DCMAKE_BUILD_TYPE=Release"
           - os: ubuntu-latest
             arch: i386
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_LIBRARY_PATH=/usr/lib/i386-linux-gnu -DCMAKE_INCLUDE_PATH=/usr/include/i386-linux-gnu -DCMAKE_SYSTEM_PROCESSOR=i686"
           - os: windows-latest
             arch: x86_64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"
           - os: macos-latest
             arch: arm64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64"
-
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,17 +51,10 @@ jobs:
           brew install openssl@3 curl
 
       - name: Configure CMake
-        run: |
-          if [ "${{ matrix.arch }}" = "i386" ]; then
-            export PKG_CONFIG_PATH="/usr/lib/i386-linux-gnu/pkgconfig:$PKG_CONFIG_PATH"
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
-          fi
-          cmake -B build ${{ matrix.cmake_args }} -DBUILD_TESTS=ON
-      - name: Build OmniSteam
-        run: |
-          cmake --build build --config Release --parallel
+        run: cmake -B build ${{ matrix.cmake_args }} -DBUILD_TESTS=ON
 
+      - name: Build OmniSteam
+        run: cmake --build build --config Release --parallel
       - name: Run Unit Tests
         run: |
           ctest --test-dir build --output-on-failure -C Release
