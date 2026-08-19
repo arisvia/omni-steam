@@ -49,12 +49,16 @@ jobs:
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install openssl curl
+          brew install openssl@3 curl
 
       - name: Configure CMake
         run: |
+          if [ "${{ matrix.arch }}" = "i386" ]; then
+            export PKG_CONFIG_PATH="/usr/lib/i386-linux-gnu/pkgconfig:$PKG_CONFIG_PATH"
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          fi
           cmake -B build ${{ matrix.cmake_args }} -DBUILD_TESTS=ON
-
       - name: Build OmniSteam
         run: |
           cmake --build build --config Release --parallel

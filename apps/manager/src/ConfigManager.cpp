@@ -3,9 +3,8 @@
 #include <toml++/toml.hpp>
 #include <filesystem>
 #include <fstream>
+#include <cstdlib>
 #include <spdlog/spdlog.h>
-
-namespace fs = std::filesystem;
 
 namespace Manager {
 

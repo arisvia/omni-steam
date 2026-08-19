@@ -1,9 +1,7 @@
 #include "OmniPlatform/OmniPlatform.h"
-#include "Utils/Config/LuaConfig.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
-
 void TestEncoding() {
     std::string hex = "5954562e";
     auto bytes = OmniPlatform::Encoding::HexToBytes(hex);
