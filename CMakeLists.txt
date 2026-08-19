@@ -37,11 +37,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
-# 2. spdlog (Pure Interface Header-Only: eliminates static target and AppleClang bundled_fmtlib_format.cpp errors)
+# 2. spdlog (v1.15.3 bundles fmt 11 with full AppleClang Xcode 15/16 C++20 consteval support)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.14.1
+    GIT_TAG        v1.15.3
 )
 FetchContent_GetProperties(spdlog)
 if(NOT spdlog_POPULATED)
