@@ -12,6 +12,17 @@
 namespace Manager {
 
 namespace {
+std::wstring Utf8ToWide(const std::string& str) {
+    if (str.empty())
+        return L"";
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), nullptr, 0);
+    if (size <= 0)
+        return L"";
+    std::wstring result(size, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), size);
+    return result;
+}
+
 struct ParsedUrl {
     std::wstring host;
     INTERNET_PORT port = INTERNET_DEFAULT_HTTP_PORT;
@@ -21,14 +32,14 @@ struct ParsedUrl {
 
 ParsedUrl ParseUrl(const std::string& urlStr) {
     ParsedUrl result;
-    std::wstring wUrl(urlStr.begin(), urlStr.end());
+    std::wstring wUrl = Utf8ToWide(urlStr);
     URL_COMPONENTS urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
     urlComp.dwHostNameLength = (DWORD)-1;
     urlComp.dwUrlPathLength = (DWORD)-1;
     urlComp.dwExtraInfoLength = (DWORD)-1;
 
-    if (WinHttpCrackUrl(wUrl.c_str(), (DWORD)wUrl.length(), 0, &urlComp)) {
+    if (WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
         result.host = std::wstring(urlComp.lpszHostName, urlComp.dwHostNameLength);
         result.port = urlComp.nPort;
         result.isHttps = (urlComp.nScheme == INTERNET_SCHEME_HTTPS);
@@ -43,7 +54,7 @@ std::wstring BuildRemotePath(const std::wstring& basePath, const std::string& su
     std::wstring res = basePath;
     if (!res.empty() && res.back() != L'/')
         res += L'/';
-    std::wstring p(subPath.begin(), subPath.end());
+    std::wstring p = Utf8ToWide(subPath);
     if (!p.empty() && p.front() == L'/')
         p = p.substr(1);
     return res + p;
@@ -76,16 +87,9 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
     DWORD flags = base.isHttps ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hRequest =
         WinHttpOpenRequest(hConnect, method, fullPath.c_str(), nullptr, nullptr, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hRequest) {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        resp.error = "WinHttpOpenRequest failed";
-        return resp;
-    }
-
     if (!config.username.empty()) {
-        std::wstring user(config.username.begin(), config.username.end());
-        std::wstring pass(config.password.begin(), config.password.end());
+        std::wstring user = Utf8ToWide(config.username);
+        std::wstring pass = Utf8ToWide(config.password);
         WinHttpSetCredentials(hRequest, WINHTTP_AUTH_TARGET_SERVER, WINHTTP_AUTH_SCHEME_BASIC, user.c_str(),
                               pass.c_str(), nullptr);
     }
