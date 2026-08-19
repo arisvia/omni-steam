@@ -1,0 +1,40 @@
+---
+# LLVM-based C++20 formatting standard
+BasedOnStyle: LLVM
+Standard: c++20
+Language: Cpp
+
+# Indentation & Alignment
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+IndentCaseLabels: true
+IndentPPDirectives: None
+
+# Line Width & Wrapping
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Attach
+SpaceBeforeParens: ControlStatements
+
+# Pointer & Reference Alignment
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Include Sorting & Categorization
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<.*'
+    Priority: 1
+  - Regex: '^"OmniPlatform/.*'
+    Priority: 2
+  - Regex: '^"Utils/.*'
+    Priority: 3
+  - Regex: '^"Hook/.*'
+    Priority: 4
+  - Regex: '.*'
+    Priority: 5
