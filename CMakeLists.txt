@@ -39,6 +39,9 @@ FetchContent_MakeAvailable(tomlplusplus)
 
 # 2. spdlog (Header-only mode: eliminates AppleClang consteval format errors & MSVC warnings)
 set(SPDLOG_HEADER_ONLY ON CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -197,10 +200,9 @@ endif()
 add_library(OmniPlatform STATIC ${OMNIPLATFORM_SOURCES})
 target_link_libraries(OmniPlatform PUBLIC
     funchook
-    spdlog::spdlog
+    spdlog::spdlog_header_only
     ${PLATFORM_LIBS}
 )
-
 # ---------------------------------------------------------------------------
 # Core OmniSteam Target (DLL / Shared Library)
 # ---------------------------------------------------------------------------
@@ -227,7 +229,7 @@ target_link_libraries(OmniSteam PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
     ${LUA_LIB_TARGET}
-    spdlog::spdlog
+    spdlog::spdlog_header_only
     ${PLATFORM_LIBS}
 )
 
@@ -262,7 +264,7 @@ target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
 target_link_libraries(omnisteam-manager PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
-    spdlog::spdlog
+    spdlog::spdlog_header_only
     ${PLATFORM_LIBS}
 )
 # ---------------------------------------------------------------------------
