@@ -37,17 +37,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
-# 2. spdlog (Header-only mode: eliminates AppleClang consteval format errors & MSVC warnings)
-set(SPDLOG_HEADER_ONLY ON CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+# 2. spdlog (Pure Interface Header-Only: eliminates static target and AppleClang bundled_fmtlib_format.cpp errors)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG        v1.14.1
 )
-FetchContent_MakeAvailable(spdlog)
+FetchContent_GetProperties(spdlog)
+if(NOT spdlog_POPULATED)
+    FetchContent_Populate(spdlog)
+    add_library(spdlog INTERFACE)
+    add_library(spdlog::spdlog ALIAS spdlog)
+    add_library(spdlog::spdlog_header_only ALIAS spdlog)
+    target_include_directories(spdlog INTERFACE "${spdlog_SOURCE_DIR}/include")
+endif()
 # 3. Modern Capstone 5.0.1 (CMake 3.31+ / 4.x compatible, supports x86/x64/ARM64)
 FetchContent_Declare(
     capstone
