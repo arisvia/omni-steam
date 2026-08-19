@@ -46,6 +46,7 @@ std::string NormalizeFunctionName(const std::string& name) {
 void RegisterCoreSignatures() {
 #if defined(OMNI_PLATFORM_WINDOWS)
     // 64-bit Windows Steamclient signatures (flexible mask)
+    RegisterPattern("CheckAppOwnership", "steamclient64.dll", "48 8B C4 89 50 10 48 89 48 08 55 53", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "40 53 55 56 57 48 83 EC 38 48 63 FA 49 8B E9", 0);
     RegisterPattern("IPCProcessMessage", "steamclient64.dll",
                     "48 89 5C 24 18 48 89 6C 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 30", 0);
@@ -53,11 +54,13 @@ void RegisterCoreSignatures() {
                     "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B F9 49 8B D8", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
     // Linux ELF Steamclient signatures
+    RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
     RegisterPattern("IPCProcessMessage", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 49 89 D4", 0);
     RegisterPattern("BGetCallback", "steamclient.so", "55 48 89 E5 41 57 41 56 53 48 83 EC", 0);
 #elif defined(OMNI_PLATFORM_MACOS)
     // macOS Mach-O Steamclient signatures
+    RegisterPattern("CheckAppOwnership", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
     RegisterPattern("IPCProcessMessage", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
 #endif

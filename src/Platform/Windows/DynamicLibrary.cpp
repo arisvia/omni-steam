@@ -10,11 +10,31 @@ namespace OmniPlatform {
 DynamicLibrary::ModuleHandle DynamicLibrary::Load(const std::string& path) {
     return LoadLibraryA(path.c_str());
 }
-
 DynamicLibrary::ModuleHandle DynamicLibrary::GetLoadedModule(const std::string& name) {
-    return GetModuleHandleA(name.empty() ? nullptr : name.c_str());
-}
+    if (name.empty()) {
+        return GetModuleHandleA(nullptr);
+    }
+    HMODULE hMod = GetModuleHandleA(name.c_str());
+    if (hMod) {
+        return reinterpret_cast<ModuleHandle>(hMod);
+    }
 
+    HANDLE hProcess = GetCurrentProcess();
+    HMODULE hMods[1024];
+    DWORD cbNeeded = 0;
+    if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+        DWORD count = cbNeeded / sizeof(HMODULE);
+        char modName[MAX_PATH];
+        for (DWORD i = 0; i < count; i++) {
+            if (GetModuleBaseNameA(hProcess, hMods[i], modName, sizeof(modName))) {
+                if (_stricmp(modName, name.c_str()) == 0) {
+                    return reinterpret_cast<ModuleHandle>(hMods[i]);
+                }
+            }
+        }
+    }
+    return nullptr;
+}
 void* DynamicLibrary::GetFunction(ModuleHandle handle, const std::string& name) {
     return handle ? reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str())) : nullptr;
 }
