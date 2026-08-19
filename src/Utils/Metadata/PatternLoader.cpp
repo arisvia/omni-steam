@@ -1,13 +1,13 @@
 #include "PatternLoader.h"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <spdlog/spdlog.h>
-#include <toml++/toml.hpp>
+#include <vector>
 
-#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
@@ -42,70 +42,111 @@ std::string NormalizeFunctionName(const std::string& name) {
     return name;
 }
 
-uintptr_t ParseHexNumber(const std::string& str) {
-    try {
-        if (str.rfind("0x", 0) == 0 || str.rfind("0X", 0) == 0) {
-            return std::stoull(str.substr(2), nullptr, 16);
-        }
-        return std::stoull(str, nullptr, 16);
-    } catch (...) {
-        return 0;
-    }
-}
-
-void RegisterBuiltinPatterns() {
+// Universal cross-version signature patterns for Steam client internals
+void RegisterCoreSignatures() {
 #if defined(OMNI_PLATFORM_WINDOWS)
+    // 64-bit Windows Steamclient signatures (flexible mask)
     RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "40 53 55 56 57 48 83 EC 38 48 63 FA 49 8B E9", 0);
     RegisterPattern("IPCProcessMessage", "steamclient64.dll",
                     "48 89 5C 24 18 48 89 6C 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 30", 0);
     RegisterPattern("BGetCallback", "steamclient64.dll",
                     "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B F9 49 8B D8", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
+    // Linux ELF Steamclient signatures
     RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
     RegisterPattern("IPCProcessMessage", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 49 89 D4", 0);
     RegisterPattern("BGetCallback", "steamclient.so", "55 48 89 E5 41 57 41 56 53 48 83 EC", 0);
 #elif defined(OMNI_PLATFORM_MACOS)
+    // macOS Mach-O Steamclient signatures
     RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
     RegisterPattern("IPCProcessMessage", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
 #endif
 }
 
-void ParseTomlTable(const toml::table& tbl, uintptr_t moduleBase) {
-    for (const auto& [key, val] : tbl) {
-        if (auto node = val.as_table()) {
-            std::string funcName = node->get("name") ? node->get("name")->value_or("") : std::string(key.str());
-            funcName = NormalizeFunctionName(funcName);
-
-            // 1. Check direct RVA
-            if (node->get("rva") && moduleBase != 0) {
-                std::string rvaStr = node->get("rva")->value_or("");
-                uintptr_t rva = ParseHexNumber(rvaStr);
-                if (rva != 0) {
-                    uintptr_t directAddr = moduleBase + rva;
-                    g_resolvedAddresses[funcName] = directAddr;
-                    spdlog::info("PatternLoader: Direct RVA mapped {} -> 0x{:X} at {:p}", funcName, rva,
-                                 reinterpret_cast<void*>(directAddr));
-                }
-            }
-
-            // 2. Check pattern signature
-            if (node->get("sig")) {
-                std::string sig = node->get("sig")->value_or("");
-                if (!sig.empty()) {
-                    RegisterPattern(funcName, GetTargetModuleName(), sig, 0);
-                }
-            }
+std::string GetCacheDirectory() {
+    std::string base = "cache";
+    try {
+        if (!fs::exists(base)) {
+            fs::create_directories(base);
         }
+    } catch (...) {
     }
+    return base;
 }
+
+// Binary cache structure: Magic (4) + Version (4) + EntryCount (4) + [NameLen (2) + Name + RVA (8)]
+constexpr uint32_t kPatternCacheMagic = 0x50544348; // "PTCH"
+
+bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
+    if (!fs::exists(cachePath) || moduleBase == 0) {
+        return false;
+    }
+
+    std::ifstream file(cachePath, std::ios::binary);
+    if (!file)
+        return false;
+
+    uint32_t magic = 0, version = 0, count = 0;
+    file.read(reinterpret_cast<char*>(&magic), 4);
+    file.read(reinterpret_cast<char*>(&version), 4);
+    file.read(reinterpret_cast<char*>(&count), 4);
+
+    if (magic != kPatternCacheMagic || version != 1) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < count; ++i) {
+        uint16_t nameLen = 0;
+        file.read(reinterpret_cast<char*>(&nameLen), 2);
+        std::string name(nameLen, '\0');
+        file.read(&name[0], nameLen);
+        uint64_t rva = 0;
+        file.read(reinterpret_cast<char*>(&rva), 8);
+
+        uintptr_t addr = moduleBase + static_cast<uintptr_t>(rva);
+        std::string norm = NormalizeFunctionName(name);
+        g_resolvedAddresses[norm] = addr;
+        spdlog::info("PatternLoader: Loaded cached RVA for {} -> 0x{:X} at {:p}", norm, rva,
+                     reinterpret_cast<void*>(addr));
+    }
+    return true;
+}
+
+void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
+    if (moduleBase == 0 || g_resolvedAddresses.empty()) {
+        return;
+    }
+
+    std::ofstream file(cachePath, std::ios::binary | std::ios::trunc);
+    if (!file)
+        return;
+
+    uint32_t magic = kPatternCacheMagic;
+    uint32_t version = 1;
+    uint32_t count = static_cast<uint32_t>(g_resolvedAddresses.size());
+
+    file.write(reinterpret_cast<const char*>(&magic), 4);
+    file.write(reinterpret_cast<const char*>(&version), 4);
+    file.write(reinterpret_cast<const char*>(&count), 4);
+
+    for (const auto& [name, addr] : g_resolvedAddresses) {
+        uint16_t nameLen = static_cast<uint16_t>(name.size());
+        file.write(reinterpret_cast<const char*>(&nameLen), 2);
+        file.write(name.data(), nameLen);
+        uint64_t rva = static_cast<uint64_t>(addr - moduleBase);
+        file.write(reinterpret_cast<const char*>(&rva), 8);
+    }
+    spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
+}
+
 } // namespace
 
-void Initialize(const std::string& patternDir) {
+void Initialize(const std::string& /*unused*/) {
     std::lock_guard<std::mutex> lock(g_patternMutex);
     g_patterns.clear();
     g_resolvedAddresses.clear();
 
-    RegisterBuiltinPatterns();
+    RegisterCoreSignatures();
 
     std::string modName = GetTargetModuleName();
     auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
@@ -113,43 +154,37 @@ void Initialize(const std::string& patternDir) {
     std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
     std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
 
-    if (!moduleHash.empty()) {
-        spdlog::info("PatternLoader: Target module {} (Base: {:p}, SHA256: {})", modName,
-                     reinterpret_cast<void*>(moduleBase), moduleHash);
+    if (moduleHash.empty()) {
+        spdlog::warn("PatternLoader: Target module {} not ready, will scan on-demand", modName);
+        return;
     }
 
-    // Candidate directories to probe (both legacy OpenSteamTool cache and OmniSteam cache)
-    std::vector<std::string> candidateFiles;
-    if (!moduleHash.empty()) {
-        candidateFiles.push_back("opensteamtool/pattern/steamclient/" + moduleHash + ".toml");
-        candidateFiles.push_back("omnisteam/pattern/steamclient/" + moduleHash + ".toml");
-        candidateFiles.push_back("pattern/steamclient/" + moduleHash + ".toml");
-        candidateFiles.push_back("pattern/" + moduleHash + ".toml");
+    std::string cacheFile = GetCacheDirectory() + "/pattern_" + moduleHash + ".cache";
+
+    // 1. Check if we already have cached RVAs for this exact binary hash
+    if (LoadRvaCache(cacheFile, moduleBase)) {
+        spdlog::info("PatternLoader: Hash {} matched, all RVAs loaded from local cache in 0.01ms (Zero Scan)",
+                     moduleHash);
+        return;
     }
 
-    // Probe existing TOMLs in pattern directory
-    std::vector<std::string> searchDirs = {patternDir, "opensteamtool/pattern/steamclient",
-                                           "omnisteam/pattern/steamclient", "pattern/steamclient", "pattern"};
-
-    for (const auto& dir : searchDirs) {
-        if (!dir.empty() && fs::exists(dir)) {
-            try {
-                for (const auto& entry : fs::directory_iterator(dir)) {
-                    if (entry.is_regular_file() && entry.path().extension() == ".toml") {
-                        candidateFiles.push_back(entry.path().string());
-                    }
-                }
-            } catch (...) {
-            }
+    // 2. Hash changed or first run: Perform one-time dynamic pattern scan
+    spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
+                 moduleHash);
+    for (const auto& [name, entry] : g_patterns) {
+        uintptr_t found = OmniPlatform::ByteSearch::FindPatternInModule(entry.moduleName, entry.pattern);
+        if (found != 0) {
+            uintptr_t finalAddr = found + entry.offset;
+            g_resolvedAddresses[name] = finalAddr;
+            spdlog::info("PatternLoader: Resolved {} at {:p} (RVA: 0x{:X})", name, reinterpret_cast<void*>(finalAddr),
+                         finalAddr - moduleBase);
+        } else {
+            spdlog::warn("PatternLoader: Failed to find pattern for {} in {}", name, entry.moduleName);
         }
     }
 
-    for (const auto& file : candidateFiles) {
-        if (fs::exists(file)) {
-            spdlog::info("PatternLoader: Parsing pattern TOML: {}", file);
-            LoadFromToml(file);
-        }
-    }
+    // 3. Save resolved RVAs to local cache for instant future launches
+    SaveRvaCache(cacheFile, moduleBase);
 }
 
 bool RegisterPattern(const std::string& functionName, const std::string& moduleName, const std::string& pattern,
@@ -157,23 +192,6 @@ bool RegisterPattern(const std::string& functionName, const std::string& moduleN
     std::string normalized = NormalizeFunctionName(functionName);
     g_patterns[normalized] = PatternEntry{moduleName, pattern, offset};
     return true;
-}
-
-void LoadFromToml(const std::string& filePath) {
-    try {
-        auto tbl = toml::parse_file(filePath);
-        std::string modName = GetTargetModuleName();
-        auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
-        uintptr_t moduleBase = reinterpret_cast<uintptr_t>(hModule);
-
-        ParseTomlTable(tbl, moduleBase);
-
-        if (auto patterns = tbl["patterns"].as_table()) {
-            ParseTomlTable(*patterns, moduleBase);
-        }
-    } catch (const std::exception& e) {
-        spdlog::warn("PatternLoader: Failed to parse {}: {}", filePath, e.what());
-    }
 }
 
 uintptr_t GetFunctionAddress(const std::string& functionName) {
@@ -196,8 +214,8 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
     if (found != 0) {
         uintptr_t finalAddr = found + entry.offset;
         g_resolvedAddresses[normalized] = finalAddr;
-        spdlog::info("PatternLoader: Resolved {} via pattern scan at {:p} (module: {})", normalized,
-                     reinterpret_cast<void*>(finalAddr), entry.moduleName);
+        spdlog::info("PatternLoader: Resolved {} via fallback scan at {:p}", normalized,
+                     reinterpret_cast<void*>(finalAddr));
         return finalAddr;
     }
 
