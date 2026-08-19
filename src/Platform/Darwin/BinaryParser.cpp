@@ -1,7 +1,8 @@
-#include "OmniPlatform/OmniPlatform.h"
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <vector>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 

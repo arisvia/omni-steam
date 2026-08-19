@@ -1,6 +1,6 @@
 #pragma once
 
 namespace HookManager {
-    void InstallHooks();
-    void UninstallHooks();
-}
+void InstallHooks();
+void UninstallHooks();
+} // namespace HookManager

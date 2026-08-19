@@ -1,45 +1,49 @@
 #include "PatternLoader.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include "OmniPlatform/OmniEndpoints.h"
-#include <toml++/toml.hpp>
-#include <spdlog/spdlog.h>
-#include <mutex>
+
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
+
+#include "OmniPlatform/OmniEndpoints.h"
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
 
 namespace PatternLoader {
 
 namespace {
-    std::mutex g_patternMutex;
-    std::unordered_map<std::string, PatternEntry> g_patterns;
-    std::unordered_map<std::string, uintptr_t> g_resolvedAddresses;
-    const char* GetRemotePatternUrl() {
+std::mutex g_patternMutex;
+std::unordered_map<std::string, PatternEntry> g_patterns;
+std::unordered_map<std::string, uintptr_t> g_resolvedAddresses;
+const char* GetRemotePatternUrl() {
 #if defined(OMNI_PLATFORM_WINDOWS)
-        return OmniEndpoints::GitHub::kPatternsWindowsX64;
+    return OmniEndpoints::GitHub::kPatternsWindowsX64;
 #elif defined(OMNI_PLATFORM_MACOS)
-        return OmniEndpoints::GitHub::kPatternsMacosX64;
+    return OmniEndpoints::GitHub::kPatternsMacosX64;
 #else
-        return OmniEndpoints::GitHub::kPatternsLinuxX64;
+    return OmniEndpoints::GitHub::kPatternsLinuxX64;
 #endif
-    }
-
-    void RegisterBuiltinPatterns() {
-#if defined(OMNI_PLATFORM_WINDOWS)
-        RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B D9 48 8B FA 8B F2", 0);
-        RegisterPattern("IPCProcessMessage", "steamclient64.dll", "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24", 0);
-        RegisterPattern("BGetCallback", "steamclient64.dll", "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B F9 49 8B D8", 0);
-#elif defined(OMNI_PLATFORM_LINUX)
-        RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-        RegisterPattern("IPCProcessMessage", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 49 89 D4", 0);
-        RegisterPattern("BGetCallback", "steamclient.so", "55 48 89 E5 41 57 41 56 53 48 83 EC", 0);
-#elif defined(OMNI_PLATFORM_MACOS)
-        RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
-        RegisterPattern("IPCProcessMessage", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
-#endif
-    }
 }
+
+void RegisterBuiltinPatterns() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+    RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll",
+                    "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B D9 48 8B FA 8B F2", 0);
+    RegisterPattern("IPCProcessMessage", "steamclient64.dll", "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24", 0);
+    RegisterPattern("BGetCallback", "steamclient64.dll",
+                    "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B F9 49 8B D8", 0);
+#elif defined(OMNI_PLATFORM_LINUX)
+    RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
+    RegisterPattern("IPCProcessMessage", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 49 89 D4", 0);
+    RegisterPattern("BGetCallback", "steamclient.so", "55 48 89 E5 41 57 41 56 53 48 83 EC", 0);
+#elif defined(OMNI_PLATFORM_MACOS)
+    RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    RegisterPattern("IPCProcessMessage", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
+#endif
+}
+} // namespace
 
 void Initialize(const std::string& patternDir) {
     std::lock_guard<std::mutex> lock(g_patternMutex);
@@ -51,7 +55,7 @@ void Initialize(const std::string& patternDir) {
 
     // 2. Local TOML overrides if present
     bool foundLocal = false;
-    std::vector<std::string> candidateDirs = { patternDir, "patterns", "../patterns", "../../patterns" };
+    std::vector<std::string> candidateDirs = {patternDir, "patterns", "../patterns", "../../patterns"};
     for (const auto& dir : candidateDirs) {
         if (!dir.empty() && fs::exists(dir)) {
             for (const auto& entry : fs::directory_iterator(dir)) {
@@ -60,7 +64,8 @@ void Initialize(const std::string& patternDir) {
                     foundLocal = true;
                 }
             }
-            if (foundLocal) break;
+            if (foundLocal)
+                break;
         }
     }
 
@@ -86,13 +91,15 @@ void Initialize(const std::string& patternDir) {
                     }
                 }
                 spdlog::info("PatternLoader: Updated latest signatures from GitHub Raw");
-            } catch (...) {}
+            } catch (...) {
+            }
         }
     }
 }
 
-bool RegisterPattern(const std::string& functionName, const std::string& moduleName, const std::string& pattern, int32_t offset) {
-    g_patterns[functionName] = PatternEntry{ moduleName, pattern, offset };
+bool RegisterPattern(const std::string& functionName, const std::string& moduleName, const std::string& pattern,
+                     int32_t offset) {
+    g_patterns[functionName] = PatternEntry{moduleName, pattern, offset};
     return true;
 }
 
@@ -137,7 +144,8 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
     if (found != 0) {
         uintptr_t finalAddr = found + entry.offset;
         g_resolvedAddresses[functionName] = finalAddr;
-        spdlog::info("PatternLoader: Resolved {} at {:p} (module: {})", functionName, reinterpret_cast<void*>(finalAddr), entry.moduleName);
+        spdlog::info("PatternLoader: Resolved {} at {:p} (module: {})", functionName,
+                     reinterpret_cast<void*>(finalAddr), entry.moduleName);
         return finalAddr;
     }
 

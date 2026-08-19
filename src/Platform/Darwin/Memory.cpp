@@ -1,7 +1,8 @@
-#include "OmniPlatform/OmniPlatform.h"
+#include <cstring>
 #include <mach/mach.h>
 #include <mach/vm_map.h>
-#include <cstring>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -11,14 +12,17 @@ bool Memory::Protect(void* address, size_t size, uint32_t newProtect, uint32_t* 
 }
 
 bool Memory::Read(void* address, void* buffer, size_t size) {
-    if (!address || !buffer || size == 0) return false;
+    if (!address || !buffer || size == 0)
+        return false;
     std::memcpy(buffer, address, size);
     return true;
 }
 
 bool Memory::Write(void* address, const void* buffer, size_t size) {
-    if (!address || !buffer || size == 0) return false;
-    if (!Protect(address, size, 0)) return false;
+    if (!address || !buffer || size == 0)
+        return false;
+    if (!Protect(address, size, 0))
+        return false;
     std::memcpy(address, buffer, size);
     return true;
 }

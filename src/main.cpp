@@ -1,10 +1,15 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include "Hook/HookManager.h"
-#include "Utils/Config/Config.h"
-#include "Utils/Config/LuaConfig.h"
 #include <spdlog/spdlog.h>
 
-namespace Log { void Init(); }
+#include "OmniPlatform/OmniPlatform.h"
+
+#include "Utils/Config/Config.h"
+#include "Utils/Config/LuaConfig.h"
+
+#include "Hook/HookManager.h"
+
+namespace Log {
+void Init();
+}
 
 static void InitializeOmniSteam() {
     Log::Init();
@@ -23,8 +28,9 @@ static void InitializeOmniSteam() {
         Config::Load(configPath);
         LuaConfig::ParseDirectory(luaDir);
 
-        std::vector<std::string> watchDirs = { luaDir };
-        for (const auto& p : Config::GetLuaPaths()) watchDirs.push_back(p);
+        std::vector<std::string> watchDirs = {luaDir};
+        for (const auto& p : Config::GetLuaPaths())
+            watchDirs.push_back(p);
 
         OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [](const std::string& path, bool isDir) {
             if (!isDir && path.ends_with(".lua")) {

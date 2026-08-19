@@ -1,9 +1,10 @@
 #include "LuaConfig.h"
+
 #include "OmniPlatform/OmniPlatform.h"
 extern "C" {
+#include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
-#include <lauxlib.h>
 }
 #include <filesystem>
 #include <mutex>
@@ -11,84 +12,90 @@ extern "C" {
 namespace fs = std::filesystem;
 
 namespace {
-    std::mutex g_luaMutex;
-    std::unordered_set<uint32_t> g_unlockedApps;
-    std::unordered_map<uint32_t, std::vector<uint8_t>> g_depotKeys;
-    std::unordered_map<uint32_t, std::string> g_manifestIds;
-    std::unordered_map<uint32_t, std::string> g_accessTokens;
+std::mutex g_luaMutex;
+std::unordered_set<uint32_t> g_unlockedApps;
+std::unordered_map<uint32_t, std::vector<uint8_t>> g_depotKeys;
+std::unordered_map<uint32_t, std::string> g_manifestIds;
+std::unordered_map<uint32_t, std::string> g_accessTokens;
 
-    static int Lua_AddAppId(lua_State* L) {
-        int n = lua_gettop(L);
-        if (n < 1) return 0;
-
-        uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
-        std::lock_guard<std::mutex> lock(g_luaMutex);
-        g_unlockedApps.insert(appId);
-
-        if (n >= 3 && lua_isstring(L, 3)) {
-            uint32_t depotId = (n >= 2 && lua_isinteger(L, 2)) ? static_cast<uint32_t>(lua_tointeger(L, 2)) : appId;
-            std::string keyHex = lua_tostring(L, 3);
-            auto bytes = OmniPlatform::Encoding::HexToBytes(keyHex);
-            g_depotKeys[depotId] = bytes;
-            spdlog::info("Lua: addappid {} with depotKey for depot {}", appId, depotId);
-        } else {
-            spdlog::info("Lua: addappid {}", appId);
-        }
+static int Lua_AddAppId(lua_State* L) {
+    int n = lua_gettop(L);
+    if (n < 1)
         return 0;
-    }
 
-    static int Lua_AddToken(lua_State* L) {
-        if (lua_gettop(L) < 2) return 0;
-        uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
-        const char* token = lua_tostring(L, 2);
-        if (token) {
-            std::lock_guard<std::mutex> lock(g_luaMutex);
-            g_accessTokens[appId] = token;
-            spdlog::info("Lua: addtoken for app {} = {}", appId, token);
-        }
-        return 0;
-    }
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    g_unlockedApps.insert(appId);
 
-    static int Lua_SetManifestId(lua_State* L) {
-        if (lua_gettop(L) < 2) return 0;
-        uint32_t depotId = static_cast<uint32_t>(lua_tointeger(L, 1));
-        const char* manifestId = lua_tostring(L, 2);
-        if (manifestId) {
-            std::lock_guard<std::mutex> lock(g_luaMutex);
-            g_manifestIds[depotId] = manifestId;
-            spdlog::info("Lua: setManifestid for depot {} = {}", depotId, manifestId);
-        }
-        return 0;
+    if (n >= 3 && lua_isstring(L, 3)) {
+        uint32_t depotId = (n >= 2 && lua_isinteger(L, 2)) ? static_cast<uint32_t>(lua_tointeger(L, 2)) : appId;
+        std::string keyHex = lua_tostring(L, 3);
+        auto bytes = OmniPlatform::Encoding::HexToBytes(keyHex);
+        g_depotKeys[depotId] = bytes;
+        spdlog::info("Lua: addappid {} with depotKey for depot {}", appId, depotId);
+    } else {
+        spdlog::info("Lua: addappid {}", appId);
     }
-
-    static int Lua_SetAppTicket(lua_State* L) {
-        if (lua_gettop(L) < 2) return 0;
-        uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
-        const char* hex = lua_tostring(L, 2);
-        if (hex) {
-            OmniPlatform::CredentialStore::WriteTicket(appId, "AppTicket", hex);
-            spdlog::info("Lua: setAppTicket for app {}", appId);
-        }
-        return 0;
-    }
-
-    static int Lua_SetETicket(lua_State* L) {
-        if (lua_gettop(L) < 2) return 0;
-        uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
-        const char* hex = lua_tostring(L, 2);
-        if (hex) {
-            OmniPlatform::CredentialStore::WriteTicket(appId, "ETicket", hex);
-            spdlog::info("Lua: setETicket for app {}", appId);
-        }
-        return 0;
-    }
+    return 0;
 }
+
+static int Lua_AddToken(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* token = lua_tostring(L, 2);
+    if (token) {
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        g_accessTokens[appId] = token;
+        spdlog::info("Lua: addtoken for app {} = {}", appId, token);
+    }
+    return 0;
+}
+
+static int Lua_SetManifestId(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t depotId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* manifestId = lua_tostring(L, 2);
+    if (manifestId) {
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        g_manifestIds[depotId] = manifestId;
+        spdlog::info("Lua: setManifestid for depot {} = {}", depotId, manifestId);
+    }
+    return 0;
+}
+
+static int Lua_SetAppTicket(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* hex = lua_tostring(L, 2);
+    if (hex) {
+        OmniPlatform::CredentialStore::WriteTicket(appId, "AppTicket", hex);
+        spdlog::info("Lua: setAppTicket for app {}", appId);
+    }
+    return 0;
+}
+
+static int Lua_SetETicket(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* hex = lua_tostring(L, 2);
+    if (hex) {
+        OmniPlatform::CredentialStore::WriteTicket(appId, "ETicket", hex);
+        spdlog::info("Lua: setETicket for app {}", appId);
+    }
+    return 0;
+}
+} // namespace
 
 namespace LuaConfig {
 
 void ParseFile(const std::string& filePath) {
     lua_State* L = luaL_newstate();
-    if (!L) return;
+    if (!L)
+        return;
     luaL_openlibs(L);
 
     lua_register(L, "addappid", Lua_AddAppId);

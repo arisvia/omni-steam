@@ -1,29 +1,31 @@
 #include <cassert>
-#include <iostream>
-#include <fstream>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 namespace {
-    bool FindFile(const std::string& relativePath) {
-        std::vector<std::string> prefixes = { "", "../", "../../", "../../../" };
-        for (const auto& p : prefixes) {
-            if (fs::exists(p + relativePath)) return true;
-        }
-        return false;
+bool FindFile(const std::string& relativePath) {
+    std::vector<std::string> prefixes = {"", "../", "../../", "../../../"};
+    for (const auto& p : prefixes) {
+        if (fs::exists(p + relativePath))
+            return true;
     }
-
-    std::string ResolvePath(const std::string& relativePath) {
-        std::vector<std::string> prefixes = { "", "../", "../../", "../../../" };
-        for (const auto& p : prefixes) {
-            std::string full = p + relativePath;
-            if (fs::exists(full)) return full;
-        }
-        return "";
-    }
+    return false;
 }
+
+std::string ResolvePath(const std::string& relativePath) {
+    std::vector<std::string> prefixes = {"", "../", "../../", "../../../"};
+    for (const auto& p : prefixes) {
+        std::string full = p + relativePath;
+        if (fs::exists(full))
+            return full;
+    }
+    return "";
+}
+} // namespace
 
 void TestPackagingDefinitions() {
     assert(FindFile("patterns/linux_x64.toml"));

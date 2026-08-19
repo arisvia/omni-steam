@@ -1,9 +1,10 @@
-#include "OmniPlatform/OmniPlatform.h"
+#include <climits>
 #include <dlfcn.h>
 #include <link.h>
-#include <unistd.h>
-#include <climits>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -29,7 +30,8 @@ std::string DynamicLibrary::GetCurrentDirectoryPath() {
 }
 
 std::string DynamicLibrary::GetModulePath(ModuleHandle handle) {
-    if (!handle) return "";
+    if (!handle)
+        return "";
     struct link_map* lm = nullptr;
     if (dlinfo(handle, RTLD_DI_LINKMAP, &lm) == 0 && lm && lm->l_name) {
         return std::string(lm->l_name);

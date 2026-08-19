@@ -1,26 +1,28 @@
 #include "CloudSaveManager.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include <filesystem>
-#include <fstream>
+
 #include <chrono>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
-#include <sstream>
 #include <spdlog/spdlog.h>
+#include <sstream>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
 
 namespace Manager {
 
 namespace {
-    std::string GetCurrentTimestamp() {
-        auto now = std::chrono::system_clock::now();
-        std::time_t in_time_t = std::chrono::system_clock::to_time_t(now);
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
-        return ss.str();
-    }
+std::string GetCurrentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t in_time_t = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
+    return ss.str();
 }
+} // namespace
 
 bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
     if (webdav.serverUrl.empty()) {
@@ -43,12 +45,14 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
     size_t uploadedFiles = 0;
 
     for (const auto& loc : locations) {
-        if (!loc.exists) continue;
+        if (!loc.exists)
+            continue;
 
         auto files = SavePathResolver::ScanSaveFiles(loc.path);
         for (const auto& f : files) {
             std::ifstream file(f, std::ios::binary);
-            if (!file) continue;
+            if (!file)
+                continue;
 
             std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             std::string relativePath = fs::relative(f, loc.path).string();

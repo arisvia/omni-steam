@@ -1,6 +1,7 @@
-#include "OmniPlatform/OmniPlatform.h"
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 

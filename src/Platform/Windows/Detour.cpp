@@ -1,12 +1,13 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <windows.h>
 #include <mutex>
 #include <spdlog/spdlog.h>
+#include <windows.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
 namespace {
-    std::mutex g_detourMutex;
+std::mutex g_detourMutex;
 }
 
 bool Detour::BeginTransaction() {

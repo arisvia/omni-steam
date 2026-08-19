@@ -1,7 +1,8 @@
-#include "ScriptManager.h"
 #include <cassert>
-#include <iostream>
 #include <filesystem>
+#include <iostream>
+
+#include "ScriptManager.h"
 
 namespace fs = std::filesystem;
 
@@ -9,7 +10,7 @@ void TestScriptGeneration() {
     Manager::UnlockGameSpec spec;
     spec.appId = 1361510;
     spec.gameName = "Cyberpunk 2077";
-    spec.dlcAppIds = { 2138330, 2564880 };
+    spec.dlcAppIds = {2138330, 2564880};
     spec.accessToken = "123456789";
 
     std::string lua = Manager::ScriptManager::GenerateLuaScript(spec);

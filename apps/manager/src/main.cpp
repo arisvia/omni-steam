@@ -1,11 +1,15 @@
-#include "WebServer.h"
-#include "SteamApi.h"
-#include "ScriptManager.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include <spdlog/spdlog.h>
 #include <iostream>
+#include <spdlog/spdlog.h>
 
-namespace Log { void Init(); }
+#include "OmniPlatform/OmniPlatform.h"
+
+#include "ScriptManager.h"
+#include "SteamApi.h"
+#include "WebServer.h"
+
+namespace Log {
+void Init();
+}
 
 int main(int argc, char* argv[]) {
     Log::Init();

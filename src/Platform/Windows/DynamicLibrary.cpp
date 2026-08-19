@@ -1,7 +1,8 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <windows.h>
 #include <psapi.h>
 #include <vector>
+#include <windows.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -38,18 +39,21 @@ uint32_t DynamicLibrary::GetLastErrorCode() {
 bool Memory::Protect(void* address, size_t size, uint32_t newProtect, uint32_t* oldProtect) {
     DWORD oldP = 0;
     BOOL res = VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldP);
-    if (oldProtect) *oldProtect = oldP;
+    if (oldProtect)
+        *oldProtect = oldP;
     return res != FALSE;
 }
 
 bool Memory::Read(void* address, void* buffer, size_t size) {
-    if (!address || !buffer || size == 0) return false;
+    if (!address || !buffer || size == 0)
+        return false;
     SIZE_T readBytes = 0;
     return ReadProcessMemory(GetCurrentProcess(), address, buffer, size, &readBytes) != FALSE;
 }
 
 bool Memory::Write(void* address, const void* buffer, size_t size) {
-    if (!address || !buffer || size == 0) return false;
+    if (!address || !buffer || size == 0)
+        return false;
     SIZE_T writtenBytes = 0;
     DWORD oldProtect = 0;
     VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldProtect);
@@ -60,7 +64,8 @@ bool Memory::Write(void* address, const void* buffer, size_t size) {
 
 bool BinaryParser::GetModuleTextSection(const std::string& moduleName, uintptr_t& outStart, size_t& outSize) {
     HMODULE hMod = GetModuleHandleA(moduleName.empty() ? nullptr : moduleName.c_str());
-    if (!hMod) return false;
+    if (!hMod)
+        return false;
     MODULEINFO modInfo;
     if (GetModuleInformation(GetCurrentProcess(), hMod, &modInfo, sizeof(modInfo))) {
         outStart = reinterpret_cast<uintptr_t>(modInfo.lpBaseOfDll);
@@ -92,12 +97,15 @@ std::string Process::GetExecutablePath() {
 }
 
 void Thread::StartDetached(std::function<void()> task) {
-    CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
-        auto* fn = reinterpret_cast<std::function<void()>*>(param);
-        (*fn)();
-        delete fn;
-        return 0;
-    }, new std::function<void()>(task), 0, nullptr);
+    CreateThread(
+        nullptr, 0,
+        [](LPVOID param) -> DWORD {
+            auto* fn = reinterpret_cast<std::function<void()>*>(param);
+            (*fn)();
+            delete fn;
+            return 0;
+        },
+        new std::function<void()>(task), 0, nullptr);
 }
 
 void Thread::Sleep(uint32_t milliseconds) {

@@ -1,7 +1,8 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <link.h>
 #include <elf.h>
+#include <link.h>
 #include <vector>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -15,7 +16,8 @@ struct CallbackData {
 
 static int PhdrCallback(struct dl_phdr_info* info, size_t size, void* data) {
     auto* cbData = reinterpret_cast<CallbackData*>(data);
-    if (!info->dlpi_name) return 0;
+    if (!info->dlpi_name)
+        return 0;
 
     std::string path(info->dlpi_name);
     if (path.find(cbData->moduleName) != std::string::npos || (cbData->moduleName.empty() && path.empty())) {

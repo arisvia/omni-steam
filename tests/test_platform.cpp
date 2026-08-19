@@ -1,7 +1,8 @@
-#include "OmniPlatform/OmniPlatform.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
+
+#include "OmniPlatform/OmniPlatform.h"
 void TestEncoding() {
     std::string hex = "5954562e";
     auto bytes = OmniPlatform::Encoding::HexToBytes(hex);
@@ -17,9 +18,9 @@ void TestEncoding() {
 }
 
 void TestByteSearch() {
-    uint8_t buffer[] = { 0x55, 0x48, 0x89, 0xE5, 0x41, 0x57, 0x41, 0x56, 0x90, 0xC3 };
+    uint8_t buffer[] = {0x55, 0x48, 0x89, 0xE5, 0x41, 0x57, 0x41, 0x56, 0x90, 0xC3};
     uintptr_t base = reinterpret_cast<uintptr_t>(buffer);
-    
+
     uintptr_t found = OmniPlatform::ByteSearch::FindPattern(base, sizeof(buffer), "55 48 89 E5 ?? 57");
     assert(found == base);
 
@@ -31,7 +32,7 @@ void TestByteSearch() {
 void TestCredentialStore() {
     uint32_t appId = 1361510;
     std::string testHex = "14000000aabbccdd";
-    
+
     bool ok = OmniPlatform::CredentialStore::WriteTicket(appId, "TestTicket", testHex);
     assert(ok);
 

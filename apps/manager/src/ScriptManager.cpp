@@ -1,10 +1,12 @@
 #include "ScriptManager.h"
-#include "OmniPlatform/OmniPlatform.h"
+
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <regex>
 #include <spdlog/spdlog.h>
+#include <sstream>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
 
@@ -89,11 +91,13 @@ bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string
 std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& targetDir) {
     std::vector<ScriptFileInfo> list;
     std::string dir = targetDir.empty() ? GetDefaultLuaDirectory() : targetDir;
-    if (!fs::exists(dir)) return list;
+    if (!fs::exists(dir))
+        return list;
 
     try {
         for (const auto& entry : fs::recursive_directory_iterator(dir)) {
-            if (!entry.is_regular_file()) continue;
+            if (!entry.is_regular_file())
+                continue;
 
             std::string filename = entry.path().filename().string();
             bool isLua = filename.ends_with(".lua");
@@ -124,13 +128,15 @@ std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& target
                 list.push_back(info);
             }
         }
-    } catch (...) {}
+    } catch (...) {
+    }
 
     return list;
 }
 bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
     try {
-        if (!fs::exists(filePath)) return false;
+        if (!fs::exists(filePath))
+            return false;
 
         std::string newPath;
         if (enable && filePath.ends_with(".disabled")) {

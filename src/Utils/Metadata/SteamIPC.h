@@ -1,9 +1,9 @@
 #pragma once
 #include <cstdint>
-#include <vector>
+#include <cstring>
 #include <span>
 #include <string>
-#include <cstring>
+#include <vector>
 namespace SteamIPC {
 
 enum class EIPCCommand : uint32_t {
@@ -31,14 +31,13 @@ struct BufferReader {
     size_t size;
     size_t offset = 0;
 
-    BufferReader(const void* buf, size_t s)
-        : data(reinterpret_cast<const uint8_t*>(buf)), size(s) {}
+    BufferReader(const void* buf, size_t s) : data(reinterpret_cast<const uint8_t*>(buf)), size(s) {}
 
     bool HasMore(size_t bytes = 1) const { return offset + bytes <= size; }
 
-    template<typename T>
-    T Read() {
-        if (!HasMore(sizeof(T))) return T{};
+    template <typename T> T Read() {
+        if (!HasMore(sizeof(T)))
+            return T{};
         T val;
         std::memcpy(&val, data + offset, sizeof(T));
         offset += sizeof(T);
@@ -46,7 +45,8 @@ struct BufferReader {
     }
 
     std::vector<uint8_t> ReadBytes(size_t count) {
-        if (!HasMore(count)) count = size > offset ? size - offset : 0;
+        if (!HasMore(count))
+            count = size > offset ? size - offset : 0;
         std::vector<uint8_t> bytes(data + offset, data + offset + count);
         offset += count;
         return bytes;
@@ -54,7 +54,8 @@ struct BufferReader {
 
     std::string ReadString() {
         uint32_t len = Read<uint32_t>();
-        if (len == 0 || !HasMore(len)) return "";
+        if (len == 0 || !HasMore(len))
+            return "";
         std::string str(reinterpret_cast<const char*>(data + offset), len);
         offset += len;
         return str;
@@ -64,8 +65,7 @@ struct BufferReader {
 struct BufferWriter {
     std::vector<uint8_t> buffer;
 
-    template<typename T>
-    void Write(T val) {
+    template <typename T> void Write(T val) {
         size_t cur = buffer.size();
         buffer.resize(cur + sizeof(T));
         std::memcpy(buffer.data() + cur, &val, sizeof(T));

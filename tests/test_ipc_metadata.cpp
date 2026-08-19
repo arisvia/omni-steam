@@ -1,11 +1,13 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include "Utils/Metadata/PatternLoader.h"
-#include "Utils/Metadata/ManifestClient.h"
-#include "Utils/Metadata/SteamIPC.h"
-#include "Utils/Config/LuaConfig.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
+
+#include "OmniPlatform/OmniPlatform.h"
+
+#include "Utils/Config/LuaConfig.h"
+#include "Utils/Metadata/ManifestClient.h"
+#include "Utils/Metadata/PatternLoader.h"
+#include "Utils/Metadata/SteamIPC.h"
 
 void TestPatternLoader() {
     PatternLoader::Initialize();

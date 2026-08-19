@@ -1,9 +1,10 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <openssl/evp.h>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
+#include <openssl/evp.h>
+#include <sstream>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -12,7 +13,8 @@ std::string Hash::Sha256(const std::vector<uint8_t>& data) {
     unsigned int length = 0;
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return "";
+    if (!ctx)
+        return "";
 
     EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
     EVP_DigestUpdate(ctx, data.data(), data.size());
@@ -28,10 +30,12 @@ std::string Hash::Sha256(const std::vector<uint8_t>& data) {
 
 std::string Hash::Sha256File(const std::string& filePath) {
     std::ifstream file(filePath, std::ios::binary);
-    if (!file) return "";
+    if (!file)
+        return "";
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return "";
+    if (!ctx)
+        return "";
 
     EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
     char buf[4096];
@@ -59,7 +63,8 @@ std::string Hash::Md5(const std::vector<uint8_t>& data) {
     unsigned int length = 0;
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return "";
+    if (!ctx)
+        return "";
 
     EVP_DigestInit_ex(ctx, EVP_md5(), nullptr);
     EVP_DigestUpdate(ctx, data.data(), data.size());

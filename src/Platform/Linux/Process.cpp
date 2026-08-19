@@ -1,9 +1,10 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <unistd.h>
+#include <chrono>
 #include <climits>
 #include <fstream>
 #include <thread>
-#include <chrono>
+#include <unistd.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 

@@ -1,15 +1,16 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include <sys/event.h>
-#include <unistd.h>
-#include <thread>
 #include <atomic>
+#include <sys/event.h>
+#include <thread>
+#include <unistd.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
 namespace {
-    std::atomic<bool> g_watching{false};
-    std::thread g_watchThread;
-}
+std::atomic<bool> g_watching{false};
+std::thread g_watchThread;
+} // namespace
 
 bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Callback onChange) {
     g_watching.store(true);
@@ -19,7 +20,8 @@ bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Cal
 
 void DirectoryWatch::StopWatch() {
     g_watching.store(false);
-    if (g_watchThread.joinable()) g_watchThread.join();
+    if (g_watchThread.joinable())
+        g_watchThread.join();
 }
 
 } // namespace OmniPlatform

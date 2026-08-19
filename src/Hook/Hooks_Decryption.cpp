@@ -1,11 +1,14 @@
-#include "OmniPlatform/OmniPlatform.h"
-#include "Hook/HookMacros.h"
-#include "Utils/Config/LuaConfig.h"
-#include "Utils/Metadata/PatternLoader.h"
 #include <cstring>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
-#include <spdlog/spdlog.h>
+
+#include "OmniPlatform/OmniPlatform.h"
+
+#include "Utils/Config/LuaConfig.h"
+#include "Utils/Metadata/PatternLoader.h"
+
+#include "Hook/HookMacros.h"
 
 namespace {
 
@@ -18,7 +21,8 @@ enum EConfigStore {
 
 void* g_pConfigStoreLocal = nullptr;
 
-HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key, uint32_t KeySize) {
+HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key,
+          uint32_t KeySize) {
     if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal) {
         g_pConfigStoreLocal = pObject;
         spdlog::debug("Captured local ConfigStore instance at {:p}", g_pConfigStoreLocal);
@@ -46,7 +50,8 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
                         spdlog::warn("Key buffer size ({} bytes) too small for depot {}", KeySize, depotId);
                     }
                 }
-            } catch (...) {}
+            } catch (...) {
+            }
         }
     }
 
@@ -61,13 +66,13 @@ void Install() {
     uintptr_t fnAddress = PatternLoader::GetFunctionAddress("ConfigStore_GetBinary");
     if (fnAddress != 0) {
         ATTACH_HOOK(fnAddress, ConfigStoreGetBinary);
-        spdlog::info("Hooks_Decryption: Successfully installed ConfigStore_GetBinary hook at {:p}", reinterpret_cast<void*>(fnAddress));
+        spdlog::info("Hooks_Decryption: Successfully installed ConfigStore_GetBinary hook at {:p}",
+                     reinterpret_cast<void*>(fnAddress));
     } else {
         spdlog::warn("Hooks_Decryption: ConfigStore_GetBinary signature not resolved");
     }
 }
 
-void Uninstall() {
-}
+void Uninstall() {}
 
 } // namespace Hooks_Decryption

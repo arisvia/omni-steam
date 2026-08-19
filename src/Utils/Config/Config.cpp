@@ -1,14 +1,15 @@
 #include "Config.h"
-#include <toml++/toml.hpp>
-#include <spdlog/spdlog.h>
+
 #include <mutex>
+#include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 namespace {
-    std::mutex g_configMutex;
-    std::vector<std::string> g_luaPaths;
-    std::string g_manifestUrl = "https://manifest.opensteamtool.com";
-    bool g_statsEnabled = true;
-}
+std::mutex g_configMutex;
+std::vector<std::string> g_luaPaths;
+std::string g_manifestUrl = "https://manifest.opensteamtool.com";
+bool g_statsEnabled = true;
+} // namespace
 
 namespace Config {
 
@@ -16,7 +17,7 @@ void Load(const std::string& configPath) {
     std::lock_guard<std::mutex> lock(g_configMutex);
     try {
         auto tbl = toml::parse_file(configPath);
-        
+
         g_luaPaths.clear();
         if (auto luaPaths = tbl["lua"]["paths"].as_array()) {
             for (const auto& el : *luaPaths) {

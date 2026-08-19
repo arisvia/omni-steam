@@ -1,40 +1,44 @@
 #include "SteamApi.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include "OmniPlatform/OmniEndpoints.h"
+
+#include <regex>
 #include <spdlog/spdlog.h>
 #include <sstream>
-#include <regex>
+
+#include "OmniPlatform/OmniEndpoints.h"
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace Manager {
 
 namespace {
-    std::string UrlEncode(const std::string& value) {
-        std::ostringstream escaped;
-        escaped.fill('0');
-        escaped << std::hex;
-        for (char c : value) {
-            if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
-                escaped << c;
-            } else {
-                escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
-            }
+std::string UrlEncode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+    for (char c : value) {
+        if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
         }
-        return escaped.str();
     }
-
-    std::string ExtractJsonString(const std::string& json, const std::string& key) {
-        std::regex re("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
-        std::smatch match;
-        if (std::regex_search(json, match, re) && match.size() > 1) {
-            return match[1].str();
-        }
-        return "";
-    }
+    return escaped.str();
 }
 
-std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, const std::string& language, const std::string& countryCode) {
+std::string ExtractJsonString(const std::string& json, const std::string& key) {
+    std::regex re("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+    std::smatch match;
+    if (std::regex_search(json, match, re) && match.size() > 1) {
+        return match[1].str();
+    }
+    return "";
+}
+} // namespace
+
+std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, const std::string& language,
+                                                    const std::string& countryCode) {
     std::vector<SearchResultItem> results;
-    if (query.empty()) return results;
+    if (query.empty())
+        return results;
 
     std::string url = std::string(OmniEndpoints::Steam::kStoreSearchApi) + "?term=" + UrlEncode(query) +
                       "&l=" + language + "&cc=" + countryCode;
@@ -56,7 +60,8 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
         SearchResultItem item;
         item.appId = static_cast<uint32_t>(std::stoul(match[1].str()));
         item.name = match[2].str();
-        item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) + "/capsule_sm_120.jpg";
+        item.tinyImage =
+            std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) + "/capsule_sm_120.jpg";
         results.push_back(item);
     }
 
@@ -68,8 +73,8 @@ AppDetails SteamApi::GetAppDetails(uint32_t appId, const std::string& language) 
     AppDetails details;
     details.appId = appId;
 
-    std::string url = std::string(OmniEndpoints::Steam::kAppDetailsApi) + "?appids=" + std::to_string(appId) +
-                      "&l=" + language;
+    std::string url =
+        std::string(OmniEndpoints::Steam::kAppDetailsApi) + "?appids=" + std::to_string(appId) + "&l=" + language;
 
     spdlog::info("SteamApi: Fetching app details: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 6000);
@@ -101,7 +106,7 @@ AppDetails SteamApi::GetAppDetails(uint32_t appId, const std::string& language) 
         for (std::sregex_iterator it = dlc_begin; it != dlc_end; ++it) {
             uint32_t dlcId = static_cast<uint32_t>(std::stoul((*it)[1].str()));
             details.dlcAppIds.push_back(dlcId);
-            details.dlcList.push_back(DlcInfo{ dlcId, "DLC " + std::to_string(dlcId) });
+            details.dlcList.push_back(DlcInfo{dlcId, "DLC " + std::to_string(dlcId)});
         }
     }
 

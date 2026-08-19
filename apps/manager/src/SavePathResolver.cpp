@@ -1,8 +1,10 @@
 #include "SavePathResolver.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include <filesystem>
+
 #include <cstdlib>
+#include <filesystem>
 #include <spdlog/spdlog.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
 
@@ -16,11 +18,14 @@ std::string SavePathResolver::GetSteamInstallDirectory() {
     return home ? std::string(home) + "/Library/Application Support/Steam" : "";
 #else
     const char* home = std::getenv("HOME");
-    if (!home) return "";
+    if (!home)
+        return "";
     std::string defaultPath = std::string(home) + "/.local/share/Steam";
-    if (fs::exists(defaultPath)) return defaultPath;
+    if (fs::exists(defaultPath))
+        return defaultPath;
     std::string altPath = std::string(home) + "/.steam/steam";
-    if (fs::exists(altPath)) return altPath;
+    if (fs::exists(altPath))
+        return altPath;
     return defaultPath;
 #endif
 }
@@ -48,15 +53,14 @@ std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId
 #if !defined(OMNI_PLATFORM_WINDOWS)
     // 2. Linux / Steam Deck Proton CompatData (WINE Prefix):
     // <Steam>/steamapps/compatdata/<appid>/pfx/drive_c/users/steamuser/
-    std::string compatDataPath = steamDir + "/steamapps/compatdata/" + std::to_string(appId) + "/pfx/drive_c/users/steamuser";
+    std::string compatDataPath =
+        steamDir + "/steamapps/compatdata/" + std::to_string(appId) + "/pfx/drive_c/users/steamuser";
     if (fs::exists(compatDataPath)) {
         // Check AppData/Local, AppData/Roaming, Saved Games, Documents
-        std::vector<std::pair<std::string, std::string>> subPaths = {
-            { "/AppData/Local", "Proton AppData/Local" },
-            { "/AppData/Roaming", "Proton AppData/Roaming" },
-            { "/Saved Games", "Proton Saved Games" },
-            { "/Documents", "Proton Documents" }
-        };
+        std::vector<std::pair<std::string, std::string>> subPaths = {{"/AppData/Local", "Proton AppData/Local"},
+                                                                     {"/AppData/Roaming", "Proton AppData/Roaming"},
+                                                                     {"/Saved Games", "Proton Saved Games"},
+                                                                     {"/Documents", "Proton Documents"}};
 
         for (const auto& [sub, desc] : subPaths) {
             std::string fullSub = compatDataPath + sub;
@@ -77,7 +81,8 @@ std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId
 
 std::vector<std::string> SavePathResolver::ScanSaveFiles(const std::string& saveDir) {
     std::vector<std::string> files;
-    if (!fs::exists(saveDir)) return files;
+    if (!fs::exists(saveDir))
+        return files;
 
     try {
         for (const auto& entry : fs::recursive_directory_iterator(saveDir)) {
@@ -85,7 +90,8 @@ std::vector<std::string> SavePathResolver::ScanSaveFiles(const std::string& save
                 files.push_back(entry.path().string());
             }
         }
-    } catch (...) {}
+    } catch (...) {
+    }
 
     return files;
 }

@@ -1,10 +1,12 @@
 #include "ConfigManager.h"
-#include "OmniPlatform/OmniPlatform.h"
-#include <toml++/toml.hpp>
+
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <cstdlib>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
 namespace Manager {
@@ -33,13 +35,18 @@ ConfigDto ConfigManager::ReadConfig() {
 
     try {
         auto tbl = toml::parse_file(path);
-        if (auto level = tbl["log"]["level"].value<std::string>()) dto.logLevel = *level;
-        if (auto url = tbl["manifest"]["url"].value<std::string>()) dto.manifestUrl = *url;
-        if (auto stats = tbl["stats"]["enable_api"].value<bool>()) dto.statsEnableApi = *stats;
-        if (auto cloud = tbl["cloud"]["enabled"].value<bool>()) dto.cloudEnabled = *cloud;
+        if (auto level = tbl["log"]["level"].value<std::string>())
+            dto.logLevel = *level;
+        if (auto url = tbl["manifest"]["url"].value<std::string>())
+            dto.manifestUrl = *url;
+        if (auto stats = tbl["stats"]["enable_api"].value<bool>())
+            dto.statsEnableApi = *stats;
+        if (auto cloud = tbl["cloud"]["enabled"].value<bool>())
+            dto.cloudEnabled = *cloud;
         if (auto paths = tbl["lua"]["paths"].as_array()) {
             for (const auto& p : *paths) {
-                if (auto str = p.value<std::string>()) dto.luaPaths.push_back(*str);
+                if (auto str = p.value<std::string>())
+                    dto.luaPaths.push_back(*str);
             }
         }
     } catch (const std::exception& e) {
@@ -53,10 +60,12 @@ bool ConfigManager::SaveConfig(const ConfigDto& dto) {
     std::string path = GetConfigFilePath();
     try {
         std::string parentDir = fs::path(path).parent_path().string();
-        if (!parentDir.empty()) fs::create_directories(parentDir);
+        if (!parentDir.empty())
+            fs::create_directories(parentDir);
 
         std::ofstream out(path, std::ios::trunc);
-        if (!out) return false;
+        if (!out)
+            return false;
 
         out << "# OmniSteam Configuration (Managed by OmniSteam Manager)\n\n";
         out << "[log]\nlevel = \"" << dto.logLevel << "\"\nfile_output = true\n\n";
@@ -79,11 +88,13 @@ bool ConfigManager::SaveConfig(const ConfigDto& dto) {
 
 bool ConfigManager::MigrateLuaFiles(const std::string& oldDir, const std::string& newDir) {
     try {
-        if (!fs::exists(oldDir) || oldDir == newDir) return false;
+        if (!fs::exists(oldDir) || oldDir == newDir)
+            return false;
         fs::create_directories(newDir);
 
         for (const auto& entry : fs::directory_iterator(oldDir)) {
-            if (entry.is_regular_file() && (entry.path().extension() == ".lua" || entry.path().extension() == ".disabled")) {
+            if (entry.is_regular_file() &&
+                (entry.path().extension() == ".lua" || entry.path().extension() == ".disabled")) {
                 std::string targetFile = newDir + "/" + entry.path().filename().string();
                 fs::copy_file(entry.path(), targetFile, fs::copy_options::overwrite_existing);
                 spdlog::info("ConfigManager: Migrated {} -> {}", entry.path().string(), targetFile);

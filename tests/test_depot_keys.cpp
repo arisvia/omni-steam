@@ -1,12 +1,13 @@
-#include "DepotKeyStore.h"
 #include <cassert>
 #include <iostream>
+
+#include "DepotKeyStore.h"
 
 void TestDepotKeyStore() {
     Manager::DepotKeyStore::Initialize();
     std::cout << "[INFO] Loaded Depot Keys count: " << Manager::DepotKeyStore::Count() << "\n";
     assert(Manager::DepotKeyStore::Count() > 0);
-    
+
     // Check known depot key from depotkeys.json (depot 1)
     std::string key1 = Manager::DepotKeyStore::GetKeyForDepot(1);
     assert(!key1.empty());

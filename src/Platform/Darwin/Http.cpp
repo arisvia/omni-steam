@@ -1,20 +1,22 @@
-#include "OmniPlatform/OmniPlatform.h"
 #include <curl/curl.h>
+
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
 namespace {
-    size_t WriteCb(void* contents, size_t size, size_t nmemb, void* userp) {
-        size_t total = size * nmemb;
-        reinterpret_cast<std::string*>(userp)->append(reinterpret_cast<char*>(contents), total);
-        return total;
-    }
+size_t WriteCb(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t total = size * nmemb;
+    reinterpret_cast<std::string*>(userp)->append(reinterpret_cast<char*>(contents), total);
+    return total;
 }
+} // namespace
 
 Http::Response Http::Get(const std::string& url, int timeoutMs) {
     Response res;
     CURL* curl = curl_easy_init();
-    if (!curl) return res;
+    if (!curl)
+        return res;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCb);
@@ -36,10 +38,12 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     return res;
 }
 
-Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType, int timeoutMs) {
+Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType,
+                          int timeoutMs) {
     Response res;
     CURL* curl = curl_easy_init();
-    if (!curl) return res;
+    if (!curl)
+        return res;
 
     struct curl_slist* headers = nullptr;
     std::string headerStr = "Content-Type: " + contentType;

@@ -1,7 +1,7 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 namespace Manager {
 
@@ -22,7 +22,8 @@ struct WebDavResponse {
 class WebDavClient {
 public:
     static WebDavResponse MkCol(const WebDavConfig& config, const std::string& remotePath);
-    static WebDavResponse UploadFile(const WebDavConfig& config, const std::string& remotePath, const std::vector<uint8_t>& data);
+    static WebDavResponse UploadFile(const WebDavConfig& config, const std::string& remotePath,
+                                     const std::vector<uint8_t>& data);
     static WebDavResponse DownloadFile(const WebDavConfig& config, const std::string& remotePath);
     static WebDavResponse Delete(const WebDavConfig& config, const std::string& remotePath);
 };

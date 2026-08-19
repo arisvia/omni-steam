@@ -1,11 +1,25 @@
 #include "HookManager.h"
-#include "OmniPlatform/OmniPlatform.h"
+
 #include <spdlog/spdlog.h>
 
-namespace Hooks_Decryption { void Install(); void Uninstall(); }
-namespace Hooks_IPC { void Install(); void Uninstall(); }
-namespace Hooks_Manifest { void Install(); void Uninstall(); }
-namespace Hooks_Package { void Install(); void Uninstall(); }
+#include "OmniPlatform/OmniPlatform.h"
+
+namespace Hooks_Decryption {
+void Install();
+void Uninstall();
+} // namespace Hooks_Decryption
+namespace Hooks_IPC {
+void Install();
+void Uninstall();
+} // namespace Hooks_IPC
+namespace Hooks_Manifest {
+void Install();
+void Uninstall();
+} // namespace Hooks_Manifest
+namespace Hooks_Package {
+void Install();
+void Uninstall();
+} // namespace Hooks_Package
 
 namespace HookManager {
 

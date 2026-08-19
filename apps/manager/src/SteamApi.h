@@ -1,7 +1,7 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 namespace Manager {
 
@@ -31,7 +31,8 @@ struct AppDetails {
 
 class SteamApi {
 public:
-    static std::vector<SearchResultItem> SearchStore(const std::string& query, const std::string& language = "schinese", const std::string& countryCode = "CN");
+    static std::vector<SearchResultItem> SearchStore(const std::string& query, const std::string& language = "schinese",
+                                                     const std::string& countryCode = "CN");
     static AppDetails GetAppDetails(uint32_t appId, const std::string& language = "schinese");
 };
 

@@ -1,9 +1,10 @@
 #pragma once
-#include "WebDavClient.h"
-#include "SavePathResolver.h"
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
+
+#include "SavePathResolver.h"
+#include "WebDavClient.h"
 
 namespace Manager {
 

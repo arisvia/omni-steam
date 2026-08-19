@@ -1,20 +1,20 @@
 #pragma once
 #include <cstdint>
-#include <string>
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace OmniPlatform {
 
 namespace Encoding {
-    std::vector<uint8_t> HexToBytes(const std::string& hex);
-    std::string BytesToHex(const uint8_t* data, size_t length);
-}
+std::vector<uint8_t> HexToBytes(const std::string& hex);
+std::string BytesToHex(const uint8_t* data, size_t length);
+} // namespace Encoding
 
 namespace Numbers {
-    uint64_t ParseUInt64(const std::string& str);
-    uint32_t ParseUInt32(const std::string& str);
-}
+uint64_t ParseUInt64(const std::string& str);
+uint32_t ParseUInt32(const std::string& str);
+} // namespace Numbers
 
 class Detour {
     static bool BeginTransaction();
@@ -78,7 +78,8 @@ public:
     };
 
     static Response Get(const std::string& url, int timeoutMs = 5000);
-    static Response Post(const std::string& url, const std::string& body, const std::string& contentType = "application/json", int timeoutMs = 5000);
+    static Response Post(const std::string& url, const std::string& body,
+                         const std::string& contentType = "application/json", int timeoutMs = 5000);
 };
 
 class Hash {
