@@ -21,10 +21,8 @@ void TestScriptGeneration() {
 }
 
 void TestScriptLifecycle() {
-    std::string tempDir = "/tmp/test_omnisteam_lua";
+    std::string tempDir = (fs::temp_directory_path() / "test_omnisteam_lua").string();
     fs::create_directories(tempDir);
-
-    Manager::UnlockGameSpec spec;
     spec.appId = 9999;
     spec.gameName = "TestGame";
 
