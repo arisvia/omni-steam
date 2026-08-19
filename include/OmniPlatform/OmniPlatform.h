@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
@@ -11,17 +12,17 @@
 namespace OmniPlatform {
 
 namespace Encoding {
-std::vector<uint8_t> HexToBytes(const std::string& hex);
+std::vector<uint8_t> HexToBytes(std::string_view hex);
 std::string BytesToHex(const uint8_t* data, size_t length);
-std::string UrlEncode(const std::string& value);
-std::string UrlDecode(const std::string& value);
-std::string EscapeJson(const std::string& value);
+std::string UrlEncode(std::string_view value);
+std::string UrlDecode(std::string_view in);
+std::string EscapeJson(std::string_view value);
 } // namespace Encoding
-namespace Numbers {
-uint64_t ParseUInt64(const std::string& str);
-uint32_t ParseUInt32(const std::string& str);
-} // namespace Numbers
 
+namespace Numbers {
+uint64_t ParseUInt64(std::string_view str);
+uint32_t ParseUInt32(std::string_view str);
+} // namespace Numbers
 class Detour {
 public:
     static bool BeginTransaction();

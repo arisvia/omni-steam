@@ -1,8 +1,8 @@
 #include <cstdint>
-#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -10,53 +10,65 @@
 namespace OmniPlatform {
 namespace Encoding {
 
-std::vector<uint8_t> HexToBytes(const std::string& hex) {
+namespace {
+inline uint8_t HexCharToNibble(char c) noexcept {
+    if (c >= '0' && c <= '9')
+        return static_cast<uint8_t>(c - '0');
+    if (c >= 'a' && c <= 'f')
+        return static_cast<uint8_t>(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F')
+        return static_cast<uint8_t>(c - 'A' + 10);
+    return 0;
+}
+} // namespace
+
+std::vector<uint8_t> HexToBytes(std::string_view hex) {
     std::vector<uint8_t> bytes;
-    for (size_t i = 0; i < hex.length(); i += 2) {
-        std::string byteString = hex.substr(i, 2);
-        uint8_t byte = static_cast<uint8_t>(strtol(byteString.c_str(), nullptr, 16));
-        bytes.push_back(byte);
+    bytes.reserve(hex.length() / 2);
+    for (size_t i = 0; i + 1 < hex.length(); i += 2) {
+        uint8_t high = HexCharToNibble(hex[i]);
+        uint8_t low = HexCharToNibble(hex[i + 1]);
+        bytes.push_back(static_cast<uint8_t>((high << 4) | low));
     }
     return bytes;
 }
 
 std::string BytesToHex(const uint8_t* data, size_t length) {
-    std::ostringstream oss;
+    static constexpr char kHexDigits[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(length * 2);
     for (size_t i = 0; i < length; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+        out.push_back(kHexDigits[(data[i] >> 4) & 0x0F]);
+        out.push_back(kHexDigits[data[i] & 0x0F]);
     }
-    return oss.str();
+    return out;
 }
 
-std::string UrlEncode(const std::string& value) {
-    std::ostringstream escaped;
-    escaped.fill('0');
-    escaped << std::hex;
+std::string UrlEncode(std::string_view value) {
+    static constexpr char kHexDigits[] = "0123456789ABCDEF";
+    std::string escaped;
+    escaped.reserve(value.length() * 3);
     for (char c : value) {
         if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
-            escaped << c;
+            escaped.push_back(c);
         } else {
-            escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
+            escaped.push_back('%');
+            escaped.push_back(kHexDigits[(static_cast<unsigned char>(c) >> 4) & 0x0F]);
+            escaped.push_back(kHexDigits[static_cast<unsigned char>(c) & 0x0F]);
         }
     }
-    return escaped.str();
+    return escaped;
 }
 
-std::string UrlDecode(const std::string& in) {
+std::string UrlDecode(std::string_view in) {
     std::string out;
     out.reserve(in.length());
     for (size_t i = 0; i < in.length(); ++i) {
-        if (in[i] == '%') {
-            if (i + 2 < in.length()) {
-                int hexVal = 0;
-                std::istringstream iss(in.substr(i + 1, 2));
-                if (iss >> std::hex >> hexVal) {
-                    out.push_back(static_cast<char>(hexVal));
-                    i += 2;
-                } else {
-                    out.push_back(in[i]);
-                }
-            }
+        if (in[i] == '%' && i + 2 < in.length()) {
+            uint8_t high = HexCharToNibble(in[i + 1]);
+            uint8_t low = HexCharToNibble(in[i + 2]);
+            out.push_back(static_cast<char>((high << 4) | low));
+            i += 2;
         } else if (in[i] == '+') {
             out.push_back(' ');
         } else {
@@ -66,41 +78,44 @@ std::string UrlDecode(const std::string& in) {
     return out;
 }
 
-std::string EscapeJson(const std::string& in) {
-    std::ostringstream ss;
+std::string EscapeJson(std::string_view in) {
+    std::string out;
+    out.reserve(in.length() + 16);
     for (char c : in) {
         switch (c) {
             case '"':
-                ss << "\\\"";
+                out.append("\\\"");
                 break;
             case '\\':
-                ss << "\\\\";
+                out.append("\\\\");
                 break;
             case '\b':
-                ss << "\\b";
+                out.append("\\b");
                 break;
             case '\f':
-                ss << "\\f";
+                out.append("\\f");
                 break;
             case '\n':
-                ss << "\\n";
+                out.append("\\n");
                 break;
             case '\r':
-                ss << "\\r";
+                out.append("\\r");
                 break;
             case '\t':
-                ss << "\\t";
+                out.append("\\t");
                 break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
-                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                    out.append(buf);
                 } else {
-                    ss << c;
+                    out.push_back(c);
                 }
                 break;
         }
     }
-    return ss.str();
+    return out;
 }
 
 } // namespace Encoding
