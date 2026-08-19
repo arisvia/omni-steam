@@ -38,67 +38,6 @@ std::atomic<bool> g_serverRunning{false};
 std::thread g_serverThread;
 SOCKET g_listenSocket = INVALID_SOCKET;
 
-std::string UrlDecode(const std::string& in) {
-    std::string out;
-    out.reserve(in.length());
-    for (size_t i = 0; i < in.length(); ++i) {
-        if (in[i] == '%') {
-            if (i + 2 < in.length()) {
-                int hexVal = 0;
-                std::istringstream iss(in.substr(i + 1, 2));
-                if (iss >> std::hex >> hexVal) {
-                    out.push_back(static_cast<char>(hexVal));
-                    i += 2;
-                } else {
-                    out.push_back(in[i]);
-                }
-            }
-        } else if (in[i] == '+') {
-            out.push_back(' ');
-        } else {
-            out.push_back(in[i]);
-        }
-    }
-    return out;
-}
-
-std::string EscapeJsonString(const std::string& in) {
-    std::ostringstream ss;
-    for (char c : in) {
-        switch (c) {
-            case '"':
-                ss << "\\\"";
-                break;
-            case '\\':
-                ss << "\\\\";
-                break;
-            case '\b':
-                ss << "\\b";
-                break;
-            case '\f':
-                ss << "\\f";
-                break;
-            case '\n':
-                ss << "\\n";
-                break;
-            case '\r':
-                ss << "\\r";
-                break;
-            case '\t':
-                ss << "\\t";
-                break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
-                } else {
-                    ss << c;
-                }
-                break;
-        }
-    }
-    return ss.str();
-}
-
 bool CheckSteamProcess(uint32_t* outPid = nullptr) {
 #if defined(OMNI_PLATFORM_WINDOWS)
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -363,7 +302,8 @@ std::string HandleHttpRequest(const std::string& request) {
              << "\"steamPid\":" << pid << ","
              << "\"depotKeysCount\":" << DepotKeyStore::GetTotalKeyCount() << ","
              << "\"installedScriptsCount\":" << scripts.size() << ","
-             << "\"defaultLuaDir\":\"" << EscapeJsonString(ScriptManager::GetDefaultLuaDirectory()) << "\""
+             << "\"defaultLuaDir\":\"" << OmniPlatform::Encoding::EscapeJson(ScriptManager::GetDefaultLuaDirectory())
+             << "\""
              << "}";
 
         std::string body = json.str();
@@ -381,13 +321,14 @@ std::string HandleHttpRequest(const std::string& request) {
             size_t endPos = request.find_first_of(" &\r\n", qPos);
             q = request.substr(qPos + 2, endPos - (qPos + 2));
         }
-        std::string decodedQ = UrlDecode(q);
+        std::string decodedQ = OmniPlatform::Encoding::UrlDecode(q);
         auto results = SteamApi::SearchStore(decodedQ);
         std::ostringstream json;
         json << "[";
         for (size_t i = 0; i < results.size(); ++i) {
-            json << "{\"appId\":" << results[i].appId << ",\"name\":\"" << EscapeJsonString(results[i].name)
-                 << "\",\"tinyImage\":\"" << EscapeJsonString(results[i].tinyImage) << "\"}";
+            json << "{\"appId\":" << results[i].appId << ",\"name\":\""
+                 << OmniPlatform::Encoding::EscapeJson(results[i].name) << "\",\"tinyImage\":\""
+                 << OmniPlatform::Encoding::EscapeJson(results[i].tinyImage) << "\"}";
             if (i + 1 < results.size())
                 json << ",";
         }
@@ -405,8 +346,9 @@ std::string HandleHttpRequest(const std::string& request) {
         std::ostringstream json;
         json << "[";
         for (size_t i = 0; i < scripts.size(); ++i) {
-            json << "{\"fileName\":\"" << EscapeJsonString(scripts[i].fileName) << "\",\"fullPath\":\""
-                 << EscapeJsonString(scripts[i].fullPath) << "\",\"title\":\"" << EscapeJsonString(scripts[i].title)
+            json << "{\"fileName\":\"" << OmniPlatform::Encoding::EscapeJson(scripts[i].fileName)
+                 << "\",\"fullPath\":\"" << OmniPlatform::Encoding::EscapeJson(scripts[i].fullPath) << "\",\"title\":\""
+                 << OmniPlatform::Encoding::EscapeJson(scripts[i].title)
                  << "\",\"primaryAppId\":" << scripts[i].primaryAppId
                  << ",\"enabled\":" << (scripts[i].enabled ? "true" : "false")
                  << ",\"fileSize\":" << scripts[i].fileSize << "}";

@@ -11,20 +11,6 @@
 namespace Manager {
 
 namespace {
-std::string UrlEncode(const std::string& value) {
-    std::ostringstream escaped;
-    escaped.fill('0');
-    escaped << std::hex;
-    for (char c : value) {
-        if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
-            escaped << c;
-        } else {
-            escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
-        }
-    }
-    return escaped.str();
-}
-
 std::string ExtractJsonString(const std::string& json, const std::string& key) {
     std::regex re("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
     std::smatch match;
@@ -41,8 +27,8 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     if (query.empty())
         return results;
 
-    std::string url = std::string(OmniEndpoints::Steam::kStoreSearchApi) + "?term=" + UrlEncode(query) +
-                      "&l=" + language + "&cc=" + countryCode;
+    std::string url = std::string(OmniEndpoints::Steam::kStoreSearchApi) +
+                      "?term=" + OmniPlatform::Encoding::UrlEncode(query) + "&l=" + language + "&cc=" + countryCode;
 
     spdlog::info("SteamApi: Querying store search: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 6000);

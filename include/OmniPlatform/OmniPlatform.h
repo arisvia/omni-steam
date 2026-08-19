@@ -6,13 +6,17 @@
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPaths.h"
+#include "OmniPlatform/SteamTypes.h"
+
 namespace OmniPlatform {
 
 namespace Encoding {
 std::vector<uint8_t> HexToBytes(const std::string& hex);
 std::string BytesToHex(const uint8_t* data, size_t length);
+std::string UrlEncode(const std::string& value);
+std::string UrlDecode(const std::string& value);
+std::string EscapeJson(const std::string& value);
 } // namespace Encoding
-
 namespace Numbers {
 uint64_t ParseUInt64(const std::string& str);
 uint32_t ParseUInt32(const std::string& str);

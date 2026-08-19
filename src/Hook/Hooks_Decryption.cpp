@@ -12,13 +12,6 @@
 
 namespace {
 
-enum EConfigStore {
-    k_EConfigStoreInvalid = 0,
-    k_EConfigStoreSystem = 1,
-    k_EConfigStoreUserRoaming = 2,
-    k_EConfigStoreUserLocal = 3
-};
-
 void* g_pConfigStoreLocal = nullptr;
 
 HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key,
