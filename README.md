@@ -16,7 +16,7 @@ OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工
   - macOS: `DYLD_INSERT_LIBRARIES` 注入
 - **通用 Hook 引擎**：基于 `funchook`（Capstone 5.0 反汇编引擎），支持 x86、x86_64 及 ARM64。
 - **内核级热重载**：Linux (`inotify`)、Windows (`ReadDirectoryChangesW`)、macOS (`kqueue`) 全平台配置文件与递归子目录秒级实时生效。
-- **动态特征签名库 (`patterns/`)**：运行时动态解析 TOML 格式的平台签名，不硬编码二进制偏移，支持 GitHub 自动回退。
+- **自适应动态特征码与二进制 RVA 缓存**：启动时基于 Steam 二进制 SHA256 自动探测内部函数并保存至 `cache/`，版本不变时零扫描直通启动，版本更新后自适应重新提取。
 - **独立管理面板 (`omnisteam-manager`)**：
   - 🎮 Steam 官方 Store API 实时检索（AppID、游戏名、DLC 树）。
   - 📜 Lua 解锁脚本可视化一键生成与启用/停用管理，自动关联 `depotkeys.bin` 二进制密钥库。

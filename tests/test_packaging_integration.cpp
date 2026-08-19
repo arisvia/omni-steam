@@ -28,8 +28,7 @@ std::string ResolvePath(const std::string& relativePath) {
 } // namespace
 
 void TestPackagingDefinitions() {
-    assert(FindFile("patterns/linux_x64.toml"));
-    assert(FindFile("patterns/windows_x64.toml"));
+    assert(FindFile("scripts/omnisteam.sh"));
     assert(FindFile("scripts/install-steamos.sh"));
     std::cout << "[PASS] TestPackagingDefinitions\n";
 }

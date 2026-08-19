@@ -4,7 +4,7 @@
 namespace OmniEndpoints {
 
 // ==============================================================================
-// 1. GitHub 官方远程回退仓库端点 (用于签名更新、DepotKey 索引在线拉取)
+// 1. GitHub 官方远程回退仓库端点 (用于 DepotKey 索引在线拉取)
 // ==============================================================================
 namespace GitHub {
 inline constexpr const char* kRepoOwner = "arisvia";
@@ -13,14 +13,6 @@ inline constexpr const char* kBranch = "main";
 
 // GitHub Raw 基础镜像路径 (可切换为加速镜像如 raw.fastgit.org / cdn.jsdelivr.net)
 inline constexpr const char* kRawBaseUrl = "https://raw.githubusercontent.com/arisvia/omni-steam/main";
-
-// 远程动态特征签名库
-inline constexpr const char* kPatternsWindowsX64 =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/windows_x64.toml";
-inline constexpr const char* kPatternsLinuxX64 =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/linux_x64.toml";
-inline constexpr const char* kPatternsMacosX64 =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/macos_x64.toml";
 
 // 远程全局 Depot 解密 Key 二进制数据库
 inline constexpr const char* kDepotKeysBin =

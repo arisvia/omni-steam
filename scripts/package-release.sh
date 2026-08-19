@@ -21,7 +21,6 @@ if [ -d "${PROJECT_ROOT}/build" ]; then
         -C "${PROJECT_ROOT}" \
         README.md \
         omnisteam.example.toml \
-        patterns/ \
         scripts/omnisteam.sh \
         scripts/install-steamos.sh \
         scripts/uninstall-steamos.sh \

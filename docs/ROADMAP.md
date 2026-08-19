@@ -21,11 +21,10 @@
 ---
 
 ## 阶段 2：全平台特征码扫描与 IPC 拦截核心 【已完成】
-- [x] **全平台 Steam 二进制特征提取与动态加载**：
-  - Windows: `patterns/windows_x64.toml`。
-  - Linux: `patterns/linux_x64.toml`。
-  - macOS: `patterns/macos_x64.toml`。
-  - 实现 `PatternLoader` 动态解析器与跨平台回退签名。
+- [x] **全平台 Steam 二进制自适应动态特征提取与 RVA 缓存**：
+  - 自动识别当前平台 Steam 核心模块（`steamclient64.dll` / `steamclient.so` / `steamclient.dylib`）。
+  - 基于二进制 SHA256 自动建立 `cache/pattern_<SHA256>.cache` 索引，版本不变时微秒级直通映射。
+  - Steam 版本升级后自动失效并重新自适应扫描提取。
 - [x] **IPC 协议与二进制消息编解码**：
   - 实现无依赖的 `BufferReader` 与 `BufferWriter` 结构 (`SteamIPC.h`)。
   - 拦截并调度 `IPCProcessMessage` 通信。
