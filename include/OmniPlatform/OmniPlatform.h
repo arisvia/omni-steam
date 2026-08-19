@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
+#include "OmniPlatform/OmniPaths.h"
 namespace OmniPlatform {
 
 namespace Encoding {

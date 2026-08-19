@@ -65,16 +65,8 @@ void RegisterCoreSignatures() {
     RegisterPattern("IPCProcessMessage", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
 #endif
 }
-
 std::string GetCacheDirectory() {
-    std::string base = "cache";
-    try {
-        if (!fs::exists(base)) {
-            fs::create_directories(base);
-        }
-    } catch (...) {
-    }
-    return base;
+    return OmniPlatform::Paths::GetCacheDirectory();
 }
 
 // Binary cache structure: Magic (4) + Version (4) + EntryCount (4) + [NameLen (2) + Name + RVA (8)]

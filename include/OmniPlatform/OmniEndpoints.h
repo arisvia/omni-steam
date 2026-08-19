@@ -15,8 +15,7 @@ inline constexpr const char* kBranch = "main";
 inline constexpr const char* kRawBaseUrl = "https://raw.githubusercontent.com/arisvia/omni-steam/main";
 
 // 远程全局 Depot 解密 Key 二进制数据库
-inline constexpr const char* kDepotKeysBin =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.bin";
+inline constexpr const char* kDepotKeysBin = "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.bin";
 } // namespace GitHub
 
 // ==============================================================================

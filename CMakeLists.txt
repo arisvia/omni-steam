@@ -168,6 +168,7 @@ include_directories(
 # ---------------------------------------------------------------------------
 set(OMNIPLATFORM_COMMON_SOURCES
     src/Platform/Common/Log.cpp
+    src/Platform/Common/OmniPaths.cpp
     src/Platform/Common/Encoding.cpp
     src/Platform/Common/Numbers.cpp
 )
