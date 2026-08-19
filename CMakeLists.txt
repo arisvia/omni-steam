@@ -231,15 +231,15 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_Manifest.cpp
     src/Hook/Hooks_Package.cpp
 )
-add_library(OmniSteam SHARED ${OMNISTEAM_SOURCES})
-set_target_properties(OmniSteam PROPERTIES
+add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
+set_target_properties(omnisteam_core PROPERTIES
     OUTPUT_NAME "omnisteam"
     PREFIX "lib"
     ARCHIVE_OUTPUT_NAME "omnisteam"
     IMPORT_PREFIX "lib"
 )
 
-target_link_libraries(OmniSteam PRIVATE
+target_link_libraries(omnisteam_core PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
     ${LUA_LIB_TARGET}
@@ -248,10 +248,9 @@ target_link_libraries(OmniSteam PRIVATE
 )
 
 if(ENABLE_LOGGING)
-    target_compile_definitions(OmniSteam PRIVATE OMNI_LOGGING_ENABLED)
+    target_compile_definitions(omnisteam_core PRIVATE OMNI_LOGGING_ENABLED)
     target_compile_definitions(OmniPlatform PRIVATE OMNI_LOGGING_ENABLED)
 endif()
-
 # Windows proxy DLLs for seamless launch
 if(WIN32)
     add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
@@ -274,9 +273,12 @@ set(MANAGER_SOURCES
     apps/manager/src/DepotKeyStore.cpp
 )
 
-add_executable(omnisteam ${MANAGER_SOURCES})
-target_include_directories(omnisteam PRIVATE apps/manager/src)
-target_link_libraries(omnisteam PRIVATE
+add_executable(omnisteam_cli ${MANAGER_SOURCES})
+set_target_properties(omnisteam_cli PROPERTIES
+    OUTPUT_NAME "omnisteam"
+)
+target_include_directories(omnisteam_cli PRIVATE apps/manager/src)
+target_link_libraries(omnisteam_cli PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
     spdlog::spdlog_header_only
