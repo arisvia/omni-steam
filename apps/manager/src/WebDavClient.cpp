@@ -39,12 +39,12 @@ ParsedUrl ParseUrl(const std::string& urlStr) {
     return result;
 }
 
-std::string BuildRemotePath(const std::string& basePath, const std::string& subPath) {
-    std::string res = basePath;
-    if (!res.empty() && res.back() != '/')
-        res += '/';
-    std::string p = subPath;
-    if (!p.empty() && p.front() == '/')
+std::wstring BuildRemotePath(const std::wstring& basePath, const std::string& subPath) {
+    std::wstring res = basePath;
+    if (!res.empty() && res.back() != L'/')
+        res += L'/';
+    std::wstring p(subPath.begin(), subPath.end());
+    if (!p.empty() && p.front() == L'/')
         p = p.substr(1);
     return res + p;
 }
@@ -58,9 +58,7 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
         return resp;
     }
 
-    std::string fullPathStr = BuildRemotePath(std::string(base.path.begin(), base.path.end()), remotePath);
-    std::wstring fullPath(fullPathStr.begin(), fullPathStr.end());
-
+    std::wstring fullPath = BuildRemotePath(base.path, remotePath);
     HINTERNET hSession = WinHttpOpen(L"OmniSteam-WebDAV/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                      WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) {
