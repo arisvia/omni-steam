@@ -28,9 +28,9 @@ void TestWebDavConfig() {
 }
 
 int main() {
-    std::cout << "Running OmniSteam Phase 4 Cloud Save & WebDAV Tests...\n";
+    std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
     TestSavePathResolver();
     TestWebDavConfig();
-    std::cout << "All Phase 4 Tests Passed!\n";
+    std::cout << "All Cloud Save Tests Passed!\n";
     return 0;
 }

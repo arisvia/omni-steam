@@ -38,10 +38,10 @@ void TestManifestClientResolution() {
 }
 
 int main() {
-    std::cout << "Running OmniSteam Phase 2 IPC & Pattern Tests...\n";
+    std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
     TestSteamIPCBuffer();
     TestManifestClientResolution();
-    std::cout << "All Phase 2 Tests Passed!\n";
+    std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
 }
