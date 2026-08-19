@@ -46,27 +46,28 @@ static void InitializeOmniSteam() {
 
         // 3. Parse and monitor all Lua script directories
         auto luaDirs = OmniPlatform::Paths::GetCandidateLuaDirectories();
-        spdlog::info("Scanning Lua directory: {}", dir);
-        LuaConfig::ParseDirectory(dir);
+        for (const auto& dir : luaDirs) {
+            spdlog::info("Scanning Lua directory: {}", dir);
+            LuaConfig::ParseDirectory(dir);
         }
 
         std::vector<std::string> watchDirs = luaDirs;
         for (const auto& p : Config::GetLuaPaths()) {
-        if (fs::exists(p)) {
-            watchDirs.push_back(p);
-        }
+            if (fs::exists(p)) {
+                watchDirs.push_back(p);
+            }
         }
 
         OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [](const std::string& path, bool isDir) {
-        if (!isDir && path.ends_with(".lua")) {
-            spdlog::info("Hot reload Lua: {}", path);
-            LuaConfig::ParseFile(path);
-        }
+            if (!isDir && path.ends_with(".lua")) {
+                spdlog::info("Hot reload Lua: {}", path);
+                LuaConfig::ParseFile(path);
+            }
         });
 
         // 4. Install Detour Hooks
         HookManager::InstallHooks();
-});
+    });
 }
 
 #if defined(OMNI_PLATFORM_WINDOWS)
