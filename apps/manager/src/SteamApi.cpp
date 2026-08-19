@@ -1,5 +1,6 @@
 #include "SteamApi.h"
 
+#include <iomanip>
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <sstream>

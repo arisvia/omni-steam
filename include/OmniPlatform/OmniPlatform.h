@@ -17,6 +17,7 @@ uint32_t ParseUInt32(const std::string& str);
 } // namespace Numbers
 
 class Detour {
+public:
     static bool BeginTransaction();
     static bool CommitTransaction();
     static bool Attach(void** ppPointer, void* pDetour);
