@@ -227,11 +227,12 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_Manifest.cpp
     src/Hook/Hooks_Package.cpp
 )
-
 add_library(OmniSteam SHARED ${OMNISTEAM_SOURCES})
 set_target_properties(OmniSteam PROPERTIES
     OUTPUT_NAME "omnisteam"
     PREFIX "lib"
+    ARCHIVE_OUTPUT_NAME "omnisteam"
+    IMPORT_PREFIX "lib"
 )
 
 target_link_libraries(OmniSteam PRIVATE
@@ -250,9 +251,10 @@ endif()
 # Windows proxy DLLs for seamless launch
 if(WIN32)
     add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
-    target_link_libraries(dwmapi PRIVATE OmniSteam)
+    set_target_properties(dwmapi PROPERTIES PREFIX "")
+    # DelayLoad / dynamic resolution: dwmapi forwards calls and does not statically depend on OmniSteam import lib
+    target_include_directories(dwmapi PRIVATE src)
 endif()
-
 # ---------------------------------------------------------------------------
 # OmniSteam Manager Application (Decoupled Dashboard)
 # ---------------------------------------------------------------------------

@@ -76,8 +76,8 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
     }
 
     DWORD flags = base.isHttps ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, method, fullPath.c_str(), nullptr, WINHTTP_NO_REFERRER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    HINTERNET hRequest =
+        WinHttpOpenRequest(hConnect, method, fullPath.c_str(), nullptr, nullptr, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hRequest) {
         WinHttpCloseHandle(hConnect);
         WinHttpCloseHandle(hSession);

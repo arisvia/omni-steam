@@ -67,6 +67,10 @@ jobs:
         with:
           name: omnisteam-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            build/lib/*
-            build/bin/*
+            build/lib/*omnisteam*
+            build/lib/*dwmapi*
+            build/bin/*omnisteam*
+            build/bin/*dwmapi*
+            build/bin/Release/*omnisteam*
+            build/bin/Release/*dwmapi*
           if-no-files-found: ignore

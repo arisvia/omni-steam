@@ -45,12 +45,12 @@ jobs:
 
       - name: Build OmniSteam Core & Manager
         run: cmake --build build --config Release --parallel
-
       - name: Create Package via CPack
         run: |
-          cd build && cpack -C Release
-
-      - name: Upload Release Asset
+          mkdir -p package
+          if [ -d "build/lib" ]; then cp -r build/lib/*omnisteam* build/lib/*dwmapi* package/ 2>/dev/null || true; fi
+          if [ -d "build/bin" ]; then cp -r build/bin/*omnisteam* build/bin/*dwmapi* package/ 2>/dev/null || true; fi
+          if [ -d "build/bin/Release" ]; then cp -r build/bin/Release/*omnisteam* build/bin/Release/*dwmapi* package/ 2>/dev/null || true; fi
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
