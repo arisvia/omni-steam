@@ -1,0 +1,18 @@
+---
+# OmniSteam Clang-Tidy Configuration
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  bugprone-*,
+  modernize-use-auto,
+  modernize-use-override,
+  modernize-use-nullptr,
+  performance-for-range-copy,
+  performance-unnecessary-value-param,
+  performance-move-const-arg,
+  readability-redundant-smartptr-get,
+  readability-container-size-empty
+
+WarningsAsErrors: 'clang-diagnostic-*,bugprone-use-after-move'
+HeaderFilterRegex: 'src/.*|apps/.*|include/.*'
+FormatStyle: file

@@ -308,6 +308,33 @@ if(BUILD_TESTS)
 endif()
 
 # ---------------------------------------------------------------------------
+# Code Formatting & Static Analysis Targets (Native CMake)
+# ---------------------------------------------------------------------------
+find_program(CLANG_FORMAT_BIN clang-format)
+if(CLANG_FORMAT_BIN)
+    file(GLOB_RECURSE ALL_CXX_SOURCE_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    )
+    add_custom_target(format
+        COMMAND ${CLANG_FORMAT_BIN} -i ${ALL_CXX_SOURCE_FILES}
+        COMMENT "Running clang-format on all C++ source files..."
+    )
+    add_custom_target(check-format
+        COMMAND ${CLANG_FORMAT_BIN} --dry-run --Werror ${ALL_CXX_SOURCE_FILES}
+        COMMENT "Checking code formatting style..."
+    )
+endif()
+
+find_program(CLANG_TIDY_BIN clang-tidy)
+if(CLANG_TIDY_BIN)
+    add_custom_target(lint
+        COMMAND ${CLANG_TIDY_BIN} -p ${CMAKE_BINARY_DIR} ${ALL_CXX_SOURCE_FILES}
+        COMMENT "Running clang-tidy static analysis..."
+    )
+endif()
 # CPack Multi-Platform Packaging
 # ---------------------------------------------------------------------------
 set(CPACK_PACKAGE_NAME "OmniSteam")
