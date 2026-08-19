@@ -1,5 +1,6 @@
-#include <string>
 #include <windows.h>
+
+#include <string>
 
 // Function pointers for real DWMAPI functions forwarded to C:\Windows\System32\dwmapi.dll
 namespace {

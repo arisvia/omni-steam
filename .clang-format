@@ -28,6 +28,11 @@ ReferenceAlignment: Left
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 IncludeCategories:
+  # Windows base headers must always be included first
+  - Regex: '^<windows\.h>'
+    Priority: 0
+  - Regex: '^<winsock2\.h>'
+    Priority: 0
   - Regex: '^<.*'
     Priority: 1
   - Regex: '^"OmniPlatform/.*'

@@ -6,6 +6,7 @@
 
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <windows.h>
+
 #include <winhttp.h>
 
 namespace Manager {

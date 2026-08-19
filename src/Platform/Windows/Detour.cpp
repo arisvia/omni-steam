@@ -1,6 +1,7 @@
+#include <windows.h>
+
 #include <mutex>
 #include <spdlog/spdlog.h>
-#include <windows.h>
 
 #include "OmniPlatform/OmniPlatform.h"
 
