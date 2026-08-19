@@ -17,7 +17,7 @@ OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工
 - **通用 Hook 引擎**：基于 `funchook`（Capstone 5.0 反汇编引擎），支持 x86、x86_64 及 ARM64。
 - **内核级热重载**：Linux (`inotify`)、Windows (`ReadDirectoryChangesW`)、macOS (`kqueue`) 全平台配置文件与递归子目录秒级实时生效。
 - **自适应动态特征码与二进制 RVA 缓存**：启动时基于 Steam 二进制 SHA256 自动探测内部函数并保存至 `cache/`，版本不变时零扫描直通启动，版本更新后自适应重新提取。
-- **独立管理面板 (`omnisteam-manager`)**：
+- **独立管理面板 CLI (`omnisteam`)**：
   - 🎮 Steam 官方 Store API 实时检索（AppID、游戏名、DLC 树）。
   - 📜 Lua 解锁脚本可视化一键生成与启用/停用管理，自动关联 `depotkeys.bin` 二进制密钥库。
   - 🌐 嵌入式 Web 仪表盘（支持 PC 与手机局域网远程管理，适配 Steam Deck 掌机）。
@@ -85,10 +85,10 @@ ctest --output-on-failure -C Release
   ./scripts/uninstall-steamos.sh
   ```
 
-### 3. 运行管理面板 (Manager)
+### 3. 运行管理面板 (Manager CLI)
 
 ```bash
-./build/bin/omnisteam-manager [可选端口，默认8080]
+omnisteam [可选端口，默认8080]
 ```
 - 搜索游戏并一键生成解锁脚本（自动匹配内置与云端 `depotkeys.bin` 二进制密钥库）。
 - 配置 WebDAV 云存档备份。

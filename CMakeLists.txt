@@ -273,9 +273,9 @@ set(MANAGER_SOURCES
     apps/manager/src/DepotKeyStore.cpp
 )
 
-add_executable(omnisteam-manager ${MANAGER_SOURCES})
-target_include_directories(omnisteam-manager PRIVATE apps/manager/src)
-target_link_libraries(omnisteam-manager PRIVATE
+add_executable(omnisteam ${MANAGER_SOURCES})
+target_include_directories(omnisteam PRIVATE apps/manager/src)
+target_link_libraries(omnisteam PRIVATE
     OmniPlatform
     tomlplusplus::tomlplusplus
     spdlog::spdlog_header_only

@@ -27,9 +27,9 @@ if [ -f "${PROJECT_ROOT}/build/lib/libomnisteam.so" ]; then
     echo "✓ Installed libomnisteam.so to ${OMNI_BIN_DIR}"
 fi
 
-if [ -f "${PROJECT_ROOT}/build/bin/omnisteam-manager" ]; then
-    cp "${PROJECT_ROOT}/build/bin/omnisteam-manager" "${OMNI_BIN_DIR}/"
-    echo "✓ Installed omnisteam-manager to ${OMNI_BIN_DIR}"
+if [ -f "${PROJECT_ROOT}/build/bin/omnisteam" ]; then
+    cp "${PROJECT_ROOT}/build/bin/omnisteam" "${OMNI_BIN_DIR}/"
+    echo "✓ Installed omnisteam to ${OMNI_BIN_DIR}"
 fi
 
 # 3. Copy default configuration if absent

@@ -13,7 +13,7 @@
 namespace fs = std::filesystem;
 
 namespace Log {
-void Init();
+void Init(const std::string& componentName = "omnisteam_core");
 }
 
 namespace {
