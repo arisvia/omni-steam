@@ -1,5 +1,9 @@
 #include "WebServer.h"
 
+#include "DepotKeyStore.h"
+#include "ScriptManager.h"
+#include "SteamApi.h"
+
 #include <atomic>
 #include <cstring>
 #include <regex>
@@ -8,10 +12,6 @@
 #include <thread>
 
 #include "OmniPlatform/OmniPlatform.h"
-
-#include "DepotKeyStore.h"
-#include "ScriptManager.h"
-#include "SteamApi.h"
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <winsock2.h>
 

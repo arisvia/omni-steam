@@ -1,8 +1,8 @@
+#include "ScriptManager.h"
+
 #include <cassert>
 #include <filesystem>
 #include <iostream>
-
-#include "ScriptManager.h"
 
 namespace fs = std::filesystem;
 

@@ -28,18 +28,27 @@ ReferenceAlignment: Left
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 IncludeCategories:
-  # Windows base headers must always be included first
-  - Regex: '^<windows\.h>'
-    Priority: 0
-  - Regex: '^<winsock2\.h>'
-    Priority: 0
-  - Regex: '^<.*'
+  # 0. Primary matching header (Foo.cpp -> Foo.h) placed at the very top
+  - Regex: '^"((\.\./)*|\w+/)*[A-Za-z0-9_]+\.h"'
     Priority: 1
-  - Regex: '^"OmniPlatform/.*'
+  # 1. Windows socket headers (must precede windows.h)
+  - Regex: '^<winsock2\.h>'
     Priority: 2
-  - Regex: '^"Utils/.*'
+  # 2. Windows core base headers (must precede other windows sdk headers)
+  - Regex: '^<windows\.h>'
     Priority: 3
-  - Regex: '^"Hook/.*'
+  # 3. Standard C/C++ library headers (<vector>, <string>, etc.) and third-party headers (<spdlog/...>, <curl/...>)
+  - Regex: '^<.*'
     Priority: 4
-  - Regex: '.*'
+  # 4. Platform abstraction layer
+  - Regex: '^"OmniPlatform/.*'
     Priority: 5
+  # 5. Internal utility & domain components
+  - Regex: '^"Utils/.*'
+    Priority: 6
+  # 6. Hook & Manager subsystems
+  - Regex: '^"(Hook|Manager)/.*'
+    Priority: 7
+  # 7. Fallback for all other includes
+  - Regex: '.*'
+    Priority: 8

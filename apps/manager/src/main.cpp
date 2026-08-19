@@ -1,11 +1,11 @@
+#include "ScriptManager.h"
+#include "SteamApi.h"
+#include "WebServer.h"
+
 #include <iostream>
 #include <spdlog/spdlog.h>
 
 #include "OmniPlatform/OmniPlatform.h"
-
-#include "ScriptManager.h"
-#include "SteamApi.h"
-#include "WebServer.h"
 
 namespace Log {
 void Init();

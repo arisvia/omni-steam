@@ -1,7 +1,7 @@
+#include "DepotKeyStore.h"
+
 #include <cassert>
 #include <iostream>
-
-#include "DepotKeyStore.h"
 
 void TestDepotKeyStore() {
     Manager::DepotKeyStore::Initialize();
