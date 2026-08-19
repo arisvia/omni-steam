@@ -268,33 +268,43 @@ target_link_libraries(omnisteam-manager PRIVATE
 # ---------------------------------------------------------------------------
 # Test Suite
 # ---------------------------------------------------------------------------
+# Test Suite (Domain & Module Organized)
+# ---------------------------------------------------------------------------
 if(BUILD_TESTS)
     enable_testing()
+
+    # 1. Platform Abstraction Layer (Memory, ByteSearch, Crypto, CredentialStore)
     add_executable(test_platform tests/test_platform.cpp)
     target_link_libraries(test_platform PRIVATE OmniPlatform)
     add_test(NAME PlatformTests COMMAND test_platform)
 
-    add_executable(test_phase2 tests/test_phase2.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
-    target_link_libraries(test_phase2 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
-    add_test(NAME Phase2Tests COMMAND test_phase2)
+    # 2. Steam IPC Protocol & Signature / Manifest Metadata Engine
+    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
+    target_link_libraries(test_ipc_metadata PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
+    add_test(NAME IpcMetadataTests COMMAND test_ipc_metadata)
 
-    add_executable(test_phase3 tests/test_phase3.cpp apps/manager/src/ScriptManager.cpp)
-    target_include_directories(test_phase3 PRIVATE apps/manager/src)
-    target_link_libraries(test_phase3 PRIVATE OmniPlatform)
-    add_test(NAME Phase3Tests COMMAND test_phase3)
+    # 3. Lua Script Manager (Unlock Code Generation, Lifecycle & Hot-Reload)
+    add_executable(test_script_manager tests/test_script_manager.cpp apps/manager/src/ScriptManager.cpp)
+    target_include_directories(test_script_manager PRIVATE apps/manager/src)
+    target_link_libraries(test_script_manager PRIVATE OmniPlatform)
+    add_test(NAME ScriptManagerTests COMMAND test_script_manager)
 
-    add_executable(test_phase4 tests/test_phase4.cpp apps/manager/src/SavePathResolver.cpp apps/manager/src/WebDavClient.cpp apps/manager/src/CloudSaveManager.cpp)
-    target_include_directories(test_phase4 PRIVATE apps/manager/src)
-    target_link_libraries(test_phase4 PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${PLATFORM_LIBS})
-    add_test(NAME Phase4Tests COMMAND test_phase4)
-    add_executable(test_phase5 tests/test_phase5.cpp)
-    target_link_libraries(test_phase5 PRIVATE OmniPlatform)
-    add_test(NAME Phase5Tests COMMAND test_phase5)
+    # 4. Cloud Save & WebDAV Synchronization Engine
+    add_executable(test_cloud_save tests/test_cloud_save.cpp apps/manager/src/SavePathResolver.cpp apps/manager/src/WebDavClient.cpp apps/manager/src/CloudSaveManager.cpp)
+    target_include_directories(test_cloud_save PRIVATE apps/manager/src)
+    target_link_libraries(test_cloud_save PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${PLATFORM_LIBS})
+    add_test(NAME CloudSaveTests COMMAND test_cloud_save)
 
-    add_executable(test_depotkeys tests/test_depotkeys.cpp apps/manager/src/DepotKeyStore.cpp)
-    target_include_directories(test_depotkeys PRIVATE apps/manager/src)
-    target_link_libraries(test_depotkeys PRIVATE OmniPlatform)
-    add_test(NAME DepotKeyTests COMMAND test_depotkeys)
+    # 5. Packaging, Signatures & Decky Plugin Integration
+    add_executable(test_packaging_integration tests/test_packaging_integration.cpp)
+    target_link_libraries(test_packaging_integration PRIVATE OmniPlatform)
+    add_test(NAME PackagingIntegrationTests COMMAND test_packaging_integration)
+
+    # 6. Depot Key Local / Remote Auto-Fetch Store
+    add_executable(test_depot_keys tests/test_depot_keys.cpp apps/manager/src/DepotKeyStore.cpp)
+    target_include_directories(test_depot_keys PRIVATE apps/manager/src)
+    target_link_libraries(test_depot_keys PRIVATE OmniPlatform)
+    add_test(NAME DepotKeyTests COMMAND test_depot_keys)
 endif()
 
 # ---------------------------------------------------------------------------

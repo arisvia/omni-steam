@@ -44,9 +44,9 @@ void TestDeckyPluginSchema() {
 }
 
 int main() {
-    std::cout << "Running OmniSteam Phase 5 Integration & Packaging Tests...\n";
+    std::cout << "Running OmniSteam Packaging & Decky Integration Tests...\n";
     TestPackagingDefinitions();
     TestDeckyPluginSchema();
-    std::cout << "All Phase 5 Tests Passed!\n";
+    std::cout << "All Packaging & Integration Tests Passed!\n";
     return 0;
 }

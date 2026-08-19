@@ -23,6 +23,8 @@ void TestScriptGeneration() {
 void TestScriptLifecycle() {
     std::string tempDir = (fs::temp_directory_path() / "test_omnisteam_lua").string();
     fs::create_directories(tempDir);
+
+    Manager::UnlockGameSpec spec;
     spec.appId = 9999;
     spec.gameName = "TestGame";
 
@@ -48,9 +50,9 @@ void TestScriptLifecycle() {
 }
 
 int main() {
-    std::cout << "Running OmniSteam Phase 3 Manager Tests...\n";
+    std::cout << "Running OmniSteam Script Manager Tests...\n";
     TestScriptGeneration();
     TestScriptLifecycle();
-    std::cout << "All Phase 3 Tests Passed!\n";
+    std::cout << "All Script Manager Tests Passed!\n";
     return 0;
 }

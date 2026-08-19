@@ -32,8 +32,7 @@
 - [x] **Depot 解密与 Manifest 自动调度**：
   - `Hooks_Decryption.cpp`：`ConfigStore::GetBinary` 动态拦截与密钥回填。
   - `ManifestClient.cpp`：接入多上游（opensteamtool / steamrun / wudrm / 自定义）Manifest GID 自动化拉取。
-- [x] 自动化测试套件：`tests/test_phase2.cpp`（特征匹配、IPC 序列化、Manifest 解析）。
-
+- [x] 模块化测试套件：`tests/test_ipc_metadata.cpp`（特征匹配、IPC 序列化、Manifest 解析）。
 ---
 
 ## 阶段 3：OmniSteam Manager 面板开发 【已完成】
@@ -45,8 +44,7 @@
   - 实现 `ScriptManager.cpp`，支持一键生成规范 `.lua` 脚本、目录扫描、重命名启用/停用与删除。
 - [x] **嵌入式 Web 仪表盘与 REST 服务**：
   - 实现轻量高并发 WebServer（提供 `/api/search`、`/api/scripts`、`/api/unlock`、`/api/toggle`）。
-- [x] 自动化测试套件：`tests/test_phase3.cpp`（脚本生成、启用/停用生命周期测试）。
-
+- [x] 模块化测试套件：`tests/test_script_manager.cpp`（脚本生成、启用/停用生命周期测试）。
 ---
 
 ## 阶段 4：WebDAV 云存档重定向与同步系统 【已完成】
@@ -57,8 +55,7 @@
   - 支持 `MKCOL`、`PUT`、`GET`、`DELETE` 与 Basic / Digest 认证。
 - [x] **云存档多版本增量备份管理器 (`CloudSaveManager`)**：
   - 时间戳版本化（`YYYYMMDD_HHMMSS`）备份隔离与独立线程同步。
-- [x] 自动化测试套件：`tests/test_phase4.cpp`（存档探测与 WebDAV 结构校验）。
-
+- [x] 模块化测试套件：`tests/test_cloud_save.cpp`（存档探测与 WebDAV 结构校验）。
 ---
 
 ## 阶段 5：SteamOS / Steam Deck 深度整合与发布打包 【已完成】
@@ -68,4 +65,4 @@
   - 采用 `systemd user environment.d` 挂载，完全不触碰 SteamOS 系统只读分区。
 - [x] **CPack 多格式全平台自动打包配置**：
   - 支持生成 `.tar.gz`、`.zip`、`.deb` 等格式分发包。
-- [x] 自动化测试套件：`tests/test_phase5.cpp`（打包配置与 Decky 规范校验）。
+- [x] 模块化测试套件：`tests/test_packaging_integration.cpp`（打包配置与 Decky 规范校验）。
