@@ -1,7 +1,6 @@
+#include <windows.h>
 #include <psapi.h>
 #include <vector>
-#include <windows.h>
-
 #include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
