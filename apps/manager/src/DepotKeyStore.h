@@ -11,6 +11,7 @@ public:
     static std::string GetKeyForDepot(uint32_t depotId);
     static bool HasKey(uint32_t depotId);
     static size_t Count();
+    static size_t GetTotalKeyCount() { return Count(); }
 };
 
 } // namespace Manager

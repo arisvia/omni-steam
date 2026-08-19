@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <regex>
 #include <spdlog/spdlog.h>
 #include <vector>
 
@@ -48,6 +49,7 @@ bool ParseBinaryContent(const uint8_t* data, size_t size) {
         spdlog::warn("DepotKeyStore: Invalid magic 0x{:08X}", header->magic);
         return false;
     }
+
     if (header->version != kCurrentVersion) {
         spdlog::warn("DepotKeyStore: Unsupported version {}", header->version);
         return false;
@@ -55,7 +57,7 @@ bool ParseBinaryContent(const uint8_t* data, size_t size) {
 
     size_t expectedSize = sizeof(DepotKeyHeader) + header->count * sizeof(DepotKeyRecord);
     if (size < expectedSize) {
-        spdlog::warn("DepotKeyStore: Truncated binary file, expected {} bytes, got {}", expectedSize, size);
+        spdlog::warn("DepotKeyStore: Buffer size {} smaller than expected payload {}", size, expectedSize);
         return false;
     }
 
@@ -64,6 +66,53 @@ bool ParseBinaryContent(const uint8_t* data, size_t size) {
     std::memcpy(g_records.data(), recordsData, header->count * sizeof(DepotKeyRecord));
 
     return true;
+}
+
+void ImportKeysFromConfigVdf() {
+    std::string steamPath = OmniPlatform::Paths::GetSteamInstallPath();
+    std::string vdfPath = (fs::path(steamPath) / "config" / "config.vdf").generic_string();
+    if (!fs::exists(vdfPath))
+        return;
+
+    std::ifstream in(vdfPath);
+    if (!in)
+        return;
+
+    std::string line;
+    std::regex depotRegex("\"(\\d{3,10})\"");
+    std::regex keyRegex("\"DecryptionKey\"\\s*\"([0-9a-fA-F]{64})\"");
+    uint32_t currentDepotId = 0;
+    size_t imported = 0;
+
+    while (std::getline(in, line)) {
+        std::smatch m;
+        if (std::regex_search(line, m, keyRegex)) {
+            if (currentDepotId != 0 && m.size() > 1) {
+                std::string keyHex = m[1].str();
+                auto keyBytes = OmniPlatform::Encoding::HexToBytes(keyHex);
+                if (keyBytes.size() == 32) {
+                    auto it = std::lower_bound(g_records.begin(), g_records.end(), currentDepotId,
+                                               [](const DepotKeyRecord& r, uint32_t id) { return r.depot_id < id; });
+                    if (it == g_records.end() || it->depot_id != currentDepotId) {
+                        DepotKeyRecord rec;
+                        rec.depot_id = currentDepotId;
+                        std::memcpy(rec.key, keyBytes.data(), 32);
+                        g_records.insert(it, rec);
+                        imported++;
+                    }
+                }
+            }
+        } else if (std::regex_search(line, m, depotRegex)) {
+            try {
+                currentDepotId = static_cast<uint32_t>(std::stoul(m[1].str()));
+            } catch (...) {
+                currentDepotId = 0;
+            }
+        }
+    }
+    if (imported > 0) {
+        spdlog::info("DepotKeyStore: Imported {} additional keys from local Steam config.vdf", imported);
+    }
 }
 } // namespace
 
@@ -94,6 +143,7 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
                 if (ParseBinaryContent(buffer.data(), buffer.size())) {
                     spdlog::info("DepotKeyStore: Loaded {} depot keys from local binary {}", g_records.size(),
                                  foundPath);
+                    ImportKeysFromConfigVdf();
                     return;
                 }
             }
@@ -116,11 +166,14 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
                 cacheOut.write(resp.body.data(), resp.body.size());
                 spdlog::info("DepotKeyStore: Cached remote depotkeys.bin to {}", cachePath);
             }
+            ImportKeysFromConfigVdf();
             return;
         }
     } else {
         spdlog::warn("DepotKeyStore: Could not fetch remote depot keys: {}", resp.error);
     }
+
+    ImportKeysFromConfigVdf();
 }
 
 std::string DepotKeyStore::GetKeyForDepot(uint32_t depotId) {

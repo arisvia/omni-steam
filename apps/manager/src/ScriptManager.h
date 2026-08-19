@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Manager {
@@ -12,6 +13,9 @@ struct UnlockGameSpec {
     std::string accessToken;
     std::string customManifestId;
     std::string depotKeyHex;
+    std::string appTicketHex;
+    std::string eTicketHex;
+    std::unordered_map<uint32_t, std::string> depotKeys;
 };
 
 struct ScriptFileInfo {
