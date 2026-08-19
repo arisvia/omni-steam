@@ -19,7 +19,7 @@ OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工
 - **动态特征签名库 (`patterns/`)**：运行时动态解析 TOML 格式的平台签名，不硬编码二进制偏移，支持 GitHub 自动回退。
 - **独立管理面板 (`omnisteam-manager`)**：
   - 🎮 Steam 官方 Store API 实时检索（AppID、游戏名、DLC 树）。
-  - 📜 Lua 解锁脚本可视化一键生成与启用/停用管理，自动关联 `depotkeys.json`。
+  - 📜 Lua 解锁脚本可视化一键生成与启用/停用管理，自动关联 `depotkeys.bin` 二进制密钥库。
   - 🌐 嵌入式 Web 仪表盘（支持 PC 与手机局域网远程管理，适配 Steam Deck 掌机）。
   - ☁️ 跨平台游戏存档智能探测与 WebDAV 增量多版本云备份。
 - **Steam Deck 原生插件 (`plugins/decky-omnisteam`)**：
@@ -90,8 +90,7 @@ ctest --output-on-failure -C Release
 ```bash
 ./build/bin/omnisteam-manager [可选端口，默认8080]
 ```
-浏览器访问 `http://127.0.0.1:8080`，即可：
-- 搜索游戏并一键生成解锁脚本（自动匹配内置与云端 `depotkeys.json` 密钥）。
+- 搜索游戏并一键生成解锁脚本（自动匹配内置与云端 `depotkeys.bin` 二进制密钥库）。
 - 配置 WebDAV 云存档备份。
 
 ---

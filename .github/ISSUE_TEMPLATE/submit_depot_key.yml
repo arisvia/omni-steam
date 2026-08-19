@@ -1,0 +1,62 @@
+name: "🔑 Submit Depot Decryption Key"
+description: "Submit a verified AES-256 Depot Decryption Key to the global OmniSteam database"
+title: "[DepotKey]: Depot "
+labels: ["depot-key-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🔑 OmniSteam Depot Key Submission Form
+        Please provide the verified Steam AppID, Depot ID, and 64-character AES-256 Decryption Key.
+        Submissions will be automatically verified against Steam metadata and entropy-checked before merging into `depotkeys.bin`.
+
+  - type: input
+    id: app_id
+    attributes:
+      label: Steam AppID
+      description: The main Steam AppID of the game or software (e.g. 3934250)
+      placeholder: "e.g. 3934250"
+    validations:
+      required: true
+
+  - type: input
+    id: depot_id
+    attributes:
+      label: Depot ID
+      description: The specific Steam Depot ID to decrypt (e.g. 3934251)
+      placeholder: "e.g. 3934251"
+    validations:
+      required: true
+
+  - type: input
+    id: depot_key
+    attributes:
+      label: 64-character Decryption Key (AES-256 Hex)
+      description: Exactly 64 hexadecimal characters
+      placeholder: "e.g. b465d45ab2a7c396f7d1c08a6644e68529ec86b14da77e18588abbbcd2412060"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: depot_type
+    attributes:
+      label: Depot Type
+      description: Category of this depot content
+      options:
+        - "Game Content / Main Depot"
+        - "DLC (Downloadable Content)"
+        - "Soundtrack / Music"
+        - "Executable / Binary"
+        - "Language / Localization"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Game Name & Notes
+      description: Game Title, DLC name, or additional context (optional)
+      placeholder: "e.g. Game Name - Soundtrack Depot Key"
+    validations:
+      required: false

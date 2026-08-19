@@ -7,13 +7,16 @@ void TestDepotKeyStore() {
     Manager::DepotKeyStore::Initialize();
     std::cout << "[INFO] Loaded Depot Keys count: " << Manager::DepotKeyStore::Count() << "\n";
     assert(Manager::DepotKeyStore::Count() > 0);
-
-    // Check known depot key from depotkeys.json (depot 1)
+    // Check known depot key from depotkeys.bin (depot 1)
     std::string key1 = Manager::DepotKeyStore::GetKeyForDepot(1);
     assert(!key1.empty());
     assert(key1 == "b465d45ab2a7c396f7d1c08a6644e68529ec86b14da77e18588abbbcd2412060");
 
-    std::cout << "[PASS] TestDepotKeyStore (Depot 1 key matched)\n";
+    // Check binary search on a higher depot ID
+    assert(Manager::DepotKeyStore::HasKey(1));
+    assert(!Manager::DepotKeyStore::HasKey(999999999));
+
+    std::cout << "[PASS] TestDepotKeyStore (Binary format loaded & Depot 1 verified)\n";
 }
 
 int main() {

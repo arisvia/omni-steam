@@ -191,13 +191,11 @@ std::string HandleHttpRequest(const std::string& request) {
                 spec.appId = appId;
                 spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
                 spec.dlcAppIds = details.dlcAppIds;
-
-                // Auto-fill depot key from local depotkeys.json if available
+                // Auto-fill depot key from local depotkeys.bin if available
                 std::string key = DepotKeyStore::GetKeyForDepot(appId);
                 if (!key.empty()) {
                     spec.depotKeyHex = key;
                 }
-
                 ScriptManager::SaveGameUnlock(spec);
             }
         }

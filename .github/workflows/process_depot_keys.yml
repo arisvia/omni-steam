@@ -1,0 +1,131 @@
+name: Process Depot Key Submissions
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  validate-and-merge:
+    name: Validate & Merge Depot Key
+    if: contains(github.event.issue.labels.*.name, 'depot-key-submission') || startsWith(github.event.issue.title, '[DepotKey]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Save Issue Content
+        run: |
+          cat << 'EOF' > /tmp/issue_body.md
+          ${{ github.event.issue.body }}
+          EOF
+
+      - name: Validate & Merge Key
+        id: process_key
+        run: |
+          python tools/process_issue_key.py /tmp/issue_body.md depotkeys.bin > /tmp/process_output.txt 2>&1 || true
+          cat /tmp/process_output.txt
+          
+          RESULT=$(grep "RESULT:" /tmp/process_output.txt | cut -d':' -f2 || echo "UNKNOWN")
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
+          
+          GAME_TITLE=$(grep "GAME_TITLE:" /tmp/process_output.txt | cut -d':' -f2- || echo "")
+          echo "game_title=$GAME_TITLE" >> $GITHUB_OUTPUT
+          
+          DEPOT_ID=$(grep "DEPOT_ID:" /tmp/process_output.txt | cut -d':' -f2 || echo "")
+          echo "depot_id=$DEPOT_ID" >> $GITHUB_OUTPUT
+          
+          APP_ID=$(grep "APP_ID:" /tmp/process_output.txt | cut -d':' -f2 || echo "")
+          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push depotkeys.bin
+        if: steps.process_key.outputs.result == 'MERGED'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add depotkeys.bin
+          git commit -m "chore(depotkeys): add depot ${{ steps.process_key.outputs.depot_id }} for ${{ steps.process_key.outputs.game_title }} [skip ci]"
+          git push origin main
+
+      - name: Comment on Issue (Success)
+        if: steps.process_key.outputs.result == 'MERGED'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const depotId = '${{ steps.process_key.outputs.depot_id }}';
+            const gameTitle = '${{ steps.process_key.outputs.game_title }}';
+            const appId = '${{ steps.process_key.outputs.app_id }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### 🎉 Key Verified & Merged!\n\n- **Game Title**: ${gameTitle} (AppID: \`${appId}\`)\n- **Depot ID**: \`${depotId}\`\n\nThe decryption key has passed Steam metadata verification and entropy checks, and is now merged into \`depotkeys.bin\`!`
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed',
+              state_reason: 'completed'
+            });
+
+      - name: Comment on Issue (Duplicate)
+        if: steps.process_key.outputs.result == 'DUPLICATE'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### ℹ️ Already Up to Date\n\nThis Depot Key already exists in \`depotkeys.bin\` with the same decryption key. Closing as duplicate.`
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed',
+              state_reason: 'not_planned'
+            });
+
+      - name: Comment on Issue (Conflict / Invalid)
+        if: steps.process_key.outputs.result == 'CONFLICT_REQUIRES_MANUAL_REVIEW' || steps.process_key.outputs.result == 'INVALID_KEY' || steps.process_key.outputs.result == 'INVALID_FORM'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = '${{ steps.process_key.outputs.result }}';
+            let message = '';
+            if (result === 'CONFLICT_REQUIRES_MANUAL_REVIEW') {
+              message = `### ⚠️ Key Conflict Warning\n\nThis Depot ID already exists in the database with a **different** decryption key.\n\nTo prevent database pollution and malicious overwrites, an automatic overwrite was blocked. A maintainer will manually verify this key.`;
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['conflict-review']
+              });
+            } else {
+              message = `### ❌ Validation Failed\n\nThe submitted Depot Key format, entropy, or AppID form fields could not be verified. Please ensure you provide a valid 64-character hexadecimal AES-256 key.`;
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['invalid']
+              });
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: message
+            });

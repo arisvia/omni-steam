@@ -22,9 +22,9 @@ inline constexpr const char* kPatternsLinuxX64 =
 inline constexpr const char* kPatternsMacosX64 =
     "https://raw.githubusercontent.com/arisvia/omni-steam/main/patterns/macos_x64.toml";
 
-// 远程全局 Depot 解密 Key 数据库
-inline constexpr const char* kDepotKeysJson =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.json";
+// 远程全局 Depot 解密 Key 二进制数据库
+inline constexpr const char* kDepotKeysBin =
+    "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.bin";
 } // namespace GitHub
 
 // ==============================================================================

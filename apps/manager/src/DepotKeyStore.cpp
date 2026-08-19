@@ -1,10 +1,12 @@
 #include "DepotKeyStore.h"
 
+#include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
-#include <regex>
 #include <spdlog/spdlog.h>
+#include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
@@ -14,31 +16,64 @@ namespace fs = std::filesystem;
 namespace Manager {
 
 namespace {
+constexpr uint32_t kOmkyMagic = 0x4F4D4B59; // "OMKY"
+constexpr uint32_t kCurrentVersion = 1;
+
+#pragma pack(push, 1)
+struct DepotKeyHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t count;
+};
+
+struct DepotKeyRecord {
+    uint32_t depot_id;
+    uint8_t key[32];
+};
+#pragma pack(pop)
+
 std::mutex g_storeMutex;
 bool g_initialized = false;
-std::unordered_map<uint32_t, std::string> g_depotKeys;
-const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysJson;
-void ParseJsonContent(const std::string& content) {
-    std::regex pairRegex("\"(\\d+)\"\\s*:\\s*\"([0-9a-fA-F]{64})\"");
-    auto begin = std::sregex_iterator(content.begin(), content.end(), pairRegex);
-    auto end = std::sregex_iterator();
+std::vector<DepotKeyRecord> g_records;
+const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysBin;
 
-    for (auto it = begin; it != end; ++it) {
-        uint32_t depotId = static_cast<uint32_t>(std::stoul((*it)[1].str()));
-        std::string keyHex = (*it)[2].str();
-        g_depotKeys[depotId] = keyHex;
+bool ParseBinaryContent(const uint8_t* data, size_t size) {
+    if (size < sizeof(DepotKeyHeader)) {
+        spdlog::warn("DepotKeyStore: Buffer size {} smaller than header", size);
+        return false;
     }
+
+    const auto* header = reinterpret_cast<const DepotKeyHeader*>(data);
+    if (header->magic != kOmkyMagic) {
+        spdlog::warn("DepotKeyStore: Invalid magic 0x{:08X}", header->magic);
+        return false;
+    }
+    if (header->version != kCurrentVersion) {
+        spdlog::warn("DepotKeyStore: Unsupported version {}", header->version);
+        return false;
+    }
+
+    size_t expectedSize = sizeof(DepotKeyHeader) + header->count * sizeof(DepotKeyRecord);
+    if (size < expectedSize) {
+        spdlog::warn("DepotKeyStore: Truncated binary file, expected {} bytes, got {}", expectedSize, size);
+        return false;
+    }
+
+    g_records.resize(header->count);
+    const auto* recordsData = reinterpret_cast<const DepotKeyRecord*>(data + sizeof(DepotKeyHeader));
+    std::memcpy(g_records.data(), recordsData, header->count * sizeof(DepotKeyRecord));
+
+    return true;
 }
 } // namespace
 
-void DepotKeyStore::Initialize(const std::string& jsonFilePath) {
+void DepotKeyStore::Initialize(const std::string& binFilePath) {
     std::lock_guard<std::mutex> lock(g_storeMutex);
-    g_depotKeys.clear();
+    g_records.clear();
     g_initialized = true;
 
-    std::vector<std::string> candidatePaths = {jsonFilePath, "depotkeys.json", "../depotkeys.json",
-                                               "../../depotkeys.json",
-                                               OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.json"};
+    std::vector<std::string> candidatePaths = {binFilePath, "depotkeys.bin", "../depotkeys.bin", "../../depotkeys.bin",
+                                               OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.bin"};
 
     std::string foundPath;
     for (const auto& p : candidatePaths) {
@@ -48,31 +83,40 @@ void DepotKeyStore::Initialize(const std::string& jsonFilePath) {
         }
     }
 
-    // 1. Try local file first
+    // 1. Try local binary file first
     if (!foundPath.empty()) {
-        std::ifstream inFile(foundPath);
+        std::ifstream inFile(foundPath, std::ios::binary | std::ios::ate);
         if (inFile) {
-            std::string content((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
-            ParseJsonContent(content);
-            spdlog::info("DepotKeyStore: Loaded {} depot keys from local file {}", g_depotKeys.size(), foundPath);
-            return;
+            std::streamsize fileSize = inFile.tellg();
+            inFile.seekg(0, std::ios::beg);
+            std::vector<uint8_t> buffer(static_cast<size_t>(fileSize));
+            if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
+                if (ParseBinaryContent(buffer.data(), buffer.size())) {
+                    spdlog::info("DepotKeyStore: Loaded {} depot keys from local binary {}", g_records.size(),
+                                 foundPath);
+                    return;
+                }
+            }
         }
     }
 
     // 2. Fallback: Automatically download from GitHub Raw repo
-    spdlog::info("DepotKeyStore: Local depotkeys.json not found, fetching from {}", kRemoteDepotKeysUrl);
-    auto resp = OmniPlatform::Http::Get(kRemoteDepotKeysUrl, 8000);
+    spdlog::info("DepotKeyStore: Local depotkeys.bin not found, fetching from {}", kRemoteDepotKeysUrl);
+    auto resp = OmniPlatform::Http::Get(kRemoteDepotKeysUrl, 10000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
-        ParseJsonContent(resp.body);
-        spdlog::info("DepotKeyStore: Successfully fetched and parsed {} depot keys from GitHub remote",
-                     g_depotKeys.size());
+        const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
+        if (ParseBinaryContent(rawData, resp.body.size())) {
+            spdlog::info("DepotKeyStore: Successfully fetched and parsed {} depot keys from GitHub remote",
+                         g_records.size());
 
-        // Cache to local storage directory for offline usage
-        std::string cachePath = OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.json";
-        std::ofstream cacheOut(cachePath, std::ios::trunc);
-        if (cacheOut) {
-            cacheOut << resp.body;
-            spdlog::info("DepotKeyStore: Cached remote depotkeys.json to {}", cachePath);
+            // Cache to local storage directory for offline usage
+            std::string cachePath = OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.bin";
+            std::ofstream cacheOut(cachePath, std::ios::binary | std::ios::trunc);
+            if (cacheOut) {
+                cacheOut.write(resp.body.data(), resp.body.size());
+                spdlog::info("DepotKeyStore: Cached remote depotkeys.bin to {}", cachePath);
+            }
+            return;
         }
     } else {
         spdlog::warn("DepotKeyStore: Could not fetch remote depot keys: {}", resp.error);
@@ -82,12 +126,16 @@ void DepotKeyStore::Initialize(const std::string& jsonFilePath) {
 std::string DepotKeyStore::GetKeyForDepot(uint32_t depotId) {
     std::lock_guard<std::mutex> lock(g_storeMutex);
     if (!g_initialized) {
-        g_storeMutex.unlock();
-        Initialize();
-        g_storeMutex.lock();
+        return "";
     }
-    auto it = g_depotKeys.find(depotId);
-    return it != g_depotKeys.end() ? it->second : "";
+
+    auto it = std::lower_bound(g_records.begin(), g_records.end(), depotId,
+                               [](const DepotKeyRecord& rec, uint32_t id) { return rec.depot_id < id; });
+
+    if (it != g_records.end() && it->depot_id == depotId) {
+        return OmniPlatform::Encoding::BytesToHex(it->key, 32);
+    }
+    return "";
 }
 
 bool DepotKeyStore::HasKey(uint32_t depotId) {
@@ -96,7 +144,7 @@ bool DepotKeyStore::HasKey(uint32_t depotId) {
 
 size_t DepotKeyStore::Count() {
     std::lock_guard<std::mutex> lock(g_storeMutex);
-    return g_depotKeys.size();
+    return g_records.size();
 }
 
 } // namespace Manager

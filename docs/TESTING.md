@@ -13,7 +13,7 @@
 | **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：游戏 AppID / DLC / Token 代码自动生成、脚本启用与停用重命名状态切换、目录自动扫描。 |
 | **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档与同步引擎**：跨平台游戏存档目录探测（Steam UserData、Proton CompatData 路径）、WebDAV 客户端多平台配置。 |
 | **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与 Decky 插件整合**：发布打包资源定义校验（Linux/Windows 特征文件、SteamOS 免 root 安装脚本）、Decky Loader 插件规范 (`plugin.json` 架构校验)。 |
-| **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：本地 `depotkeys.json` 解析、GitHub Raw 远端在线密钥自动兜底拉取与 Depot ID 密钥精准匹配。 |
+| **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：本地 `depotkeys.bin` 二进制加载、二分查找与远端自动同步校验。 |
 
 ---
 
