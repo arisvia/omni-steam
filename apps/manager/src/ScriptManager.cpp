@@ -1,26 +1,113 @@
 #include "ScriptManager.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
 
 #include "OmniPlatform/OmniPlatform.h"
 
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace Manager {
 
-std::string ScriptManager::GetDefaultLuaDirectory() {
+namespace {
 #if defined(OMNI_PLATFORM_WINDOWS)
-    return "config/lua";
+std::string GetSteamPathFromRegistry() {
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char buf[MAX_PATH];
+        DWORD bufSize = sizeof(buf);
+        DWORD type = REG_SZ;
+        if (RegQueryValueExA(hKey, "SteamPath", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &bufSize) ==
+            ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return std::string(buf);
+        }
+        RegCloseKey(hKey);
+    }
+    return "";
+}
+#endif
+} // namespace
+
+std::vector<std::string> ScriptManager::GetCandidateLuaDirectories() {
+    std::vector<std::string> dirs;
+    std::set<std::string> seen;
+
+    auto addDir = [&](const std::string& d) {
+        if (!d.empty()) {
+            std::string normalized = fs::path(d).lexically_normal().generic_string();
+            if (!seen.contains(normalized)) {
+                seen.insert(normalized);
+                dirs.push_back(normalized);
+            }
+        }
+    };
+
+    // 1. Local relative config/lua
+    addDir("config/lua");
+    addDir("lua");
+
+#if defined(OMNI_PLATFORM_WINDOWS)
+    // 2. Windows registry Steam path
+    std::string regSteam = GetSteamPathFromRegistry();
+    if (!regSteam.empty()) {
+        addDir(regSteam + "/config/lua");
+        addDir(regSteam + "/lua");
+    }
+
+    // 3. Common Windows Steam default locations
+    addDir("C:/Program Files (x86)/Steam/config/lua");
+    addDir("C:/Program Files/Steam/config/lua");
+
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile) {
+        addDir(std::string(userProfile) + "/AppData/Roaming/OmniSteam/lua");
+    }
 #elif defined(OMNI_PLATFORM_MACOS)
     const char* home = std::getenv("HOME");
-    return home ? std::string(home) + "/Library/Application Support/OmniSteam/lua" : "/tmp/omnisteam/lua";
+    if (home) {
+        addDir(std::string(home) + "/Library/Application Support/Steam/config/lua");
+        addDir(std::string(home) + "/Library/Application Support/OmniSteam/lua");
+        addDir(std::string(home) + "/.config/omnisteam/lua");
+    }
 #else
     const char* home = std::getenv("HOME");
-    return home ? std::string(home) + "/.config/omnisteam/lua" : "/tmp/omnisteam/lua";
+    if (home) {
+        addDir(std::string(home) + "/.local/share/Steam/config/lua");
+        addDir(std::string(home) + "/.steam/steam/config/lua");
+        addDir(std::string(home) + "/.config/omnisteam/lua");
+    }
+#endif
+
+    return dirs;
+}
+
+std::string ScriptManager::GetDefaultLuaDirectory() {
+    auto candidates = GetCandidateLuaDirectories();
+    for (const auto& d : candidates) {
+        if (fs::exists(d)) {
+            return d;
+        }
+    }
+
+#if defined(OMNI_PLATFORM_WINDOWS)
+    return "C:/Program Files (x86)/Steam/config/lua";
+#elif defined(OMNI_PLATFORM_MACOS)
+    const char* home = std::getenv("HOME");
+    return home ? (std::string(home) + "/Library/Application Support/Steam/config/lua") : "/tmp/omnisteam/lua";
+#else
+    const char* home = std::getenv("HOME");
+    return home ? (std::string(home) + "/.local/share/Steam/config/lua") : "/tmp/omnisteam/lua";
 #endif
 }
 
@@ -90,49 +177,65 @@ bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string
 
 std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& targetDir) {
     std::vector<ScriptFileInfo> list;
-    std::string dir = targetDir.empty() ? GetDefaultLuaDirectory() : targetDir;
-    if (!fs::exists(dir))
-        return list;
+    std::set<std::string> seenPaths;
 
-    try {
-        for (const auto& entry : fs::recursive_directory_iterator(dir)) {
-            if (!entry.is_regular_file())
-                continue;
+    std::vector<std::string> searchDirs;
+    if (!targetDir.empty()) {
+        searchDirs.push_back(targetDir);
+    } else {
+        searchDirs = GetCandidateLuaDirectories();
+    }
 
-            std::string filename = entry.path().filename().string();
-            bool isLua = filename.ends_with(".lua");
-            bool isDisabled = filename.ends_with(".lua.disabled");
+    for (const auto& dir : searchDirs) {
+        if (!fs::exists(dir))
+            continue;
 
-            if (isLua || isDisabled) {
-                ScriptFileInfo info;
-                info.fileName = filename;
-                info.fullPath = entry.path().string();
-                info.fileSize = entry.file_size();
-                info.enabled = isLua;
+        try {
+            for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+                if (!entry.is_regular_file())
+                    continue;
 
-                std::regex idRegex("^(\\d+)");
-                std::smatch match;
-                if (std::regex_search(filename, match, idRegex)) {
-                    info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
-                }
+                std::string filename = entry.path().filename().string();
+                bool isLua = filename.ends_with(".lua");
+                bool isDisabled = filename.ends_with(".lua.disabled");
 
-                std::ifstream in(info.fullPath);
-                std::string line;
-                while (std::getline(in, line)) {
-                    if (line.rfind("-- Game: ", 0) == 0) {
-                        info.title = line.substr(9);
-                        break;
+                if (isLua || isDisabled) {
+                    std::string canonicalPath = fs::canonical(entry.path()).generic_string();
+                    if (seenPaths.contains(canonicalPath))
+                        continue;
+                    seenPaths.insert(canonicalPath);
+
+                    ScriptFileInfo info;
+                    info.fileName = filename;
+                    info.fullPath = entry.path().generic_string();
+                    info.fileSize = entry.file_size();
+                    info.enabled = isLua;
+
+                    std::regex idRegex("^(\\d+)");
+                    std::smatch match;
+                    if (std::regex_search(filename, match, idRegex)) {
+                        info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
                     }
-                }
 
-                list.push_back(info);
+                    std::ifstream in(info.fullPath);
+                    std::string line;
+                    while (std::getline(in, line)) {
+                        if (line.rfind("-- Game: ", 0) == 0) {
+                            info.title = line.substr(9);
+                            break;
+                        }
+                    }
+
+                    list.push_back(info);
+                }
             }
+        } catch (...) {
         }
-    } catch (...) {
     }
 
     return list;
 }
+
 bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
     try {
         if (!fs::exists(filePath))

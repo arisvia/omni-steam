@@ -25,6 +25,7 @@ struct ScriptFileInfo {
 
 class ScriptManager {
 public:
+    static std::vector<std::string> GetCandidateLuaDirectories();
     static std::string GetDefaultLuaDirectory();
     static std::string GenerateLuaScript(const UnlockGameSpec& spec);
     static bool SaveGameUnlock(const UnlockGameSpec& spec, const std::string& targetDir = "");
