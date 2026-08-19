@@ -3,7 +3,7 @@
 #include <vector>
 #include <span>
 #include <string>
-
+#include <cstring>
 namespace SteamIPC {
 
 enum class EIPCCommand : uint32_t {

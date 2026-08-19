@@ -9,9 +9,10 @@ jobs:
   build-release:
     name: Build Release Binary on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
-      matrix:
-        include:
           - os: ubuntu-latest
             artifact_name: omnisteam-linux-x64.tar.gz
             cmake_args: "-DCMAKE_BUILD_TYPE=Release"
@@ -42,6 +43,7 @@ jobs:
 
       - name: Build OmniSteam Core & Manager
         run: cmake --build build --config Release --parallel
+
       - name: Create Package via CPack
         run: |
           cd build && cpack -C Release

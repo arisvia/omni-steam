@@ -6,12 +6,12 @@
 #include <cstdlib>
 #include <spdlog/spdlog.h>
 
+namespace fs = std::filesystem;
 namespace Manager {
 
 std::string ConfigManager::GetConfigFilePath() {
 #if defined(OMNI_PLATFORM_WINDOWS)
     return "omnisteam.toml";
-#elif defined(OMNI_PLATFORM_MACOS)
     const char* home = std::getenv("HOME");
     std::string base = home ? std::string(home) + "/Library/Application Support/OmniSteam" : "/tmp/omnisteam";
     fs::create_directories(base);

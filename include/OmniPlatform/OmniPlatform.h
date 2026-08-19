@@ -6,8 +6,17 @@
 
 namespace OmniPlatform {
 
+namespace Encoding {
+    std::vector<uint8_t> HexToBytes(const std::string& hex);
+    std::string BytesToHex(const uint8_t* data, size_t length);
+}
+
+namespace Numbers {
+    uint64_t ParseUInt64(const std::string& str);
+    uint32_t ParseUInt32(const std::string& str);
+}
+
 class Detour {
-public:
     static bool BeginTransaction();
     static bool CommitTransaction();
     static bool Attach(void** ppPointer, void* pDetour);
