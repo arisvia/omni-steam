@@ -12,6 +12,21 @@ using HSteamPipe = int32_t;
 using HSteamUser = int32_t;
 
 // ==============================================================================
+// Valve Tier1 Containers (CUtlMemory / CUtlVector)
+// ==============================================================================
+template <typename T> struct CUtlMemory {
+    T* m_pMemory;
+    int m_nAllocationCount;
+    int m_nGrowSize;
+};
+
+template <typename T> struct CUtlVector {
+    CUtlMemory<T> m_Memory;
+    int m_Size;
+    T* m_pElements;
+};
+
+// ==============================================================================
 // Steam Client Internal Enums
 // ==============================================================================
 enum EConfigStore : uint32_t {
@@ -35,5 +50,16 @@ struct AppOwnership {
     uint32_t ExistInPackageNums;
     bool bOwnsLicense;
     bool bFreeLicense;
+};
+
+struct PackageInfo {
+    uint32_t PackageId;
+    EPackageStatus Status;
+    uint32_t BillingType;
+    uint32_t LicenseFlags;
+    uint32_t PackageFlags;
+    uint32_t AccountId;
+    CUtlVector<AppId_t> AppIdVec;
+    CUtlVector<DepotId_t> DepotIdVec;
 };
 #pragma pack(pop)
