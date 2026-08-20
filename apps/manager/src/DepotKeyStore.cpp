@@ -125,23 +125,29 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
     g_initialized = true;
 
     std::string cacheDir = OmniPlatform::Paths::GetCacheDirectory();
-    std::string targetCacheFile =
-        binFilePath.empty() ? (fs::path(cacheDir) / "depotkeys.bin").generic_string() : binFilePath;
+    std::string targetCacheFile = (fs::path(cacheDir) / "depotkeys.bin").generic_string();
+    std::string exeSibling =
+        (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path() / "depotkeys.bin").generic_string();
 
-    // 1. Load directly from the dedicated cache path if present
+    std::vector<std::string> searchPaths = {binFilePath, targetCacheFile, exeSibling, "depotkeys.bin"};
+
+    // 1. Load from cache or sibling directory if present
     bool loadedFromCache = false;
     size_t localCount = 0;
-    if (fs::exists(targetCacheFile)) {
-        std::ifstream inFile(targetCacheFile, std::ios::binary | std::ios::ate);
-        if (inFile) {
-            std::streamsize fileSize = inFile.tellg();
-            inFile.seekg(0, std::ios::beg);
-            std::vector<uint8_t> buffer(static_cast<size_t>(fileSize));
-            if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
-                if (ParseBinaryContent(buffer.data(), buffer.size())) {
-                    localCount = g_records.size();
-                    loadedFromCache = true;
-                    spdlog::info("DepotKeyStore: Loaded {} depot keys from cache ({})", localCount, targetCacheFile);
+    for (const auto& p : searchPaths) {
+        if (!p.empty() && fs::exists(p)) {
+            std::ifstream inFile(p, std::ios::binary | std::ios::ate);
+            if (inFile) {
+                std::streamsize fileSize = inFile.tellg();
+                inFile.seekg(0, std::ios::beg);
+                std::vector<uint8_t> buffer(static_cast<size_t>(fileSize));
+                if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
+                    if (ParseBinaryContent(buffer.data(), buffer.size())) {
+                        localCount = g_records.size();
+                        loadedFromCache = true;
+                        spdlog::info("DepotKeyStore: Loaded {} depot keys from binary ({})", localCount, p);
+                        break;
+                    }
                 }
             }
         }
