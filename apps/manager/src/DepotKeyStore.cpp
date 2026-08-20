@@ -222,11 +222,22 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uin
     if (g_records.empty())
         return result;
 
+    auto isCommonRedistOrInvalid = [](uint32_t id) {
+        if (id < 10)
+            return true;
+        // Steamworks Common Redistributables & VC/DirectX runtimes
+        if (id >= 228980 && id <= 228999)
+            return true;
+        return false;
+    };
+
     auto scanRange = [&](uint32_t baseId, uint32_t range) {
         auto it = std::lower_bound(g_records.begin(), g_records.end(), baseId,
                                    [](const DepotKeyRecord& r, uint32_t id) { return r.depot_id < id; });
         while (it != g_records.end() && it->depot_id <= baseId + range) {
-            result[it->depot_id] = OmniPlatform::Encoding::BytesToHex(it->key, 32);
+            if (!isCommonRedistOrInvalid(it->depot_id)) {
+                result[it->depot_id] = OmniPlatform::Encoding::BytesToHex(it->key, 32);
+            }
             ++it;
         }
     };
@@ -240,8 +251,6 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uin
             scanRange(dlcId, 10);
         }
     }
-
-    return result;
 }
 
 } // namespace Manager

@@ -2,8 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
-
-namespace Manager {
+#include <vector>
 
 class DepotKeyStore {
 public:
