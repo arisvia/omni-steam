@@ -491,6 +491,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <div class="app-layout">
         <!-- Navigation Header -->
         <div class="navbar">
             <div class="brand">
@@ -499,7 +500,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 <span class="version-chip">v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
             </div>
             <div class="status-indicators">
-                <button class="btn-secondary" style="font-size:12px; padding:6px 12px; display:flex; align-items:center; gap:6px;" onclick="openCloudModal()">☁️ WebDAV 云存档设置</button>
+                <button class="btn-primary" style="font-size:12px; padding:6px 14px; display:flex; align-items:center; gap:6px; cursor:pointer;" onclick="openCloudModal()">☁️ WebDAV 云存档设置</button>
                 <div class="status-pill">
                     <span id="steamDot" class="dot"></span>
                     <span id="steamStatusText">Steam 状态检测中...</span>
@@ -535,7 +536,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Workspace -->
+        <!-- Workspace (100% Height Fill) -->
         <div class="workspace">
             <!-- Left: Game Search & Unlock Panel -->
             <div class="panel-card">
@@ -581,6 +582,8 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 </div>
             </div>
         </div>
+    </div>
+
     <!-- Game Details Modal Dialog -->
     <div class="modal-mask" id="gameModal">
         <div class="modal-box">
