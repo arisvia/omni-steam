@@ -125,10 +125,14 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         return;
     }
 
+    try {
+        fs::create_directories(fs::path(cachePath).parent_path());
+    } catch (...) {
+    }
+
     std::ofstream file(cachePath, std::ios::binary | std::ios::trunc);
     if (!file)
         return;
-
     uint32_t magic = kPatternCacheMagic;
     uint32_t version = 1;
     uint32_t count = static_cast<uint32_t>(g_resolvedAddresses.size());

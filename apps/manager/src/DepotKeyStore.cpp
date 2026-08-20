@@ -158,11 +158,9 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
     }
 
     // 2. Fetch/update from our repo's primary raw endpoint or CDN mirror
-    std::vector<std::string> remoteUrls = {
-        kRemoteDepotKeysUrl,
-        "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-        "https://raw.fastgit.org/arisvia/omni-steam/main/depotkeys.bin"
-    };
+    std::vector<std::string> remoteUrls = {kRemoteDepotKeysUrl,
+                                           "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                           "https://raw.fastgit.org/arisvia/omni-steam/main/depotkeys.bin"};
 
     for (const auto& url : remoteUrls) {
         spdlog::info("DepotKeyStore: Checking remote depot keys from {}", url);
