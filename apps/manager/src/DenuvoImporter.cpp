@@ -37,7 +37,7 @@ uint32_t ExtractAppIdFromBinaryTicket(const uint8_t* data, size_t size) {
     if (size >= 16) {
         for (size_t offset = 0; offset + 4 <= size && offset <= 32; offset += 4) {
             uint32_t val = *reinterpret_cast<const uint32_t*>(data + offset);
-            if (val >= 100 && val <= 5000000) {
+            if (val >= 10 && val <= 50000000) {
                 return val;
             }
         }

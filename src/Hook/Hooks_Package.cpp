@@ -57,7 +57,7 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     if (pPkg) {
         if (!g_pInjectedPackageInfo) {
             g_pInjectedPackageInfo = pPkg;
-            g_activePackageId = (packageId != 0) ? packageId : 21458;
+            g_activePackageId = packageId;
             spdlog::info("Hooks_Package: Selected active Package {} for direct license injection", g_activePackageId);
             SyncInjectedLicenses(pPkg);
         } else if (pPkg == g_pInjectedPackageInfo) {
@@ -71,13 +71,12 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates) {
         return false;
     }
-    PackageId_t targetPkg = (g_activePackageId != 0) ? g_activePackageId : 21458;
+    PackageId_t targetPkg = g_activePackageId;
     oMarkLicenseAsChanged(g_pCUser, targetPkg, true);
     oProcessPendingLicenseUpdates(g_pCUser);
     spdlog::info("Hooks_Package: Notified Steam of Package {} license update", targetPkg);
     return true;
 }
-
 bool SyncInjectedLicenses(PackageInfo* pPkg) {
     if (!pPkg) {
         return false;
