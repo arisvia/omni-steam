@@ -9,11 +9,16 @@
 #include <string>
 #include <vector>
 
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+#else
+#include <signal.h>
+#include <sys/types.h>
+#endif
+
 #include "OmniPlatform/OmniBuildInfo.h"
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
-
-namespace fs = std::filesystem;
 
 namespace Manager {
 
