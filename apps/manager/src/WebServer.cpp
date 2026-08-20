@@ -694,8 +694,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 const hPackage = document.getElementById('hookPackage');
                 const hConfig = document.getElementById('hookConfig');
                 const hIpc = document.getElementById('hookIpc');
-
-                if (data.core && data.core.active) {
+                if (data.steamRunning && data.core && data.core.active) {
                     cDot.className = 'dot online';
                     cTitle.textContent = `Core 拦截引擎: 已就绪生效 (v${data.core.installedVersion || '1.0.0'}, 目标: ${data.core.targetModule || 'steamclient'})`;
                     hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-pill active' : 'hook-pill';
@@ -705,9 +704,17 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 } else if (data.core && data.core.installed) {
                     cDot.className = 'dot warning';
                     cTitle.textContent = 'Core 已部署于 Steam 目录 (等待 Steam 启动即时注入)';
+                    hAppOwn.className = 'hook-pill';
+                    hPackage.className = 'hook-pill';
+                    hConfig.className = 'hook-pill';
+                    hIpc.className = 'hook-pill';
                 } else {
                     cDot.className = 'dot';
                     cTitle.textContent = 'Core 尚未部署至 Steam 目录';
+                    hAppOwn.className = 'hook-pill';
+                    hPackage.className = 'hook-pill';
+                    hConfig.className = 'hook-pill';
+                    hIpc.className = 'hook-pill';
                 }
             } catch(e) {}
         }
@@ -1113,8 +1120,12 @@ std::string HandleHttpRequest(const std::string& request) {
         bool isRunning = CheckSteamProcess(&pid);
         auto scripts = ScriptManager::ListScripts();
         auto coreStatus = CoreInstaller::GetStatus();
-
-        std::ostringstream json;
+        if (!isRunning) {
+            coreStatus.active = false;
+            coreStatus.checkAppOwnershipHook = false;
+            coreStatus.configStoreHook = false;
+            coreStatus.ipcHook = false;
+        }
         json << "{"
              << "\"steamRunning\":" << (isRunning ? "true" : "false") << ","
              << "\"steamPid\":" << pid << ","

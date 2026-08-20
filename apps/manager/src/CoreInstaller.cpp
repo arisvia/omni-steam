@@ -56,6 +56,25 @@ bool ExtractJsonBool(const std::string& json, const std::string& key) {
     }
     return false;
 }
+
+bool IsProcessAlive(uint32_t pid) {
+    if (pid == 0)
+        return false;
+#if defined(OMNI_PLATFORM_WINDOWS)
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (hProcess) {
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
+            CloseHandle(hProcess);
+            return true;
+        }
+        CloseHandle(hProcess);
+    }
+    return false;
+#else
+    return kill(static_cast<pid_t>(pid), 0) == 0;
+#endif
+}
 } // namespace
 
 CoreStatusInfo CoreInstaller::GetStatus() {
@@ -92,6 +111,17 @@ CoreStatusInfo CoreInstaller::GetStatus() {
             info.configStoreHook = ExtractJsonBool(json, "ConfigStore_GetBinary");
             info.ipcHook = ExtractJsonBool(json, "IPCProcessMessage");
         }
+    }
+
+    // Invalidate stale status if the target process is no longer alive
+    if (info.active && (info.livePid == 0 || !IsProcessAlive(info.livePid))) {
+        info.active = false;
+        info.livePid = 0;
+        info.checkAppOwnershipHook = false;
+        info.configStoreHook = false;
+        info.ipcHook = false;
+        std::error_code ec;
+        fs::remove(statusJsonPath, ec);
     }
 
     if (info.installedVersion.empty() && info.installed) {

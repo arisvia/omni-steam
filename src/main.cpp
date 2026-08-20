@@ -25,13 +25,18 @@ void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t 
     try {
         std::string cacheDir = OmniPlatform::Paths::GetCacheDirectory();
         std::string statusPath = (fs::path(cacheDir) / "core_status.json").generic_string();
+        if (!active) {
+            std::error_code ec;
+            fs::remove(statusPath, ec);
+            return;
+        }
         auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                        .count();
 
         std::ofstream out(statusPath, std::ios::trunc);
         if (out) {
             out << "{\n"
-                << "  \"active\": " << (active ? "true" : "false") << ",\n"
+                << "  \"active\": true,\n"
                 << "  \"pid\": " << OmniPlatform::Process::GetCurrentProcessId() << ",\n"
                 << "  \"version\": \"" << OMNISTEAM_VERSION << "\",\n"
                 << "  \"commit\": \"" << OMNISTEAM_GIT_COMMIT << "\",\n"
