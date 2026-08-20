@@ -27,12 +27,15 @@ RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
         g_pCPackageInfo = pThis;
-        spdlog::debug("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
+        spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
     }
 
     PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (pPkg && packageId == kInjectedPackageId && !g_pInjectedPackageInfo) {
-        g_pInjectedPackageInfo = pPkg;
+    if (pPkg && packageId == kInjectedPackageId) {
+        if (!g_pInjectedPackageInfo) {
+            g_pInjectedPackageInfo = pPkg;
+        }
+        InitFakeLicenseOnce(pPkg);
     }
     return pPkg;
 }
@@ -99,16 +102,19 @@ bool TryInitFakeLicenseOnce() {
     }
     return false;
 }
-
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
-        spdlog::debug("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
+        spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
+        if (g_licenseRefreshPending) {
+            if (MarkLicenseAsChangedAndProcessUpdates()) {
+                g_licenseRefreshPending = false;
+            }
+        }
     }
 
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     TryInitFakeLicenseOnce();
-
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             pOwn->PackageId = kInjectedPackageId;

@@ -32,12 +32,17 @@ static int Lua_AddAppId(lua_State* L) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     g_unlockedApps.insert(appId);
 
+    std::string keyHex;
     if (n >= 3 && lua_isstring(L, 3)) {
-        uint32_t depotId = (n >= 2 && lua_isinteger(L, 2)) ? static_cast<uint32_t>(lua_tointeger(L, 2)) : appId;
-        std::string keyHex = lua_tostring(L, 3);
+        keyHex = lua_tostring(L, 3);
+    } else if (n >= 2 && lua_isstring(L, 2) && !lua_isnumber(L, 2)) {
+        keyHex = lua_tostring(L, 2);
+    }
+
+    if (!keyHex.empty()) {
         auto bytes = OmniPlatform::Encoding::HexToBytes(keyHex);
-        g_depotKeys[depotId] = bytes;
-        spdlog::info("Lua: addappid {} with depotKey for depot {}", appId, depotId);
+        g_depotKeys[appId] = bytes;
+        spdlog::info("Lua: addappid {} with depotKey ({} bytes)", appId, bytes.size());
     } else {
         spdlog::info("Lua: addappid {}", appId);
     }
