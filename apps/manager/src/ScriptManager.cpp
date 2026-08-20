@@ -34,21 +34,35 @@ std::string ScriptManager::GenerateLuaScript(const UnlockGameSpec& spec) {
     oss << "-- ==============================================================================\n\n";
 
     // 1. Primary App ID & Main Depot Decryption Key
-    if (!spec.depotKeyHex.empty()) {
+    std::set<uint32_t> emittedAppIds;
+    emittedAppIds.insert(spec.appId);
+
+    auto itMainKey = spec.depotKeys.find(spec.appId);
+    std::string mainKey =
+        !spec.depotKeyHex.empty() ? spec.depotKeyHex : (itMainKey != spec.depotKeys.end() ? itMainKey->second : "");
+
+    if (!mainKey.empty()) {
         oss << "-- Unlock Main Game with Depot Decryption Key\n";
-        oss << "addappid(" << spec.appId << ", 0, \"" << spec.depotKeyHex << "\")\n\n";
+        oss << "addappid(" << spec.appId << ", 0, \"" << mainKey << "\")\n\n";
     } else {
         oss << "-- Unlock Main Game\n";
         oss << "addappid(" << spec.appId << ")\n\n";
     }
 
-    // 2. Extra Depot Keys (e.g. from config.vdf or depotkeys.bin)
+    // 2. Extra Depot Keys for Main Game
+    std::set<uint32_t> dlcSet(spec.dlcAppIds.begin(), spec.dlcAppIds.end());
+    bool hasGameDepots = false;
     for (const auto& [depotId, keyHex] : spec.depotKeys) {
-        if (depotId != spec.appId && !keyHex.empty()) {
+        if (depotId != spec.appId && dlcSet.find(depotId) == dlcSet.end() && !keyHex.empty()) {
+            if (!hasGameDepots) {
+                oss << "-- Main Game Depots (Decryption Keys)\n";
+                hasGameDepots = true;
+            }
             oss << "addappid(" << depotId << ", 0, \"" << keyHex << "\")\n";
+            emittedAppIds.insert(depotId);
         }
     }
-    if (!spec.depotKeys.empty()) {
+    if (hasGameDepots) {
         oss << "\n";
     }
 
@@ -62,6 +76,7 @@ std::string ScriptManager::GenerateLuaScript(const UnlockGameSpec& spec) {
             } else {
                 oss << "addappid(" << dlcId << ")\n";
             }
+            emittedAppIds.insert(dlcId);
         }
         oss << "\n";
     }

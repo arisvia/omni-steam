@@ -87,135 +87,147 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             --text-muted: #94a3b8;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); padding: 24px; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; margin-bottom: 20px; }
-        .logo { font-size: 24px; font-weight: 800; color: var(--accent); display: flex; align-items: center; gap: 8px; }
-        .status-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .badge { background: #1e293b; border: 1px solid var(--card-border); padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 500; color: var(--text-muted); }
+        html, body { width: 100vw; height: 100vh; margin: 0; padding: 0; overflow: hidden; background: var(--bg); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        
+        /* Full viewport app wrapper */
+        .app-layout { width: 100vw; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; box-sizing: border-box; gap: 12px; overflow: hidden; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px; flex-shrink: 0; }
+        .logo { font-size: 22px; font-weight: 800; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+        .status-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .badge { background: #1e293b; border: 1px solid var(--card-border); padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
         .badge.online { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
         .badge.warning { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: var(--warning); }
         
         /* Core Banner */
-        .core-banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 12px; padding: 18px 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-        .core-info { display: flex; flex-direction: column; gap: 6px; }
-        .core-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-        .hook-tags { display: flex; gap: 8px; font-size: 12px; margin-top: 4px; flex-wrap: wrap; }
-        .hook-tag { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--accent); padding: 2px 8px; border-radius: 4px; }
+        .core-banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 10px; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-shrink: 0; }
+        .core-info { display: flex; flex-direction: column; gap: 4px; }
+        .core-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .hook-tags { display: flex; gap: 6px; font-size: 11px; margin-top: 2px; flex-wrap: wrap; }
+        .hook-tag { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--accent); padding: 2px 6px; border-radius: 4px; }
         .hook-tag.active { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
 
-        .container { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 24px; }
+        /* Main 2-column layout */
+        .container { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; overflow: hidden; }
         @media (max-width: 1024px) { .container { grid-template-columns: 1fr; } .core-banner { flex-direction: column; align-items: flex-start; } }
-        .card { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid var(--card-border); display: flex; flex-direction: column; }
-        .card-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .card { background: var(--card-bg); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--card-border); display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+        .card-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
         
         /* Dropzone */
-        .dropzone { border: 2px dashed #334155; border-radius: 10px; padding: 18px; text-align: center; background: rgba(15, 23, 42, 0.5); cursor: pointer; transition: all 0.2s ease; margin-bottom: 16px; }
+        .dropzone { border: 2px dashed #334155; border-radius: 8px; padding: 10px 14px; text-align: center; background: rgba(15, 23, 42, 0.5); cursor: pointer; transition: all 0.2s ease; margin-bottom: 10px; flex-shrink: 0; }
         .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(56, 189, 248, 0.05); }
-        .drop-icon { font-size: 26px; margin-bottom: 4px; }
-        .drop-text { font-size: 13px; color: var(--text-muted); }
+        .drop-icon { font-size: 20px; margin-bottom: 2px; }
+        .drop-text { font-size: 12px; color: var(--text-muted); }
 
-        .search-box { display: flex; gap: 10px; margin-bottom: 16px; }
-        input[type="text"] { flex: 1; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--bg); color: #fff; font-size: 14px; outline: none; }
+        .search-box { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+        input[type="text"] { flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--bg); color: #fff; font-size: 13px; outline: none; }
         input[type="text"]:focus { border-color: var(--accent); }
-        button { padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
+        button, a.btn { padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .btn-primary { background: var(--accent); color: #090d16; }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-success { background: var(--success); color: #fff; }
-        .btn-danger { background: var(--danger); color: #fff; padding: 6px 12px; font-size: 12px; }
-        .btn-toggle { background: #334155; color: #f8fafc; padding: 6px 12px; font-size: 12px; }
+        .btn-danger { background: var(--danger); color: #fff; padding: 5px 10px; font-size: 12px; }
+        .btn-toggle { background: #334155; color: #f8fafc; padding: 5px 10px; font-size: 12px; }
         .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text-main); }
-        .btn-outline:hover { background: #1e293b; }
+        .btn-outline:hover { background: #1e293b; color: #fff; }
 
-        .item-list { display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
+        /* Scrollable Panels */
+        .item-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
         .item-list::-webkit-scrollbar { width: 6px; }
         .item-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
-        .game-item { display: flex; align-items: center; justify-content: space-between; background: #0f172a; border: 1px solid var(--card-border); padding: 12px; border-radius: 8px; gap: 12px; }
-        .game-info { display: flex; align-items: center; gap: 12px; overflow: hidden; }
-        .game-thumb { width: 80px; height: 38px; border-radius: 4px; object-fit: cover; background: #1e293b; }
-        .game-meta { display: flex; flex-direction: column; overflow: hidden; }
-        .game-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
-        .game-sub { font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; margin-top: 2px; }
-        .action-group { display: flex; gap: 6px; align-items: center; }
+        
+        .game-item { display: flex; align-items: center; justify-content: space-between; background: #0f172a; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; gap: 12px; min-height: 56px; box-sizing: border-box; }
+        .game-info { display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1; }
+        .game-thumb-box { width: 80px; height: 38px; min-width: 80px; max-width: 80px; border-radius: 4px; overflow: hidden; background: #1e293b; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.06); }
+        .game-thumb { width: 100%; height: 100%; object-fit: cover; }
+        .game-thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-muted); background: #1e293b; }
+        .game-meta { display: flex; flex-direction: column; overflow: hidden; justify-content: center; }
+        .game-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+        .game-sub { font-size: 11.5px; color: var(--text-muted); display: flex; gap: 8px; margin-top: 2px; }
+        .action-group { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
         .empty-hint { text-align: center; color: var(--text-muted); padding: 30px 0; font-size: 13px; }
 
         /* Modal */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-        .modal-content { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; width: 100%; max-width: 680px; max-height: 85vh; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; position: relative; }
+        .modal-content { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; width: 100%; max-width: 680px; max-height: 88vh; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; position: relative; }
         .modal-header-img { width: 100%; height: 180px; object-fit: cover; border-radius: 8px; background: #090d16; }
-        .modal-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; font-size: 16px; }
+        .modal-close { position: absolute; top: 14px; right: 14px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; font-size: 15px; }
         .dlc-tag-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding: 8px; background: #090d16; border-radius: 8px; }
         .dlc-tag { background: #1e293b; padding: 4px 8px; border-radius: 4px; font-size: 12px; color: var(--text-main); display: flex; align-items: center; gap: 6px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="logo">🎮 OmniSteam Control Center</div>
-        <div class="status-bar">
-            <span id="steamStatus" class="badge">Steam: 检测中...</span>
-            <span id="depotKeyStatus" class="badge">Depot Keys: 0 条</span>
-            <span class="badge">CLI v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
-        </div>
-    </div>
-
-    <!-- Core Management Banner -->
-    <div class="core-banner">
-        <div class="core-info">
-            <div class="core-title">
-                <span id="coreStatusIcon">⚙️</span>
-                <span id="coreStatusText">Core 注入引擎: 检测中...</span>
-            </div>
-            <div class="hook-tags">
-                <span id="hookAppOwn" class="hook-tag">所有权模拟 (CheckAppOwnership)</span>
-                <span id="hookPackage" class="hook-tag">许可证注入 (Package 0)</span>
-                <span id="hookConfig" class="hook-tag">Depot 解密 (ConfigStore)</span>
-                <span id="hookIpc" class="hook-tag">IPC 拦截 (IPCProcessMessage)</span>
-            </div>
-        </div>
-        <div class="action-group" style="display:flex; gap:10px;">
-            <select id="channelSelect" style="padding:8px 12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff; font-size:12px;">
-                <option value="release">正式版 (Release)</option>
-                <option value="nightly">每夜版 (Nightly)</option>
-            </select>
-            <button class="btn-primary" id="btnInstallCore" onclick="installCore()">🚀 一键安装/更新 Core</button>
-            <button class="btn-outline" onclick="uninstallCore()">🗑️ 卸载 Core</button>
-        </div>
-    </div>
-
-    <div class="container">
-        <!-- Search & Denuvo Section -->
-        <div class="card">
-            <div class="card-title">
-                <span>🔍 搜索与解锁 Steam 游戏 / DLC</span>
-            </div>
-
-            <!-- Denuvo Drag & Drop Area -->
-            <div class="dropzone" id="dropzone" onclick="document.getElementById('ticketFileInput').click()">
-                <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleFileSelect(event)">
-                <div class="drop-icon">📥</div>
-                <strong>拖入 D 加密授权文件 (appticket.bin / tickets.txt)</strong>
-                <div class="drop-text">自动识别 AppID、写入平台凭证、匹配本地 config.vdf 与 depotkeys.bin 生成一体化解锁脚本</div>
-            </div>
-
-            <div class="search-box">
-                <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 黑神话, Palworld)..." onkeydown="if(event.key==='Enter') searchGames()">
-                <button class="btn-primary" id="searchBtn" onclick="searchGames()">搜索</button>
-            </div>
-            <div id="searchResults" class="item-list">
-                <div class="empty-hint">输入游戏名称开始在线检索 Steam Store 库</div>
+    <div class="app-layout">
+        <div class="header">
+            <div class="logo">🎮 OmniSteam Control Center</div>
+            <div class="status-bar">
+                <span id="steamStatus" class="badge">Steam: 检测中...</span>
+                <span id="depotKeyStatus" class="badge">Depot Keys: 0 条</span>
+                <span class="badge">CLI v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
             </div>
         </div>
 
-        <!-- Installed Scripts Section -->
-        <div class="card">
-            <div class="card-title">
-                <span>📜 已安装解锁脚本 (<span id="scriptCount">0</span>)</span>
-                <div style="display:flex; gap:6px;">
-                    <input type="text" id="scriptFilterInput" placeholder="过滤脚本..." style="padding:6px 10px; font-size:12px;" oninput="filterScripts()">
-                    <button class="btn-toggle" onclick="loadScripts()">🔄 刷新</button>
+        <!-- Core Management Banner -->
+        <div class="core-banner">
+            <div class="core-info">
+                <div class="core-title">
+                    <span id="coreStatusIcon">⚙️</span>
+                    <span id="coreStatusText">Core 注入引擎: 检测中...</span>
+                </div>
+                <div class="hook-tags">
+                    <span id="hookAppOwn" class="hook-tag">所有权模拟 (CheckAppOwnership)</span>
+                    <span id="hookPackage" class="hook-tag">许可证注入 (Package 0)</span>
+                    <span id="hookConfig" class="hook-tag">Depot 解密 (ConfigStore)</span>
+                    <span id="hookIpc" class="hook-tag">IPC 拦截 (IPCProcessMessage)</span>
                 </div>
             </div>
-            <div id="scriptList" class="item-list">
-                <div class="empty-hint">正在读取脚本目录...</div>
+            <div class="action-group" style="display:flex; gap:8px;">
+                <select id="channelSelect" style="padding:6px 10px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff; font-size:12px;">
+                    <option value="release">正式版 (Release)</option>
+                    <option value="nightly">每夜版 (Nightly)</option>
+                </select>
+                <button class="btn-primary" id="btnInstallCore" onclick="installCore()">🚀 一键安装/更新 Core</button>
+                <button class="btn-outline" onclick="uninstallCore()">🗑️ 卸载 Core</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- Search & Denuvo Section -->
+            <div class="card">
+                <div class="card-title">
+                    <span>🔍 搜索与解锁 Steam 游戏 / DLC</span>
+                </div>
+
+                <!-- Denuvo Drag & Drop Area -->
+                <div class="dropzone" id="dropzone" onclick="document.getElementById('ticketFileInput').click()">
+                    <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleFileSelect(event)">
+                    <div class="drop-icon">📥</div>
+                    <strong style="font-size:13px;">拖入 D 加密授权文件 (appticket.bin / tickets.txt)</strong>
+                    <div class="drop-text">自动识别 AppID、写入平台凭证、匹配本地 config.vdf 与 depotkeys.bin 生成一体化解锁脚本</div>
+                </div>
+
+                <div class="search-box">
+                    <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 魔女, 黑神话, Palworld)..." onkeydown="if(event.key==='Enter') searchGames()">
+                    <button class="btn-primary" id="searchBtn" onclick="searchGames()">搜索</button>
+                </div>
+                <div id="searchResults" class="item-list">
+                    <div class="empty-hint">输入游戏名称开始在线检索 Steam Store 库</div>
+                </div>
+            </div>
+
+            <!-- Installed Scripts Section -->
+            <div class="card">
+                <div class="card-title">
+                    <span>📜 已安装解锁脚本 (<span id="scriptCount">0</span>)</span>
+                    <div style="display:flex; gap:6px;">
+                        <input type="text" id="scriptFilterInput" placeholder="过滤脚本..." style="padding:4px 8px; font-size:12px;" oninput="filterScripts()">
+                        <button class="btn-toggle" onclick="loadScripts()">🔄 刷新</button>
+                    </div>
+                </div>
+                <div id="scriptList" class="item-list">
+                    <div class="empty-hint">正在读取脚本目录...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -225,12 +237,16 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         <div class="modal-content">
             <button class="modal-close" onclick="closeModal()">✕</button>
             <img id="modalCover" class="modal-header-img" src="" onerror="this.style.display='none'">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <h2 id="modalTitle" style="font-size:20px; font-weight:700;">游戏详情</h2>
-                    <span id="modalAppId" class="badge" style="margin-top:4px;">AppID: -</span>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    <h2 id="modalTitle" style="font-size:20px; font-weight:700; color:#fff;">游戏详情</h2>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                        <span id="modalAppId" class="badge" style="font-weight:600; background:#1e293b; color:var(--accent);">AppID: -</span>
+                        <a id="btnSteamDb" href="#" target="_blank" class="btn btn-outline" style="font-size:12px; padding:3px 10px;">📊 SteamDB</a>
+                        <a id="btnSteamStore" href="#" target="_blank" class="btn btn-outline" style="font-size:12px; padding:3px 10px;">🛍️ Steam 商店</a>
+                    </div>
                 </div>
-                <button class="btn-primary" id="modalUnlockBtn" style="padding:10px 20px; font-size:14px;">✨ 立即生成并载入解锁</button>
+                <button class="btn-primary" id="modalUnlockBtn" style="padding:10px 18px; font-size:13px; flex-shrink:0;">✨ 立即生成并载入解锁</button>
             </div>
             <p id="modalDesc" style="font-size:13px; color:var(--text-muted); line-height:1.5;"></p>
             <div>
@@ -389,16 +405,20 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 data.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'game-item';
+                    const thumbHtml = item.tinyImage ? 
+                        `<div class="game-thumb-box"><img class="game-thumb" src="${item.tinyImage}" onerror="this.parentElement.innerHTML='<div class=\\'game-thumb-placeholder\\'>🎮 App</div>'"></div>` :
+                        `<div class="game-thumb-box"><div class="game-thumb-placeholder">🎮 App</div></div>`;
+                    
                     div.innerHTML = `
                         <div class="game-info" onclick="viewGameDetails(${item.appId})" style="cursor:pointer;">
-                            <img class="game-thumb" src="${item.tinyImage}" onerror="this.style.display='none'">
+                            ${thumbHtml}
                             <div class="game-meta">
                                 <span class="game-name" title="${item.name}">${item.name}</span>
                                 <span class="game-sub">AppID: ${item.appId}</span>
                             </div>
                         </div>
                         <div class="action-group">
-                            <button class="btn-outline" onclick="viewGameDetails(${item.appId})" style="font-size:12px; padding:6px 10px;">🔍 详情</button>
+                            <button class="btn-outline" onclick="viewGameDetails(${item.appId})" style="font-size:12px; padding:5px 10px;">🔍 详情</button>
                             <button class="btn-primary" onclick="unlockGame(${item.appId}, '${encodeURIComponent(item.name)}')">✨ 解锁</button>
                         </div>
                     `;
@@ -416,6 +436,8 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             const modal = document.getElementById('gameModal');
             document.getElementById('modalTitle').textContent = '正在获取详情...';
             document.getElementById('modalAppId').textContent = `AppID: ${appId}`;
+            document.getElementById('btnSteamDb').href = `https://steamdb.info/app/${appId}/`;
+            document.getElementById('btnSteamStore').href = `https://store.steampowered.com/app/${appId}/`;
             document.getElementById('modalDesc').textContent = '';
             document.getElementById('modalCover').src = `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
             document.getElementById('modalCover').style.display = 'block';
@@ -460,7 +482,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             });
             const data = await res.json();
             if (data.success) {
-                alert(`🎉 成功为【${name}】生成并载入解锁脚本！\n包含 ${data.dlcCount || 0} 个 DLC。Steam 核心已自动热重载生效！`);
+                alert(`🎉 成功为【${name}】生成并载入解锁脚本！\n包含 ${data.dlcCount || 0} 个 DLC 与所有匹配的 Depot 解密 Key。Steam 核心已自动热重载生效！`);
                 loadScripts();
             } else {
                 alert('写入解锁脚本失败');
@@ -757,18 +779,14 @@ std::string HandleHttpRequest(const std::string& request) {
                 spec.dlcAppIds = details.dlcAppIds;
                 dlcCount = spec.dlcAppIds.size();
 
-                // Auto-fill depot key from local config.vdf and depotkeys.bin
-                std::string key = DepotKeyStore::GetKeyForDepot(appId);
-                if (!key.empty()) {
-                    spec.depotKeyHex = key;
-                }
-                for (uint32_t dlcId : details.dlcAppIds) {
-                    std::string dlcKey = DepotKeyStore::GetKeyForDepot(dlcId);
-                    if (!dlcKey.empty()) {
-                        spec.depotKeys[dlcId] = dlcKey;
+                // Auto-fill depot keys for main game and all DLCs from local config.vdf and depotkeys.bin
+                auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
+                for (const auto& [depotId, keyHex] : matchedKeys) {
+                    if (depotId == appId) {
+                        spec.depotKeyHex = keyHex;
                     }
+                    spec.depotKeys[depotId] = keyHex;
                 }
-
                 ScriptManager::SaveGameUnlock(spec);
             }
         }

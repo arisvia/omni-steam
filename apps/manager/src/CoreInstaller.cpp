@@ -161,23 +161,46 @@ bool CoreInstaller::InstallCore(const std::string& channel) {
     }
 #endif
 
-    // 2. Fetch from GitHub release / nightly
+    // 2. Fetch from GitHub release / nightly with automatic fallback URLs and archive extraction
     for (const auto& assetName : assetCandidates) {
-        std::string downloadUrl = (channel == "nightly")
-                                      ? (std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/nightly/" + assetName)
-                                      : ("https://github.com/arisvia/omni-steam/releases/latest/download/" + assetName);
+        std::vector<std::string> downloadSources;
+        if (channel == "nightly") {
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/nightly/" + assetName);
+            downloadSources.push_back("https://cdn.jsdelivr.net/gh/arisvia/omni-steam@nightly/" + assetName);
+        } else {
+            downloadSources.push_back("https://github.com/arisvia/omni-steam/releases/latest/download/" + assetName);
+            downloadSources.push_back("https://github.com/arisvia/omni-steam/releases/download/v" +
+                                      std::string(OMNISTEAM_VERSION) + "/" + assetName);
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/main/" + assetName);
+            downloadSources.push_back("https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/" + assetName);
+        }
 
-        spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
-        auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
-        if (resp.statusCode == 200 && !resp.body.empty()) {
-            std::string tempPackage = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
-            std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
-            if (out) {
-                out.write(resp.body.data(), resp.body.size());
+        for (const auto& downloadUrl : downloadSources) {
+            spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
+            auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
+            if (resp.statusCode == 200 && !resp.body.empty()) {
+                std::string tempPackage =
+                    (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
+                std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
+                if (out) {
+                    out.write(resp.body.data(), resp.body.size());
+                }
+                spdlog::info("CoreInstaller: Core package downloaded ({} bytes). Saved to {}", resp.body.size(),
+                             tempPackage);
+
+                // Automatically unpack archive into target Steam directory
+#if defined(OMNI_PLATFORM_WINDOWS)
+                std::string unpackCmd =
+                    "tar -xf \"" + tempPackage + "\" -C \"" + steamPath +
+                    "\" 2>nul || powershell -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -Path '" +
+                    tempPackage + "' -DestinationPath '" + steamPath + "' -Force\"";
+#else
+                std::string unpackCmd = "tar -xzf \"" + tempPackage + "\" -C \"" + steamPath + "\" 2>/dev/null";
+#endif
+                int unpackResult = std::system(unpackCmd.c_str());
+                spdlog::info("CoreInstaller: Archive extraction executed (result: {})", unpackResult);
+                return true;
             }
-            spdlog::info("CoreInstaller: Core package downloaded ({} bytes). Saved to {}", resp.body.size(),
-                         tempPackage);
-            return true;
         }
     }
 

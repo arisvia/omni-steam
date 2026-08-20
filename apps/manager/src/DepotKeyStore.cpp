@@ -215,4 +215,33 @@ size_t DepotKeyStore::Count() {
     return g_records.size();
 }
 
+std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uint32_t appId,
+                                                                             const std::vector<uint32_t>& dlcAppIds) {
+    std::lock_guard<std::mutex> lock(g_storeMutex);
+    std::unordered_map<uint32_t, std::string> result;
+    if (g_records.empty())
+        return result;
+
+    auto scanRange = [&](uint32_t baseId, uint32_t range) {
+        auto it = std::lower_bound(g_records.begin(), g_records.end(), baseId,
+                                   [](const DepotKeyRecord& r, uint32_t id) { return r.depot_id < id; });
+        while (it != g_records.end() && it->depot_id <= baseId + range) {
+            result[it->depot_id] = OmniPlatform::Encoding::BytesToHex(it->key, 32);
+            ++it;
+        }
+    };
+
+    if (appId > 0) {
+        scanRange(appId, 25);
+    }
+
+    for (uint32_t dlcId : dlcAppIds) {
+        if (dlcId > 0) {
+            scanRange(dlcId, 10);
+        }
+    }
+
+    return result;
+}
+
 } // namespace Manager

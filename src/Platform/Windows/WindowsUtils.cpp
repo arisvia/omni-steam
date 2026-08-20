@@ -71,91 +71,127 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     if (url.empty())
         return res;
 
-    std::wstring wUrl(url.begin(), url.end());
-    URL_COMPONENTS urlComp{};
-    urlComp.dwStructSize = sizeof(urlComp);
-    urlComp.dwHostNameLength = static_cast<DWORD>(-1);
-    urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
-    urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
+    std::string currentUrl = url;
+    int maxRedirects = 8;
 
-    if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
-        res.error = "Invalid URL format";
-        return res;
-    }
+    while (maxRedirects-- > 0) {
+        std::wstring wUrl(currentUrl.begin(), currentUrl.end());
+        URL_COMPONENTS urlComp{};
+        urlComp.dwStructSize = sizeof(urlComp);
+        urlComp.dwHostNameLength = static_cast<DWORD>(-1);
+        urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
+        urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
+        urlComp.dwSchemeLength = static_cast<DWORD>(-1);
 
-    std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
-    std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
+        if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
+            res.error = "Invalid URL format";
+            return res;
+        }
 
-    HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) {
-        res.error = "WinHttpOpen failed";
-        return res;
-    }
+        std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
+        std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
 
-    if (timeoutMs > 0) {
-        WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
-    }
+        HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                         WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!hSession) {
+            res.error = "WinHttpOpen failed";
+            return res;
+        }
 
-    // Enable TLS 1.2 and TLS 1.3
-    DWORD secureProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
-    WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secureProtocols, sizeof(secureProtocols));
+        if (timeoutMs > 0) {
+            WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+        }
 
-    HINTERNET hConnect = WinHttpConnect(hSession, hostName.c_str(), urlComp.nPort, 0);
-    if (!hConnect) {
-        WinHttpCloseHandle(hSession);
-        res.error = "WinHttpConnect failed";
-        return res;
-    }
+        // Enable TLS 1.2 and TLS 1.3
+        DWORD secureProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+        WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secureProtocols, sizeof(secureProtocols));
 
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", urlPath.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hRequest) {
+        HINTERNET hConnect = WinHttpConnect(hSession, hostName.c_str(), urlComp.nPort, 0);
+        if (!hConnect) {
+            WinHttpCloseHandle(hSession);
+            res.error = "WinHttpConnect failed";
+            return res;
+        }
+
+        DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", urlPath.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                                WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (!hRequest) {
+            WinHttpCloseHandle(hConnect);
+            WinHttpCloseHandle(hSession);
+            res.error = "WinHttpOpenRequest failed";
+            return res;
+        }
+
+        DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+        BOOL bResults =
+            WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+        if (bResults) {
+            bResults = WinHttpReceiveResponse(hRequest, nullptr);
+        }
+
+        if (bResults) {
+            DWORD statusCode = 0;
+            DWORD size = sizeof(statusCode);
+            WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
+            res.statusCode = static_cast<int>(statusCode);
+
+            // Handle HTTP Redirects (301, 302, 303, 307, 308) across domains (e.g. GitHub to CDN)
+            if (statusCode >= 300 && statusCode < 400) {
+                DWORD locSize = 0;
+                WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &locSize,
+                                    WINHTTP_NO_HEADER_INDEX);
+                if (locSize > 0) {
+                    std::vector<wchar_t> locBuf(locSize / sizeof(wchar_t) + 1);
+                    if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                                            locBuf.data(), &locSize, WINHTTP_NO_HEADER_INDEX)) {
+                        std::wstring wLoc(locBuf.data());
+                        std::string nextUrl(wLoc.begin(), wLoc.end());
+                        if (nextUrl.rfind("/", 0) == 0) {
+                            std::string scheme = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? "https://" : "http://";
+                            std::string host(hostName.begin(), hostName.end());
+                            nextUrl = scheme + host + nextUrl;
+                        }
+                        currentUrl = nextUrl;
+                        WinHttpCloseHandle(hRequest);
+                        WinHttpCloseHandle(hConnect);
+                        WinHttpCloseHandle(hSession);
+                        continue;
+                    }
+                }
+            }
+
+            res.body.clear();
+            DWORD dwSize = 0;
+            do {
+                dwSize = 0;
+                if (!WinHttpQueryDataAvailable(hRequest, &dwSize))
+                    break;
+                if (dwSize == 0)
+                    break;
+
+                std::vector<char> buffer(dwSize);
+                DWORD dwDownloaded = 0;
+                if (WinHttpReadData(hRequest, buffer.data(), dwSize, &dwDownloaded)) {
+                    res.body.append(buffer.data(), dwDownloaded);
+                } else {
+                    break;
+                }
+            } while (dwSize > 0);
+        } else {
+            res.error = "WinHttp request failed (error " + std::to_string(GetLastError()) + ")";
+        }
+
+        WinHttpCloseHandle(hRequest);
         WinHttpCloseHandle(hConnect);
         WinHttpCloseHandle(hSession);
-        res.error = "WinHttpOpenRequest failed";
         return res;
     }
 
-    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
-
-    BOOL bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-    if (bResults) {
-        bResults = WinHttpReceiveResponse(hRequest, nullptr);
-    }
-
-    if (bResults) {
-        DWORD statusCode = 0;
-        DWORD size = sizeof(statusCode);
-        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
-        res.statusCode = static_cast<int>(statusCode);
-
-        DWORD dwSize = 0;
-        do {
-            dwSize = 0;
-            if (!WinHttpQueryDataAvailable(hRequest, &dwSize))
-                break;
-            if (dwSize == 0)
-                break;
-
-            std::vector<char> buffer(dwSize);
-            DWORD dwDownloaded = 0;
-            if (WinHttpReadData(hRequest, buffer.data(), dwSize, &dwDownloaded)) {
-                res.body.append(buffer.data(), dwDownloaded);
-            } else {
-                break;
-            }
-        } while (dwSize > 0);
-    } else {
-        res.error = "WinHttp request failed (error " + std::to_string(GetLastError()) + ")";
-    }
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
+    res.error = "Too many redirects";
     return res;
 }
 
