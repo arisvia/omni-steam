@@ -43,7 +43,6 @@ enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable 
 // ==============================================================================
 // Steam Client Ownership & License Structures
 // ==============================================================================
-#pragma pack(push, 1)
 struct AppOwnership {
     uint32_t PackageId;
     EAppReleaseState ReleaseState;
@@ -62,4 +61,3 @@ struct PackageInfo {
     CUtlVector<AppId_t> AppIdVec;
     CUtlVector<DepotId_t> DepotIdVec;
 };
-#pragma pack(pop)

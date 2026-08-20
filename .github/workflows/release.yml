@@ -24,10 +24,6 @@ jobs:
             arch: i386
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_LIBRARY_PATH=/usr/lib/i386-linux-gnu -DCMAKE_INCLUDE_PATH=/usr/include/i386-linux-gnu -DCMAKE_SYSTEM_PROCESSOR=i686"
           - os: windows-latest
-            platform_id: windows-x86
-            arch: x86
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -A Win32"
-          - os: windows-latest
             platform_id: windows-x64
             arch: x64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"

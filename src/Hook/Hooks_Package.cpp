@@ -69,8 +69,14 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
     if (newApps.empty()) {
         return true;
     }
+    int oldSize = pPkg->AppIdVec.m_Size;
+    if (oldSize < 0 || oldSize > 500000) {
+        spdlog::warn("Hooks_Package: Invalid Package {} AppIdVec size ({}), skipping direct memory modification to "
+                     "prevent crash",
+                     kInjectedPackageId, oldSize);
+        return false;
+    }
 
-    uint32_t oldSize = pPkg->AppIdVec.m_Size;
     uint32_t numToAdd = static_cast<uint32_t>(newApps.size());
     spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (total now: {})", numToAdd, kInjectedPackageId,
                  oldSize + numToAdd);
@@ -86,9 +92,8 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
             g_injectedAppIds.insert(appId);
             idx++;
         }
-        pPkg->AppIdVec.m_Size = oldSize + numToAdd;
+        pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
     }
-
     g_licenseRefreshPending = true;
     if (MarkLicenseAsChangedAndProcessUpdates()) {
         g_licenseRefreshPending = false;
