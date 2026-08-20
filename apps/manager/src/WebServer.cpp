@@ -504,18 +504,19 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         <div class="navbar">
             <div class="brand">
                 <span class="brand-icon">🎮</span>
-                <span class="brand-name">OmniSteam 控制中心</span>
+                <span class="brand-name">OmniSteam</span>
                 <span class="version-chip">v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
             </div>
             <div class="status-indicators">
-                <button class="btn-primary" style="font-size:12px; padding:6px 14px; display:flex; align-items:center; gap:6px; cursor:pointer;" onclick="openCloudModal()">☁️ WebDAV 云存档设置</button>
+                <button class="btn-secondary" id="langToggleBtn" style="font-size:11.5px; padding:5px 10px; font-family:var(--font-mono);" onclick="toggleLanguage()">🌐 EN</button>
+                <button class="btn-primary" style="font-size:12px; padding:5px 12px; display:flex; align-items:center; gap:6px; cursor:pointer;" onclick="openCloudModal()"><span data-i18n="cloudBtn">☁️ 云存档设置</span></button>
                 <div class="status-pill">
                     <span id="steamDot" class="dot"></span>
-                    <span id="steamStatusText">Steam 状态检测中...</span>
+                    <span id="steamStatusText">Steam: ...</span>
                 </div>
                 <div class="status-pill">
                     <span>🔑</span>
-                    <span id="depotKeyStatus">Depot 索引: 0 条</span>
+                    <span id="depotKeyStatus">Depot Keys: 0</span>
                 </div>
             </div>
         </div>
@@ -525,22 +526,22 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             <div class="core-info">
                 <div class="core-header">
                     <span id="coreStatusDot" class="dot"></span>
-                    <span id="coreStatusTitle">Core 拦截引擎: 检测中...</span>
+                    <span id="coreStatusTitle">Core Engine</span>
                 </div>
                 <div class="hook-tag-row">
-                    <span id="hookAppOwn" class="hook-pill">所有权模拟 (CheckAppOwnership)</span>
-                    <span id="hookPackage" class="hook-pill">包注入 (Package 0)</span>
-                    <span id="hookConfig" class="hook-pill">Depot 解密 (ConfigStore)</span>
-                    <span id="hookIpc" class="hook-pill">IPC 拦截 (IPCProcessMessage)</span>
+                    <span id="hookAppOwn" class="hook-pill">CheckAppOwnership</span>
+                    <span id="hookPackage" class="hook-pill">PackageInfo</span>
+                    <span id="hookConfig" class="hook-pill">ConfigStore</span>
+                    <span id="hookIpc" class="hook-pill">IPC</span>
                 </div>
             </div>
             <div class="core-controls">
                 <select id="channelSelect">
-                    <option value="release">正式版 (Release)</option>
-                    <option value="nightly">每夜版 (Nightly)</option>
+                    <option value="release">Release (正式版)</option>
+                    <option value="nightly">Nightly (每夜版)</option>
                 </select>
-                <button class="btn-primary" id="btnInstallCore" onclick="installCore()">🚀 一键安装/更新 Core</button>
-                <button class="btn-secondary" onclick="uninstallCore()">🗑️ 卸载</button>
+                <button class="btn-primary" id="btnInstallCore" onclick="installCore()"><span data-i18n="btnInstall">🚀 一键安装/更新 Core</span></button>
+                <button class="btn-secondary" onclick="uninstallCore()"><span data-i18n="btnUninstall">🗑️ 卸载</span></button>
             </div>
         </div>
 
@@ -549,44 +550,44 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             <!-- Left: Game Search & Unlock Panel -->
             <div class="panel-card">
                 <div class="panel-header">
-                    <span class="panel-title">🔍 搜索与解锁 Steam 游戏 / DLC</span>
+                    <span class="panel-title" data-i18n="searchTitle">🔍 搜索与解锁 (Search & Unlock)</span>
                 </div>
 
                 <!-- Denuvo Ticket Drag & Drop Area -->
                 <div class="ticket-dropzone" id="ticketDropzone" onclick="document.getElementById('ticketFileInput').click()">
                     <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleTicketSelect(event)">
-                    <div class="ticket-title">📥 拖入 D 加密授权文件 (appticket.bin / tickets.txt)</div>
-                    <div class="ticket-sub">自动识别 AppID、写入平台凭证并匹配 Depot 解密 Key 生成一体化脚本</div>
+                    <div class="ticket-title" data-i18n="dropzoneTitle">📥 拖入 D 加密授权文件 (appticket.bin / tickets.txt)</div>
+                    <div class="ticket-sub" data-i18n="dropzoneSub">自动识别 AppID 并匹配 Depot 解密 Key 生成脚本</div>
                 </div>
 
                 <!-- Search Input Toolbar with Region Filter -->
                 <div class="search-bar">
-                    <select id="regionSelect" title="选择 Steam 商店目录区域（推荐使用全球库以避开锁区限制）" style="width:130px;">
-                        <option value="US" selected>🌐 全球 (US)</option>
-                        <option value="HK">🇭🇰 港区 (HK)</option>
-                        <option value="CN">🇨🇳 国区 (CN)</option>
+                    <select id="regionSelect" title="Steam Store Region" style="width:125px;">
+                        <option value="US" selected>🌐 Global (US)</option>
+                        <option value="HK">🇭🇰 HK</option>
+                        <option value="CN">🇨🇳 CN</option>
                     </select>
-                    <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 黑神话, 艾尔登法环)..." onkeydown="handleSearchKey(event)">
-                    <button class="btn-primary" id="searchBtn" onclick="searchGames()">搜索</button>
+                    <input type="text" id="queryInput" placeholder="输入游戏名称或 AppID..." onkeydown="handleSearchKey(event)">
+                    <button class="btn-primary" id="searchBtn" onclick="searchGames()"><span data-i18n="btnSearch">搜索</span></button>
                 </div>
 
                 <!-- Search Results -->
                 <div id="searchResults" class="scroll-list">
-                    <div class="empty-placeholder">输入游戏名称开始在线检索 Steam Store 库</div>
+                    <div class="empty-placeholder" data-i18n="emptySearch">输入游戏名称或 AppID 开始在线检索</div>
                 </div>
             </div>
 
             <!-- Right: Installed Scripts Panel -->
             <div class="panel-card">
                 <div class="panel-header">
-                    <span class="panel-title">📜 已安装解锁脚本 (<span id="scriptCount">0</span>)</span>
+                    <span class="panel-title"><span data-i18n="scriptsTitle">📜 已安装脚本</span> (<span id="scriptCount">0</span>)</span>
                     <div style="display:flex; gap:6px;">
                         <input type="text" id="scriptFilterInput" placeholder="过滤脚本..." style="width:120px; padding:6px 10px; font-size:12px;" oninput="filterScripts()">
-                        <button class="btn-secondary" style="padding:6px 10px; font-size:12px;" onclick="loadScripts()">🔄 刷新</button>
+                        <button class="btn-secondary" style="padding:6px 10px; font-size:12px;" onclick="loadScripts()"><span data-i18n="btnRefresh">🔄 刷新</span></button>
                     </div>
                 </div>
                 <div id="scriptList" class="scroll-list">
-                    <div class="empty-placeholder">正在读取脚本目录...</div>
+                    <div class="empty-placeholder" data-i18n="emptyScripts">正在读取脚本目录...</div>
                 </div>
             </div>
         </div>
@@ -596,24 +597,24 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     <div class="modal-mask" id="gameModal">
         <div class="modal-box">
             <div class="modal-banner">
-                <button class="modal-close-btn" onclick="closeModal()" title="关闭">✕</button>
+                <button class="modal-close-btn" onclick="closeModal()" title="Close">✕</button>
                 <img id="modalCover" class="modal-hero" src="" alt="Cover">
             </div>
             <div class="modal-body">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
                     <div style="display:flex; flex-direction:column; gap:4px;">
-                        <h2 id="modalTitle" style="font-size:18px; font-weight:700;">游戏详情</h2>
+                        <h2 id="modalTitle" style="font-size:18px; font-weight:700;">Game Details</h2>
                         <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
                             <span id="modalAppId" class="status-pill" style="padding:2px 8px; font-size:11px; color:var(--primary);">AppID: -</span>
                             <a id="btnSteamDb" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">📊 SteamDB</a>
-                            <a id="btnSteamStore" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">🛍️ Steam 商店</a>
+                            <a id="btnSteamStore" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">🛍️ Store</a>
                         </div>
                     </div>
-                    <button class="btn-primary" id="modalUnlockBtn" style="padding:9px 18px; font-size:13px; flex-shrink:0;">✨ 一键解锁</button>
+                    <button class="btn-primary" id="modalUnlockBtn" style="padding:9px 18px; font-size:13px; flex-shrink:0;"><span data-i18n="btnUnlock">✨ 一键解锁</span></button>
                 </div>
                 <p id="modalDesc" style="font-size:12.5px; color:var(--text-muted); line-height:1.6; max-height:90px; overflow-y:auto;"></p>
                 <div>
-                    <h4 style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 包含的 DLC 列表 (<span id="modalDlcCount">0</span> 个)</h4>
+                    <h4 style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 <span data-i18n="dlcTitle">包含的 DLC</span> (<span id="modalDlcCount">0</span>)</h4>
                     <div id="modalDlcList" class="dlc-chip-list">
                         <div class="empty-placeholder" style="padding:10px;">未包含独立 DLC</div>
                     </div>
@@ -626,42 +627,143 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     <div class="modal-mask" id="cloudModal" style="display:none;">
         <div class="modal-box" style="max-width:540px;">
             <div style="display:flex; justify-content:space-between; align-items:center; padding:18px 24px; border-bottom:1px solid var(--border);">
-                <h3 style="font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px;">☁️ WebDAV 云存档设置</h3>
+                <h3 style="font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px;" data-i18n="cloudTitle">☁️ WebDAV 云存档设置</h3>
                 <button class="modal-close-btn" style="position:static; width:28px; height:28px;" onclick="closeCloudModal()">✕</button>
             </div>
             <div class="modal-body" style="gap:14px; padding:20px 24px;">
                 <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:600; font-size:13.5px;">
                     <input type="checkbox" id="cloudEnabled" style="width:16px; height:16px;">
-                    <span>启用 WebDAV 多端云存档同步</span>
+                    <span data-i18n="cloudEnable">启用 WebDAV 多端云存档同步</span>
                 </label>
                 <div>
-                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">WebDAV 服务器 URL (例如坚果云 / 自建 Alist / Nextcloud)</label>
+                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;" data-i18n="cloudUrl">WebDAV 服务器 URL (例如坚果云 / Alist / Nextcloud)</label>
                     <input type="text" id="webdavUrl" placeholder="https://dav.jianguoyun.com/dav/" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
                 </div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                     <div>
-                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">用户名 / 账号 (Username)</label>
-                        <input type="text" id="webdavUser" placeholder="your_email@example.com" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
+                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;" data-i18n="cloudUser">用户名 / 账号 (Username)</label>
+                        <input type="text" id="webdavUser" placeholder="user@example.com" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
                     </div>
                     <div>
-                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">应用授权密码 / Token</label>
+                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;" data-i18n="cloudPass">应用授权密码 / Token</label>
                         <input type="password" id="webdavPass" placeholder="••••••••" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
                     </div>
                 </div>
                 <div>
-                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">云端存档存放根目录</label>
+                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;" data-i18n="cloudRoot">云端存档存放根目录</label>
                     <input type="text" id="webdavRoot" placeholder="OmniSteam_Saves" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
                 </div>
                 <div id="cloudTestMsg" style="font-size:12px; min-height:18px;"></div>
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px;">
-                    <button class="btn-secondary" id="btnTestCloud" onclick="testCloudConnection()">🔍 测试连接</button>
-                    <button class="btn-primary" onclick="saveCloudConfig()">💾 保存配置</button>
+                    <button class="btn-secondary" id="btnTestCloud" onclick="testCloudConnection()"><span data-i18n="btnTest">🔍 测试连接</span></button>
+                    <button class="btn-primary" onclick="saveCloudConfig()"><span data-i18n="btnSave">💾 保存配置</span></button>
                 </div>
             </div>
         </div>
     </div>
-
     <script>
+        const I18N = {
+            zh: {
+                langToggle: "🌐 EN",
+                cloudBtn: "☁️ 云存档设置",
+                steamOnline: "Steam: 运行中",
+                steamOffline: "Steam: 未运行",
+                depotKeys: "Depot Keys",
+                coreReady: "Core 引擎: 已就绪生效",
+                coreStandby: "Core 引擎: 待命中 (等待 Steam 启动)",
+                coreUninstalled: "Core 尚未部署",
+                btnInstall: "🚀 一键安装/更新 Core",
+                btnUninstall: "🗑️ 卸载",
+                searchTitle: "🔍 搜索与解锁 (Search & Unlock)",
+                dropzoneTitle: "📥 拖入 D 加密授权文件 (appticket.bin / tickets.txt)",
+                dropzoneSub: "自动识别 AppID 并匹配 Depot 解密 Key 生成脚本",
+                searchPlaceholder: "输入游戏名称或 AppID...",
+                btnSearch: "搜索",
+                scriptsTitle: "📜 已安装脚本",
+                filterPlaceholder: "过滤脚本...",
+                btnRefresh: "🔄 刷新",
+                emptySearch: "输入游戏名称或 AppID 开始在线检索",
+                emptyScripts: "暂未检测到已安装的 .lua 脚本",
+                btnUnlock: "✨ 一键解锁",
+                dlcTitle: "包含的 DLC",
+                cloudTitle: "☁️ WebDAV 云存档设置",
+                cloudEnable: "启用 WebDAV 多端云存档同步",
+                cloudUrl: "WebDAV 服务器 URL (例如坚果云 / Alist / Nextcloud)",
+                cloudUser: "用户名 / 账号 (Username)",
+                cloudPass: "应用授权密码 / Token",
+                cloudRoot: "云端存档存放根目录",
+                btnTest: "🔍 测试连接",
+                btnSave: "💾 保存配置",
+                btnBackup: "☁️ 备份",
+                btnRestore: "📥 恢复",
+                btnDisable: "停用",
+                btnEnable: "启用",
+                btnDelete: "删除",
+                statusActive: "已启用",
+                statusDisabled: "已停用"
+            },
+            en: {
+                langToggle: "🌐 中文",
+                cloudBtn: "☁️ Cloud Saves",
+                steamOnline: "Steam: Online",
+                steamOffline: "Steam: Offline",
+                depotKeys: "Depot Keys",
+                coreReady: "Core Engine: Ready & Active",
+                coreStandby: "Core Engine: Standby (Waiting for Steam)",
+                coreUninstalled: "Core Engine: Not Installed",
+                btnInstall: "🚀 Install / Update Core",
+                btnUninstall: "🗑️ Uninstall",
+                searchTitle: "🔍 Search & Unlock",
+                dropzoneTitle: "📥 Drop Denuvo Ticket (.bin / .txt)",
+                dropzoneSub: "Auto detect AppID and match Depot Decryption Keys",
+                searchPlaceholder: "Enter game title or AppID...",
+                btnSearch: "Search",
+                scriptsTitle: "📜 Installed Scripts",
+                filterPlaceholder: "Filter scripts...",
+                btnRefresh: "🔄 Refresh",
+                emptySearch: "Search by game title or AppID",
+                emptyScripts: "No installed .lua scripts found",
+                btnUnlock: "✨ Unlock",
+                dlcTitle: "Included DLCs",
+                cloudTitle: "☁️ WebDAV Cloud Saves",
+                cloudEnable: "Enable WebDAV Cloud Save Sync",
+                cloudUrl: "WebDAV Server URL (e.g. Nextcloud / Alist / Jianguoyun)",
+                cloudUser: "Username / Account",
+                cloudPass: "App Password / Token",
+                cloudRoot: "Remote Root Directory",
+                btnTest: "🔍 Test Connection",
+                btnSave: "💾 Save Settings",
+                btnBackup: "☁️ Backup",
+                btnRestore: "📥 Restore",
+                btnDisable: "Disable",
+                btnEnable: "Enable",
+                btnDelete: "Delete",
+                statusActive: "Active",
+                statusDisabled: "Disabled"
+            }
+        };
+
+        let g_currentLang = localStorage.getItem('omni_lang') || 'zh';
+        function t(key) {
+            return (I18N[g_currentLang] && I18N[g_currentLang][key]) ? I18N[g_currentLang][key] : key;
+        }
+        function applyLanguage() {
+            document.getElementById('langToggleBtn').textContent = t('langToggle');
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const k = el.getAttribute('data-i18n');
+                if (I18N[g_currentLang][k]) el.textContent = I18N[g_currentLang][k];
+            });
+            document.getElementById('queryInput').placeholder = t('searchPlaceholder');
+            document.getElementById('scriptFilterInput').placeholder = t('filterPlaceholder');
+            fetchStatus();
+            if (g_allScripts.length > 0) renderScripts(g_allScripts);
+        }
+        function toggleLanguage() {
+            g_currentLang = (g_currentLang === 'zh') ? 'en' : 'zh';
+            localStorage.setItem('omni_lang', g_currentLang);
+            applyLanguage();
+        }
+
         let g_allScripts = [];
         function handleSearchKey(event) {
             if (event.isComposing) return;
@@ -680,12 +782,12 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 const sText = document.getElementById('steamStatusText');
                 if (data.steamRunning) {
                     sDot.className = 'dot online';
-                    sText.textContent = `Steam: 运行中 (PID: ${data.steamPid})`;
+                    sText.textContent = `${t('steamOnline')} (PID: ${data.steamPid})`;
                 } else {
                     sDot.className = 'dot';
-                    sText.textContent = 'Steam: 未运行';
+                    sText.textContent = t('steamOffline');
                 }
-                document.getElementById('depotKeyStatus').textContent = `Depot 索引: ${data.depotKeysCount.toLocaleString()} 条`;
+                document.getElementById('depotKeyStatus').textContent = `${t('depotKeys')}: ${data.depotKeysCount.toLocaleString()}`;
 
                 // Core Status
                 const cDot = document.getElementById('coreStatusDot');
@@ -696,21 +798,21 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 const hIpc = document.getElementById('hookIpc');
                 if (data.steamRunning && data.core && data.core.active) {
                     cDot.className = 'dot online';
-                    cTitle.textContent = `Core 拦截引擎: 已就绪生效 (v${data.core.installedVersion || '1.0.0'}, 目标: ${data.core.targetModule || 'steamclient'})`;
+                    cTitle.textContent = `${t('coreReady')} (v${data.core.installedVersion || '1.0.0'}, ${data.core.targetModule || 'steamclient'})`;
                     hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-pill active' : 'hook-pill';
                     hPackage.className = 'hook-pill active';
                     hConfig.className = data.core.configStoreHook ? 'hook-pill active' : 'hook-pill';
                     hIpc.className = data.core.ipcHook ? 'hook-pill active' : 'hook-pill';
                 } else if (data.core && data.core.installed) {
                     cDot.className = 'dot warning';
-                    cTitle.textContent = 'Core 已部署于 Steam 目录 (等待 Steam 启动即时注入)';
+                    cTitle.textContent = t('coreStandby');
                     hAppOwn.className = 'hook-pill';
                     hPackage.className = 'hook-pill';
                     hConfig.className = 'hook-pill';
                     hIpc.className = 'hook-pill';
                 } else {
                     cDot.className = 'dot';
-                    cTitle.textContent = 'Core 尚未部署至 Steam 目录';
+                    cTitle.textContent = t('coreUninstalled');
                     hAppOwn.className = 'hook-pill';
                     hPackage.className = 'hook-pill';
                     hConfig.className = 'hook-pill';
@@ -718,7 +820,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 }
             } catch(e) {}
         }
-
         async function installCore() {
             const channel = document.getElementById('channelSelect').value;
             const btn = document.getElementById('btnInstallCore');
@@ -936,29 +1037,30 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             const container = document.getElementById('scriptList');
             container.innerHTML = '';
             if (!scripts || scripts.length === 0) {
-                container.innerHTML = '<div class="empty-placeholder">暂未检测到已安装的 .lua 脚本</div>';
+                container.innerHTML = `<div class="empty-placeholder">${t('emptyScripts')}</div>`;
                 return;
             }
             scripts.forEach(s => {
                 const div = document.createElement('div');
                 div.className = 'list-row';
                 const displayName = s.title && s.title.trim() ? s.title.trim() : (s.primaryAppId ? `App ${s.primaryAppId}` : s.fileName);
-                const subText = s.primaryAppId ? `AppID: ${s.primaryAppId}` : `文件: ${s.fileName}`;
+                const subText = s.primaryAppId ? `AppID: ${s.primaryAppId}` : `${s.fileName}`;
+                const statusText = s.enabled ? t('statusActive') : t('statusDisabled');
                 const cloudBtns = s.primaryAppId ? `
-                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="备份此游戏存档至 WebDAV" onclick="backupSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">☁️ 备份</button>
-                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="从 WebDAV 恢复最新存档" onclick="restoreSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">📥 恢复</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="Backup" onclick="backupSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">${t('btnBackup')}</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="Restore" onclick="restoreSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">${t('btnRestore')}</button>
                 ` : '';
                 div.innerHTML = `
                     <div class="row-main">
                         <div class="row-text">
                             <span class="row-title" title="${s.fullPath}">${displayName}</span>
-                            <span class="row-desc">${subText} | 状态: <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${s.enabled ? '已启用' : '已停用'}</strong></span>
+                            <span class="row-desc">${subText} | <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${statusText}</strong></span>
                         </div>
                     </div>
                     <div class="btn-group">
                         ${cloudBtns}
-                        <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? '停用' : '启用'}</button>
-                        <button class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">删除</button>
+                        <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? t('btnDisable') : t('btnEnable')}</button>
+                        <button class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">${t('btnDelete')}</button>
                     </div>
                 `;
                 container.appendChild(div);
@@ -1098,11 +1200,9 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             });
             loadScripts();
         }
-
-        fetchStatus();
+        applyLanguage();
         loadScripts();
         setInterval(fetchStatus, 3000);
-    </script>
 </body>
 </html>)rawhtml";
 std::string HandleHttpRequest(const std::string& request) {
