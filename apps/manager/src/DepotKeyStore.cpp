@@ -251,6 +251,8 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uin
             scanRange(dlcId, 10);
         }
     }
+
+    return result;
 }
 
 } // namespace Manager
