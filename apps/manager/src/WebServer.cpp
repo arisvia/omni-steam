@@ -7,6 +7,7 @@
 #include "SteamApi.h"
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <iomanip>
 #include <regex>

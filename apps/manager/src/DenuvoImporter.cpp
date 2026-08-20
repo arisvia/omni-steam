@@ -4,6 +4,7 @@
 #include "ScriptManager.h"
 #include "SteamApi.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <regex>

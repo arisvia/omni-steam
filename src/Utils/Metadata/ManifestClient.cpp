@@ -1,5 +1,6 @@
 #include "ManifestClient.h"
 
+#include <cstdint>
 #include <spdlog/spdlog.h>
 #include <string>
 

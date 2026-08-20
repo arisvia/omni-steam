@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <string>

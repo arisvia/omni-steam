@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bcrypt.h>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <sstream>

@@ -1,6 +1,7 @@
 #include "DepotKeyStore.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"

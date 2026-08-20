@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <cstdint>
 #include <psapi.h>
 #include <string>
 #include <vector>

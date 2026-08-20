@@ -1,4 +1,5 @@
 #include <climits>
+#include <cstdint>
 #include <dlfcn.h>
 #include <link.h>
 #include <spdlog/spdlog.h>

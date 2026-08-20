@@ -5,6 +5,7 @@
 #include "SteamApi.h"
 #include "WebServer.h"
 
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <spdlog/spdlog.h>

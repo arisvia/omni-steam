@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <elf.h>
 #include <link.h>
 #include <string>

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>

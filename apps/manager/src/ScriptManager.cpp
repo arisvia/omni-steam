@@ -1,6 +1,7 @@
 #include "ScriptManager.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>

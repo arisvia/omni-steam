@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstring>
 #include <spdlog/spdlog.h>
 #include <string>

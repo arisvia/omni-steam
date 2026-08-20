@@ -1,5 +1,6 @@
 #include "SavePathResolver.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <spdlog/spdlog.h>

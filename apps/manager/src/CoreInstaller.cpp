@@ -1,6 +1,7 @@
 #include "CoreInstaller.h"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <regex>

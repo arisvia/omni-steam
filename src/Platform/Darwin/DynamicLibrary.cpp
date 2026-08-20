@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <string>

@@ -1,5 +1,6 @@
 #include <chrono>
 #include <climits>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <unistd.h>

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstring>
 #include <mach/mach.h>
 #include <mach/vm_map.h>

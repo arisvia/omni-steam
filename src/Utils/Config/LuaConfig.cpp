@@ -1,5 +1,6 @@
 #include "LuaConfig.h"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>

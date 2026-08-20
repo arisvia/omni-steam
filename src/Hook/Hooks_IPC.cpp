@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <spdlog/spdlog.h>
 
 #include "OmniPlatform/OmniPlatform.h"

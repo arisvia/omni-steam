@@ -1,6 +1,7 @@
 #include "PatternLoader.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
