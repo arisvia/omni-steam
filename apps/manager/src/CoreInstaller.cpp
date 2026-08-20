@@ -126,50 +126,63 @@ bool CoreInstaller::InstallCore(const std::string& channel) {
 
     spdlog::info("CoreInstaller: Initiating Core installation (channel: {}) to {}", channel, steamPath);
 
-    // Determine platform asset name
-    std::string assetName;
+    // Determine candidate platform asset names
+    std::vector<std::string> assetCandidates;
 #if defined(OMNI_PLATFORM_WINDOWS)
-    assetName = "omnisteam-core-windows-x64.zip";
+    assetCandidates = {"omnisteam-core-windows-x64.zip", "omnisteam-windows-latest-x86_64.zip",
+                       "omnisteam-core-windows.zip"};
 #elif defined(OMNI_PLATFORM_MACOS)
-    assetName = "omnisteam-core-macos.tar.gz";
+    assetCandidates = {"omnisteam-core-macos-arm64.tar.gz", "omnisteam-macos-latest-arm64.tar.gz",
+                       "omnisteam-core-macos.tar.gz"};
 #else
-    assetName = "omnisteam-core-linux.tar.gz";
+    assetCandidates = {"omnisteam-core-linux-x64.tar.gz", "omnisteam-ubuntu-latest-x86_64.tar.gz",
+                       "omnisteam-core-linux.tar.gz"};
 #endif
 
-    std::string downloadUrl;
-    if (channel == "nightly") {
-        downloadUrl = std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/nightly/" + assetName;
-    } else {
-        downloadUrl = "https://github.com/arisvia/omni-steam/releases/latest/download/" + assetName;
-    }
-
-    spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
-    auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
-    if (resp.statusCode != 200 || resp.body.empty()) {
-        spdlog::warn("CoreInstaller: Remote download returned status {}, attempting fallback copy if local",
-                     resp.statusCode);
-        // Fallback: check if local build/lib artifacts exist
+    // 1. Check local sibling binary files first (for developer or manual unpacked builds)
 #if defined(OMNI_PLATFORM_WINDOWS)
-        if (fs::exists("lib/libomnisteam.dll") && fs::exists("lib/dwmapi.dll")) {
-            fs::copy_file("lib/libomnisteam.dll", fs::path(steamPath) / "libomnisteam.dll",
-                          fs::copy_options::overwrite_existing);
-            fs::copy_file("lib/dwmapi.dll", fs::path(steamPath) / "dwmapi.dll", fs::copy_options::overwrite_existing);
-            spdlog::info("CoreInstaller: Successfully deployed local Core artifacts to {}", steamPath);
+    std::vector<std::string> localSearchDirs = {
+        ".",
+        "lib",
+        "bin",
+        "Release",
+        "build/bin/Release",
+        "build/lib",
+        (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path()).generic_string()};
+    for (const auto& d : localSearchDirs) {
+        std::string coreDll = (fs::path(d) / "libomnisteam.dll").generic_string();
+        std::string proxyDll = (fs::path(d) / "dwmapi.dll").generic_string();
+        if (fs::exists(coreDll) && fs::exists(proxyDll)) {
+            fs::copy_file(coreDll, fs::path(steamPath) / "libomnisteam.dll", fs::copy_options::overwrite_existing);
+            fs::copy_file(proxyDll, fs::path(steamPath) / "dwmapi.dll", fs::copy_options::overwrite_existing);
+            spdlog::info("CoreInstaller: Successfully deployed local Core binaries from {} to {}", d, steamPath);
             return true;
         }
+    }
 #endif
-        return false;
+
+    // 2. Fetch from GitHub release / nightly
+    for (const auto& assetName : assetCandidates) {
+        std::string downloadUrl = (channel == "nightly")
+                                      ? (std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/nightly/" + assetName)
+                                      : ("https://github.com/arisvia/omni-steam/releases/latest/download/" + assetName);
+
+        spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
+        auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
+        if (resp.statusCode == 200 && !resp.body.empty()) {
+            std::string tempPackage = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
+            std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
+            if (out) {
+                out.write(resp.body.data(), resp.body.size());
+            }
+            spdlog::info("CoreInstaller: Core package downloaded ({} bytes). Saved to {}", resp.body.size(),
+                         tempPackage);
+            return true;
+        }
     }
 
-    // Save temporary package
-    std::string tempPackage = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
-    std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
-    if (out) {
-        out.write(resp.body.data(), resp.body.size());
-    }
-
-    spdlog::info("CoreInstaller: Core package downloaded ({} bytes). Deployed to {}", resp.body.size(), steamPath);
-    return true;
+    spdlog::warn("CoreInstaller: All remote asset candidate downloads failed");
+    return false;
 }
 
 bool CoreInstaller::UninstallCore() {

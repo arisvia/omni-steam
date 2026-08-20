@@ -122,18 +122,22 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
     g_records.clear();
     g_initialized = true;
 
-    std::vector<std::string> candidatePaths = {binFilePath, "depotkeys.bin", "../depotkeys.bin", "../../depotkeys.bin",
-                                               OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.bin"};
+    std::string cacheFile = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "depotkeys.bin").generic_string();
+    std::string configFile = (fs::path(OmniPlatform::Paths::GetConfigDirectory()) / "depotkeys.bin").generic_string();
+    std::string credFile =
+        (fs::path(OmniPlatform::CredentialStore::GetStoragePath()) / "depotkeys.bin").generic_string();
+
+    std::vector<std::string> candidatePaths = {binFilePath, cacheFile, configFile, credFile, "depotkeys.bin"};
 
     std::string foundPath;
     for (const auto& p : candidatePaths) {
-        if (fs::exists(p)) {
+        if (!p.empty() && fs::exists(p)) {
             foundPath = p;
             break;
         }
     }
 
-    // 1. Try local binary file first
+    // 1. Try local or standard cache binary file first
     if (!foundPath.empty()) {
         std::ifstream inFile(foundPath, std::ios::binary | std::ios::ate);
         if (inFile) {
@@ -142,7 +146,7 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
             std::vector<uint8_t> buffer(static_cast<size_t>(fileSize));
             if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
                 if (ParseBinaryContent(buffer.data(), buffer.size())) {
-                    spdlog::info("DepotKeyStore: Loaded {} depot keys from local binary {}", g_records.size(),
+                    spdlog::info("DepotKeyStore: Loaded {} depot keys from cached binary {}", g_records.size(),
                                  foundPath);
                     ImportKeysFromConfigVdf();
                     return;
@@ -151,27 +155,30 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
         }
     }
 
-    // 2. Fallback: Automatically download from GitHub Raw repo
-    spdlog::info("DepotKeyStore: Local depotkeys.bin not found, fetching from {}", kRemoteDepotKeysUrl);
-    auto resp = OmniPlatform::Http::Get(kRemoteDepotKeysUrl, 10000);
-    if (resp.statusCode == 200 && !resp.body.empty()) {
-        const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
-        if (ParseBinaryContent(rawData, resp.body.size())) {
-            spdlog::info("DepotKeyStore: Successfully fetched and parsed {} depot keys from GitHub remote",
-                         g_records.size());
+    // 2. Fallback: Automatically download from GitHub Raw repo / mirrors
+    std::vector<std::string> remoteUrls = {
+        kRemoteDepotKeysUrl, "https://raw.githubusercontent.com/OpenSteam001/OpenSteamTool/main/depotkeys.bin",
+        "https://cdn.jsdelivr.net/gh/OpenSteam001/OpenSteamTool@main/depotkeys.bin"};
 
-            // Cache to local storage directory for offline usage
-            std::string cachePath = OmniPlatform::CredentialStore::GetStoragePath() + "/depotkeys.bin";
-            std::ofstream cacheOut(cachePath, std::ios::binary | std::ios::trunc);
-            if (cacheOut) {
-                cacheOut.write(resp.body.data(), resp.body.size());
-                spdlog::info("DepotKeyStore: Cached remote depotkeys.bin to {}", cachePath);
+    for (const auto& url : remoteUrls) {
+        spdlog::info("DepotKeyStore: Fetching depot keys from remote {}", url);
+        auto resp = OmniPlatform::Http::Get(url, 8000);
+        if (resp.statusCode == 200 && !resp.body.empty()) {
+            const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
+            if (ParseBinaryContent(rawData, resp.body.size())) {
+                spdlog::info("DepotKeyStore: Successfully fetched and parsed {} depot keys from {}", g_records.size(),
+                             url);
+
+                // Save to standard OS cache directory
+                std::ofstream cacheOut(cacheFile, std::ios::binary | std::ios::trunc);
+                if (cacheOut) {
+                    cacheOut.write(resp.body.data(), resp.body.size());
+                    spdlog::info("DepotKeyStore: Persistently cached depotkeys.bin to {}", cacheFile);
+                }
+                ImportKeysFromConfigVdf();
+                return;
             }
-            ImportKeysFromConfigVdf();
-            return;
         }
-    } else {
-        spdlog::warn("DepotKeyStore: Could not fetch remote depot keys: {}", resp.error);
     }
 
     ImportKeysFromConfigVdf();

@@ -173,20 +173,26 @@ std::string Paths::GetConfigPath() {
 }
 
 std::string Paths::GetCacheDirectory() {
-    std::string localCache = "cache";
+#if defined(OMNI_PLATFORM_WINDOWS)
+    const char* localAppData = std::getenv("LOCALAPPDATA");
+    std::string base = localAppData ? (fs::path(localAppData) / "OmniSteam" / "cache").generic_string()
+                                    : (fs::path(GetConfigDirectory()) / "cache").generic_string();
+#elif defined(OMNI_PLATFORM_MACOS)
+    const char* home = std::getenv("HOME");
+    std::string base = home ? (fs::path(home) / "Library" / "Caches" / "OmniSteam").generic_string()
+                            : (fs::path(GetConfigDirectory()) / "cache").generic_string();
+#else
+    const char* xdgCache = std::getenv("XDG_CACHE_HOME");
+    const char* home = std::getenv("HOME");
+    std::string base = xdgCache ? (fs::path(xdgCache) / "omnisteam").generic_string()
+                                : (home ? (fs::path(home) / ".cache" / "omnisteam").generic_string()
+                                        : (fs::path(GetConfigDirectory()) / "cache").generic_string());
+#endif
     try {
-        if (fs::exists(localCache) || fs::create_directories(localCache)) {
-            return localCache;
-        }
+        fs::create_directories(base);
     } catch (...) {
     }
-
-    std::string globalCache = (fs::path(GetConfigDirectory()) / "cache").generic_string();
-    try {
-        fs::create_directories(globalCache);
-    } catch (...) {
-    }
-    return globalCache;
+    return base;
 }
 
 std::string Paths::GetCredentialsDirectory() {

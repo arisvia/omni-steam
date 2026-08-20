@@ -32,7 +32,7 @@ struct AppDetails {
 class SteamApi {
 public:
     static std::vector<SearchResultItem> SearchStore(const std::string& query, const std::string& language = "schinese",
-                                                     const std::string& countryCode = "CN");
+                                                     const std::string& countryCode = "US");
     static AppDetails GetAppDetails(uint32_t appId, const std::string& language = "schinese");
 };
 
