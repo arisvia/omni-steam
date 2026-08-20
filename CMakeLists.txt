@@ -287,6 +287,8 @@ set(MANAGER_SOURCES
     apps/manager/src/main.cpp
     apps/manager/src/SteamApi.cpp
     apps/manager/src/ScriptManager.cpp
+    apps/manager/src/StaticAssets.cpp
+    apps/manager/src/ApiRouter.cpp
     apps/manager/src/WebServer.cpp
     apps/manager/src/SavePathResolver.cpp
     apps/manager/src/WebDavClient.cpp
