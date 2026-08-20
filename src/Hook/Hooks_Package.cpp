@@ -23,6 +23,8 @@ constexpr uint64_t kInjectedPkgAccessToken = 10660652434190618804ull;
 RESOLVE_FUNC(CUtlMemoryGrow, void*, CUtlVector<AppId_t>*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
+bool InitFakeLicenseOnce(PackageInfo* pPkg);
+bool MarkLicenseAsChangedAndProcessUpdates();
 
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
