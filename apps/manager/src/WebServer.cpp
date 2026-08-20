@@ -318,22 +318,29 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
 
         /* Dropzone */
         .ticket-dropzone {
-            border: 1.5px dashed #2d3748;
-            background: rgba(15, 23, 42, 0.4);
-            border-radius: var(--radius-sm);
-            padding: 12px 16px;
+            border: 2px dashed rgba(56, 189, 248, 0.35);
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: var(--radius);
+            padding: 22px 20px;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s ease;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
         .ticket-dropzone:hover, .ticket-dropzone.dragover {
             border-color: var(--primary);
-            background: rgba(56, 189, 248, 0.06);
+            background: rgba(56, 189, 248, 0.1);
+            transform: translateY(-1px);
         }
-        .ticket-title { font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 2px; }
-        .ticket-sub { font-size: 11.5px; color: var(--text-muted); }
+        .ticket-icon { font-size: 28px; line-height: 1; }
+        .ticket-title { font-size: 14px; font-weight: 700; color: var(--text-main); }
+        .ticket-sub { font-size: 12px; color: var(--text-muted); line-height: 1.4; max-width: 92%; }
 
         /* Scrollable List Containers */
         .scroll-list {
@@ -394,7 +401,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         .modal-mask {
             position: fixed;
             inset: 0;
-            background: rgba(5, 8, 15, 0.8);
+            background: rgba(5, 8, 15, 0.85);
             backdrop-filter: blur(8px);
             display: none;
             align-items: center;
@@ -408,36 +415,61 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             border-radius: var(--radius);
             width: 100%;
             max-width: 640px;
-            max-height: 85vh;
-            overflow-y: auto;
-            padding: 24px;
+            max-height: 88vh;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
-            gap: 16px;
             position: relative;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7);
         }
-        .modal-hero { width: 100%; height: 160px; object-fit: cover; border-radius: var(--radius-sm); }
+        .modal-banner {
+            position: relative;
+            width: 100%;
+            height: 180px;
+            background: var(--bg-base);
+            flex-shrink: 0;
+        }
+        .modal-hero {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
         .modal-close-btn {
             position: absolute;
-            top: 16px;
-            right: 16px;
-            background: rgba(0, 0, 0, 0.6);
+            top: 12px;
+            right: 12px;
+            z-index: 50;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
             color: #fff;
             border-radius: 50%;
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        .modal-close-btn:hover {
+            background: rgba(239, 68, 68, 0.8);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+        .modal-body {
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+            max-height: calc(88vh - 180px);
         }
         .dlc-chip-list {
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
-            max-height: 160px;
+            max-height: 150px;
             overflow-y: auto;
             padding: 10px;
             background: var(--bg-base);
@@ -456,7 +488,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class="app-layout">
         <!-- Navigation Header -->
         <div class="navbar">
             <div class="brand">
@@ -546,29 +577,31 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 </div>
             </div>
         </div>
-    </div>
-
     <!-- Game Details Modal Dialog -->
     <div class="modal-mask" id="gameModal">
         <div class="modal-box">
-            <button class="modal-close-btn" onclick="closeModal()">✕</button>
-            <img id="modalCover" class="modal-hero" src="" onerror="this.style.display='none'">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                    <h2 id="modalTitle" style="font-size:18px; font-weight:700;">游戏详情</h2>
-                    <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
-                        <span id="modalAppId" class="status-pill" style="padding:2px 8px; font-size:11px; color:var(--primary);">AppID: -</span>
-                        <a id="btnSteamDb" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">📊 SteamDB</a>
-                        <a id="btnSteamStore" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">🛍️ Steam 商店</a>
-                    </div>
-                </div>
-                <button class="btn-primary" id="modalUnlockBtn" style="padding:9px 16px;">✨ 一键解锁</button>
+            <div class="modal-banner">
+                <button class="modal-close-btn" onclick="closeModal()" title="关闭">✕</button>
+                <img id="modalCover" class="modal-hero" src="" alt="Cover">
             </div>
-            <p id="modalDesc" style="font-size:12.5px; color:var(--text-muted); line-height:1.6; max-height:80px; overflow-y:auto;"></p>
-            <div>
-                <h4 style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 包含的 DLC 列表 (<span id="modalDlcCount">0</span> 个)</h4>
-                <div id="modalDlcList" class="dlc-chip-list">
-                    <div class="empty-placeholder" style="padding:10px;">未包含独立 DLC</div>
+            <div class="modal-body">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <h2 id="modalTitle" style="font-size:18px; font-weight:700;">游戏详情</h2>
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                            <span id="modalAppId" class="status-pill" style="padding:2px 8px; font-size:11px; color:var(--primary);">AppID: -</span>
+                            <a id="btnSteamDb" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">📊 SteamDB</a>
+                            <a id="btnSteamStore" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">🛍️ Steam 商店</a>
+                        </div>
+                    </div>
+                    <button class="btn-primary" id="modalUnlockBtn" style="padding:9px 18px; font-size:13px; flex-shrink:0;">✨ 一键解锁</button>
+                </div>
+                <p id="modalDesc" style="font-size:12.5px; color:var(--text-muted); line-height:1.6; max-height:90px; overflow-y:auto;"></p>
+                <div>
+                    <h4 style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 包含的 DLC 列表 (<span id="modalDlcCount">0</span> 个)</h4>
+                    <div id="modalDlcList" class="dlc-chip-list">
+                        <div class="empty-placeholder" style="padding:10px;">未包含独立 DLC</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -576,7 +609,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
 
     <script>
         let g_allScripts = [];
-
         function handleSearchKey(event) {
             if (event.isComposing) return;
             if (event.key === 'Enter') {
@@ -764,34 +796,50 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             document.getElementById('btnSteamDb').href = `https://steamdb.info/app/${appId}/`;
             document.getElementById('btnSteamStore').href = `https://store.steampowered.com/app/${appId}/`;
             document.getElementById('modalDesc').textContent = '';
-            document.getElementById('modalCover').src = `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
-            document.getElementById('modalCover').style.display = 'block';
+
+            const cover = document.getElementById('modalCover');
+            cover.style.display = 'block';
+            cover.src = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
+            cover.onerror = () => {
+                cover.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`;
+                cover.onerror = () => { cover.style.display = 'none'; };
+            };
             modal.style.display = 'flex';
 
-            const res = await fetch(`/api/appdetails?appId=${appId}`);
-            const data = await res.json();
-            
-            document.getElementById('modalTitle').textContent = data.name || `App ${appId}`;
-            document.getElementById('modalDesc').textContent = data.description || '暂无简介';
-            document.getElementById('modalDlcCount').textContent = (data.dlcList ? data.dlcList.length : 0);
+            try {
+                const res = await fetch(`/api/appdetails?appId=${appId}`);
+                const data = await res.json();
 
-            const dlcContainer = document.getElementById('modalDlcList');
-            dlcContainer.innerHTML = '';
-            if (data.dlcList && data.dlcList.length > 0) {
-                data.dlcList.forEach(dlc => {
-                    const tag = document.createElement('div');
-                    tag.className = 'dlc-chip';
-                    tag.innerHTML = `<span>${dlc.name}</span> <span class="version-chip" style="font-size:10px;">${dlc.dlcId}</span>`;
-                    dlcContainer.appendChild(tag);
-                });
-            } else {
-                dlcContainer.innerHTML = '<div class="empty-placeholder" style="padding:6px;">未包含独立 DLC</div>';
+                document.getElementById('modalTitle').textContent = data.name || `App ${appId}`;
+                document.getElementById('modalDesc').textContent = data.description || '暂无简介';
+                document.getElementById('modalDlcCount').textContent = (data.dlcList ? data.dlcList.length : 0);
+
+                if (data.headerImage) {
+                    cover.src = data.headerImage;
+                    cover.style.display = 'block';
+                }
+
+                const dlcContainer = document.getElementById('modalDlcList');
+                dlcContainer.innerHTML = '';
+                if (data.dlcList && data.dlcList.length > 0) {
+                    data.dlcList.forEach(dlc => {
+                        const tag = document.createElement('div');
+                        tag.className = 'dlc-chip';
+                        tag.innerHTML = `<span>${dlc.name}</span> <span class="version-chip" style="font-size:10px;">${dlc.dlcId}</span>`;
+                        dlcContainer.appendChild(tag);
+                    });
+                } else {
+                    dlcContainer.innerHTML = '<div class="empty-placeholder" style="padding:6px;">未包含独立 DLC</div>';
+                }
+
+                document.getElementById('modalUnlockBtn').onclick = () => {
+                    unlockGame(appId, encodeURIComponent(data.name || `App_${appId}`));
+                    closeModal();
+                };
+            } catch (e) {
+                document.getElementById('modalTitle').textContent = `App ${appId}`;
+                document.getElementById('modalDesc').textContent = '获取详情失败，请检查网络连接';
             }
-
-            document.getElementById('modalUnlockBtn').onclick = () => {
-                unlockGame(appId, encodeURIComponent(data.name || `App_${appId}`));
-                closeModal();
-            };
         }
 
         function closeModal() {
@@ -820,7 +868,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 g_allScripts = await res.json();
                 document.getElementById('scriptCount').textContent = g_allScripts.length;
                 renderScripts(g_allScripts);
-            } catch(e) {}
+            } catch (e) {}
         }
 
         function renderScripts(scripts) {
@@ -833,12 +881,13 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             scripts.forEach(s => {
                 const div = document.createElement('div');
                 div.className = 'list-row';
-                const displayName = s.title ? `${s.title} (${s.fileName})` : s.fileName;
+                const displayName = s.title && s.title.trim() ? s.title.trim() : (s.primaryAppId ? `App ${s.primaryAppId}` : s.fileName);
+                const subText = s.primaryAppId ? `AppID: ${s.primaryAppId}` : `文件: ${s.fileName}`;
                 div.innerHTML = `
                     <div class="row-main">
                         <div class="row-text">
                             <span class="row-title" title="${s.fullPath}">${displayName}</span>
-                            <span class="row-desc">AppID: ${s.primaryAppId || '通用'} | 状态: <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${s.enabled ? '已启用' : '已停用'}</strong></span>
+                            <span class="row-desc">${subText} | 状态: <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${s.enabled ? '已启用' : '已停用'}</strong></span>
                         </div>
                     </div>
                     <div class="btn-group">
@@ -849,7 +898,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 container.appendChild(div);
             });
         }
-
         function filterScripts() {
             const q = document.getElementById('scriptFilterInput').value.toLowerCase().trim();
             if (!q) {
