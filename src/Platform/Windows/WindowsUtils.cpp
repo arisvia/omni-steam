@@ -75,9 +75,8 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     int maxRedirects = 8;
 
     while (maxRedirects-- > 0) {
-        std::wstring wUrl(currentUrl.begin(), currentUrl.end());
+        std::wstring wUrl = Encoding::Utf8ToWide(currentUrl);
         URL_COMPONENTS urlComp{};
-        urlComp.dwStructSize = sizeof(urlComp);
         urlComp.dwHostNameLength = static_cast<DWORD>(-1);
         urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
         urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
@@ -148,11 +147,10 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
                     std::vector<wchar_t> locBuf(locSize / sizeof(wchar_t) + 1);
                     if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
                                             locBuf.data(), &locSize, WINHTTP_NO_HEADER_INDEX)) {
-                        std::wstring wLoc(locBuf.data());
-                        std::string nextUrl(wLoc.begin(), wLoc.end());
+                        std::string nextUrl = Encoding::WideToUtf8(locBuf.data());
                         if (nextUrl.rfind("/", 0) == 0) {
                             std::string scheme = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? "https://" : "http://";
-                            std::string host(hostName.begin(), hostName.end());
+                            std::string host = Encoding::WideToUtf8(hostName);
                             nextUrl = scheme + host + nextUrl;
                         }
                         currentUrl = nextUrl;
@@ -201,9 +199,8 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     if (url.empty())
         return res;
 
-    std::wstring wUrl(url.begin(), url.end());
+    std::wstring wUrl = Encoding::Utf8ToWide(url);
     URL_COMPONENTS urlComp{};
-    urlComp.dwStructSize = sizeof(urlComp);
     urlComp.dwHostNameLength = static_cast<DWORD>(-1);
     urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
     urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
@@ -247,7 +244,8 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
         return res;
     }
 
-    std::wstring wHeaders = L"Content-Type: " + std::wstring(contentType.begin(), contentType.end());
+    std::string headerStr = "Content-Type: " + contentType;
+    std::wstring wHeaders = Encoding::Utf8ToWide(headerStr);
     BOOL bResults = WinHttpSendRequest(hRequest, wHeaders.c_str(), static_cast<DWORD>(wHeaders.length()),
                                        const_cast<char*>(body.data()), static_cast<DWORD>(body.length()),
                                        static_cast<DWORD>(body.length()), 0);

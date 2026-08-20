@@ -118,5 +118,47 @@ std::string EscapeJson(std::string_view in) {
     return out;
 }
 
+std::string WideToUtf8(std::wstring_view wide) {
+    if (wide.empty())
+        return "";
+#if defined(OMNI_PLATFORM_WINDOWS)
+    int size =
+        WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.length()), nullptr, 0, nullptr, nullptr);
+    if (size <= 0)
+        return "";
+    std::string result(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.length()), result.data(), size, nullptr,
+                        nullptr);
+    return result;
+#else
+    std::string result;
+    result.reserve(wide.size());
+    for (wchar_t wc : wide) {
+        result.push_back(static_cast<char>(wc & 0xFF));
+    }
+    return result;
+#endif
+}
+
+std::wstring Utf8ToWide(std::string_view utf8) {
+    if (utf8.empty())
+        return L"";
+#if defined(OMNI_PLATFORM_WINDOWS)
+    int size = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.length()), nullptr, 0);
+    if (size <= 0)
+        return L"";
+    std::wstring result(size, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.length()), result.data(), size);
+    return result;
+#else
+    std::wstring result;
+    result.reserve(utf8.size());
+    for (char c : utf8) {
+        result.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+    }
+    return result;
+#endif
+}
+
 } // namespace Encoding
 } // namespace OmniPlatform

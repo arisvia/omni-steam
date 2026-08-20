@@ -17,6 +17,8 @@ std::string BytesToHex(const uint8_t* data, size_t length);
 std::string UrlEncode(std::string_view value);
 std::string UrlDecode(std::string_view in);
 std::string EscapeJson(std::string_view value);
+std::string WideToUtf8(std::wstring_view wide);
+std::wstring Utf8ToWide(std::string_view utf8);
 } // namespace Encoding
 
 namespace Numbers {
