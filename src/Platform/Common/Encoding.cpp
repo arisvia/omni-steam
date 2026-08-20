@@ -5,6 +5,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
+
 #include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
