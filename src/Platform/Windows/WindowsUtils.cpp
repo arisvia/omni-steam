@@ -1,8 +1,13 @@
 #include <windows.h>
 
+#include <algorithm>
+#include <bcrypt.h>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <winhttp.h>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -62,22 +67,251 @@ bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Cal
 void DirectoryWatch::StopWatch() {}
 
 Http::Response Http::Get(const std::string& url, int timeoutMs) {
-    return {};
+    Response res;
+    if (url.empty())
+        return res;
+
+    std::wstring wUrl(url.begin(), url.end());
+    URL_COMPONENTS urlComp{};
+    urlComp.dwStructSize = sizeof(urlComp);
+    urlComp.dwHostNameLength = static_cast<DWORD>(-1);
+    urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
+    urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
+
+    if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
+        res.error = "Invalid URL format";
+        return res;
+    }
+
+    std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
+    std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
+
+    HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                     WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) {
+        res.error = "WinHttpOpen failed";
+        return res;
+    }
+
+    if (timeoutMs > 0) {
+        WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+    }
+
+    // Enable TLS 1.2 and TLS 1.3
+    DWORD secureProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+    WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secureProtocols, sizeof(secureProtocols));
+
+    HINTERNET hConnect = WinHttpConnect(hSession, hostName.c_str(), urlComp.nPort, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        res.error = "WinHttpConnect failed";
+        return res;
+    }
+
+    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", urlPath.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        res.error = "WinHttpOpenRequest failed";
+        return res;
+    }
+
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    BOOL bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    if (bResults) {
+        bResults = WinHttpReceiveResponse(hRequest, nullptr);
+    }
+
+    if (bResults) {
+        DWORD statusCode = 0;
+        DWORD size = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
+        res.statusCode = static_cast<int>(statusCode);
+
+        DWORD dwSize = 0;
+        do {
+            dwSize = 0;
+            if (!WinHttpQueryDataAvailable(hRequest, &dwSize))
+                break;
+            if (dwSize == 0)
+                break;
+
+            std::vector<char> buffer(dwSize);
+            DWORD dwDownloaded = 0;
+            if (WinHttpReadData(hRequest, buffer.data(), dwSize, &dwDownloaded)) {
+                res.body.append(buffer.data(), dwDownloaded);
+            } else {
+                break;
+            }
+        } while (dwSize > 0);
+    } else {
+        res.error = "WinHttp request failed (error " + std::to_string(GetLastError()) + ")";
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return res;
 }
 
 Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType,
                           int timeoutMs) {
-    return {};
+    Response res;
+    if (url.empty())
+        return res;
+
+    std::wstring wUrl(url.begin(), url.end());
+    URL_COMPONENTS urlComp{};
+    urlComp.dwStructSize = sizeof(urlComp);
+    urlComp.dwHostNameLength = static_cast<DWORD>(-1);
+    urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
+    urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
+
+    if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
+        res.error = "Invalid URL format";
+        return res;
+    }
+
+    std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
+    std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
+
+    HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                     WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) {
+        res.error = "WinHttpOpen failed";
+        return res;
+    }
+
+    if (timeoutMs > 0) {
+        WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+    }
+
+    DWORD secureProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+    WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secureProtocols, sizeof(secureProtocols));
+
+    HINTERNET hConnect = WinHttpConnect(hSession, hostName.c_str(), urlComp.nPort, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        res.error = "WinHttpConnect failed";
+        return res;
+    }
+
+    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", urlPath.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        res.error = "WinHttpOpenRequest failed";
+        return res;
+    }
+
+    std::wstring wHeaders = L"Content-Type: " + std::wstring(contentType.begin(), contentType.end());
+    BOOL bResults = WinHttpSendRequest(hRequest, wHeaders.c_str(), static_cast<DWORD>(wHeaders.length()),
+                                       const_cast<char*>(body.data()), static_cast<DWORD>(body.length()),
+                                       static_cast<DWORD>(body.length()), 0);
+    if (bResults) {
+        bResults = WinHttpReceiveResponse(hRequest, nullptr);
+    }
+
+    if (bResults) {
+        DWORD statusCode = 0;
+        DWORD size = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
+        res.statusCode = static_cast<int>(statusCode);
+
+        DWORD dwSize = 0;
+        do {
+            dwSize = 0;
+            if (!WinHttpQueryDataAvailable(hRequest, &dwSize))
+                break;
+            if (dwSize == 0)
+                break;
+
+            std::vector<char> buffer(dwSize);
+            DWORD dwDownloaded = 0;
+            if (WinHttpReadData(hRequest, buffer.data(), dwSize, &dwDownloaded)) {
+                res.body.append(buffer.data(), dwDownloaded);
+            } else {
+                break;
+            }
+        } while (dwSize > 0);
+    } else {
+        res.error = "WinHttp POST failed (error " + std::to_string(GetLastError()) + ")";
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return res;
 }
 
 std::string Hash::Sha256(const std::vector<uint8_t>& data) {
-    return "";
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) != 0) {
+        return "";
+    }
+
+    DWORD hashObjectSize = 0, dataLen = 0;
+    BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PBYTE>(&hashObjectSize), sizeof(DWORD), &dataLen, 0);
+    std::vector<uint8_t> hashObject(hashObjectSize);
+
+    DWORD hashLength = 0;
+    BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PBYTE>(&hashLength), sizeof(DWORD), &dataLen, 0);
+    std::vector<uint8_t> hash(hashLength);
+
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    if (BCryptCreateHash(hAlg, &hHash, hashObject.data(), hashObjectSize, nullptr, 0, 0) == 0) {
+        if (!data.empty()) {
+            BCryptHashData(hHash, const_cast<PUCHAR>(data.data()), static_cast<ULONG>(data.size()), 0);
+        }
+        BCryptFinishHash(hHash, hash.data(), hashLength, 0);
+        BCryptDestroyHash(hHash);
+    }
+
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return Encoding::BytesToHex(hash.data(), hash.size());
 }
+
 std::string Hash::Sha256File(const std::string& filePath) {
-    return "";
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file)
+        return "";
+    std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return Sha256(buffer);
 }
+
 std::string Hash::Md5(const std::vector<uint8_t>& data) {
-    return "";
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_MD5_ALGORITHM, nullptr, 0) != 0) {
+        return "";
+    }
+
+    DWORD hashObjectSize = 0, dataLen = 0;
+    BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PBYTE>(&hashObjectSize), sizeof(DWORD), &dataLen, 0);
+    std::vector<uint8_t> hashObject(hashObjectSize);
+
+    DWORD hashLength = 0;
+    BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PBYTE>(&hashLength), sizeof(DWORD), &dataLen, 0);
+    std::vector<uint8_t> hash(hashLength);
+
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    if (BCryptCreateHash(hAlg, &hHash, hashObject.data(), hashObjectSize, nullptr, 0, 0) == 0) {
+        if (!data.empty()) {
+            BCryptHashData(hHash, const_cast<PUCHAR>(data.data()), static_cast<ULONG>(data.size()), 0);
+        }
+        BCryptFinishHash(hHash, hash.data(), hashLength, 0);
+        BCryptDestroyHash(hHash);
+    }
+
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return Encoding::BytesToHex(hash.data(), hash.size());
 }
 
 bool CredentialStore::WriteTicket(uint32_t appId, const std::string& ticketName, const std::string& hexValue) {
