@@ -9,10 +9,10 @@
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
 namespace fs = std::filesystem;
@@ -116,6 +116,49 @@ void ImportKeysFromConfigVdf() {
         spdlog::info("DepotKeyStore: Imported {} additional keys from local Steam config.vdf", imported);
     }
 }
+
+void TriggerAsyncBackgroundUpdate(size_t localCount, const std::string& targetCacheFile) {
+    std::thread([localCount, targetCacheFile]() {
+        std::vector<std::string> remoteUrls = {"https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                               "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                               "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                               kRemoteDepotKeysUrl};
+
+        for (const auto& url : remoteUrls) {
+            auto resp = OmniPlatform::Http::Get(url, 6000);
+            if (resp.statusCode == 200 && !resp.body.empty()) {
+                const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
+                if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
+                    const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);
+                    if (header->magic == kOmkyMagic && header->version == kCurrentVersion) {
+                        if (header->count > localCount) {
+                            std::lock_guard<std::mutex> lock(g_storeMutex);
+                            if (ParseBinaryContent(rawData, resp.body.size())) {
+                                spdlog::info(
+                                    "DepotKeyStore: Background update hot-reloaded {} depot keys (was {}) from {}",
+                                    g_records.size(), localCount, url);
+                                try {
+                                    fs::create_directories(fs::path(targetCacheFile).parent_path());
+                                    std::ofstream cacheOut(targetCacheFile, std::ios::binary | std::ios::trunc);
+                                    if (cacheOut) {
+                                        cacheOut.write(resp.body.data(), resp.body.size());
+                                        spdlog::info("DepotKeyStore: Saved background updated keys to cache ({})",
+                                                     targetCacheFile);
+                                    }
+                                } catch (...) {
+                                }
+                            }
+                        } else {
+                            spdlog::debug("DepotKeyStore: Local cache ({} keys) is up-to-date with remote ({} keys)",
+                                          localCount, header->count);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }).detach();
+}
 } // namespace
 
 void DepotKeyStore::Initialize(const std::string& binFilePath) {
@@ -152,15 +195,16 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
         }
     }
 
-    // 2. If local cache was loaded, skip blocking remote fetch during startup
+    // 2. If local cache was loaded, trigger non-blocking async background update and return immediately
     if (loadedFromCache && localCount > 0) {
         ImportKeysFromConfigVdf();
         spdlog::info("DepotKeyStore: Initialization completed with {} active depot keys from local cache.",
                      g_records.size());
+        TriggerAsyncBackgroundUpdate(localCount, targetCacheFile);
         return;
     }
 
-    // 3. Fallback: Fetch/update from GitHub raw endpoint or high-speed CDN mirrors
+    // 3. Cold Start Fallback: Fetch from CDN mirrors
     std::vector<std::string> remoteUrls = {"https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
                                            "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
                                            "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
@@ -191,15 +235,8 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
                     }
                     remoteUpdated = true;
                     break;
-                } else {
-                    spdlog::warn("DepotKeyStore: Remote payload from {} has invalid magic/version", url);
                 }
-            } else {
-                spdlog::warn("DepotKeyStore: Remote payload from {} is incomplete ({} bytes)", url, resp.body.size());
             }
-        } else {
-            spdlog::warn("DepotKeyStore: Remote check failed for {} (Status: {}, Error: {})", url, resp.statusCode,
-                         resp.error.empty() ? "None" : resp.error);
         }
     }
 
