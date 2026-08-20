@@ -78,13 +78,14 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     while (maxRedirects-- > 0) {
         std::wstring wUrl = Encoding::Utf8ToWide(currentUrl);
         URL_COMPONENTS urlComp{};
+        urlComp.dwStructSize = sizeof(urlComp);
         urlComp.dwHostNameLength = static_cast<DWORD>(-1);
         urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
         urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
         urlComp.dwSchemeLength = static_cast<DWORD>(-1);
 
         if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
-            res.error = "Invalid URL format";
+            res.error = "Invalid URL format (error " + std::to_string(GetLastError()) + ")";
             return res;
         }
 
@@ -224,9 +225,11 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
 
     std::wstring wUrl = Encoding::Utf8ToWide(url);
     URL_COMPONENTS urlComp{};
+    urlComp.dwStructSize = sizeof(urlComp);
     urlComp.dwHostNameLength = static_cast<DWORD>(-1);
     urlComp.dwUrlPathLength = static_cast<DWORD>(-1);
     urlComp.dwExtraInfoLength = static_cast<DWORD>(-1);
+    urlComp.dwSchemeLength = static_cast<DWORD>(-1);
 
     if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
         res.error = "Invalid URL format";
@@ -234,10 +237,23 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     }
 
     std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
-    std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
+    std::wstring urlPath;
+    if (urlComp.dwUrlPathLength > 0 && urlComp.lpszUrlPath) {
+        urlPath = std::wstring(urlComp.lpszUrlPath, urlComp.dwUrlPathLength);
+    } else {
+        urlPath = L"/";
+    }
+    if (urlComp.dwExtraInfoLength > 0 && urlComp.lpszExtraInfo) {
+        urlPath += std::wstring(urlComp.lpszExtraInfo, urlComp.dwExtraInfoLength);
+    }
 
-    HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET hSession =
+        WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0",
+                    4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) {
+        hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0",
+                               WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    }
     if (!hSession) {
         res.error = "WinHttpOpen failed";
         return res;
