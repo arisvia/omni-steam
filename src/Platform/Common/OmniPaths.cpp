@@ -97,21 +97,20 @@ std::vector<std::string> Paths::GetCandidateLuaDirectories() {
         }
     };
 
-    // 1. Current working directory relative paths
-    addDir("config/lua");
-    addDir("lua");
-
-    // 2. Platform primary Steam installation path
+    // 1. Primary Steam standard config/lua directory
     std::string steamRoot = GetSteamInstallPath();
     if (!steamRoot.empty()) {
         addDir(steamRoot + "/config/lua");
-        addDir(steamRoot + "/lua");
     }
 
+    // 2. Relative working directory paths
+    addDir("config/lua");
+
+    // 3. User custom configuration directory
 #if defined(OMNI_PLATFORM_WINDOWS)
-    const char* userProfile = std::getenv("USERPROFILE");
-    if (userProfile) {
-        addDir(std::string(userProfile) + "/AppData/Roaming/OmniSteam/lua");
+    const char* appData = std::getenv("APPDATA");
+    if (appData) {
+        addDir(std::string(appData) + "/OmniSteam/lua");
     }
 #elif defined(OMNI_PLATFORM_MACOS)
     const char* home = std::getenv("HOME");
@@ -137,12 +136,8 @@ std::string Paths::GetDefaultLuaDirectory() {
         }
     }
 
-    std::string defaultPath = (fs::path(GetSteamInstallPath()) / "config" / "lua").generic_string();
-    try {
-        fs::create_directories(defaultPath);
-    } catch (...) {
-    }
-    return defaultPath;
+    std::string steamRoot = GetSteamInstallPath();
+    return steamRoot.empty() ? "config/lua" : (fs::path(steamRoot) / "config" / "lua").generic_string();
 }
 
 std::string Paths::GetConfigDirectory() {

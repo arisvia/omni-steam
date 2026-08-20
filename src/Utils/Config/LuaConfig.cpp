@@ -123,10 +123,8 @@ void ParseFile(const std::string& filePath) {
 
 void ParseDirectory(const std::string& dirPath) {
     if (!fs::exists(dirPath)) {
-        fs::create_directories(dirPath);
         return;
     }
-
     try {
         for (const auto& entry : fs::recursive_directory_iterator(dirPath)) {
             if (entry.is_regular_file() && entry.path().extension() == ".lua") {

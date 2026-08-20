@@ -100,28 +100,31 @@ static void InitializeOmniSteam() {
         Config::Load(OmniPlatform::Paths::GetConfigPath());
         PatternLoader::Initialize();
 
-        // 3. Parse and monitor all Lua script directories
+        // 3. Parse and monitor existing Lua script directories (read-only scan)
         auto luaDirs = OmniPlatform::Paths::GetCandidateLuaDirectories();
-        size_t totalLuaLoaded = 0;
+        std::vector<std::string> watchDirs;
         for (const auto& dir : luaDirs) {
-            spdlog::info("Scanning Lua directory: {}", dir);
-            LuaConfig::ParseDirectory(dir);
+            if (fs::exists(dir)) {
+                spdlog::info("Scanning Lua directory: {}", dir);
+                LuaConfig::ParseDirectory(dir);
+                watchDirs.push_back(dir);
+            }
         }
 
-        std::vector<std::string> watchDirs = luaDirs;
         for (const auto& p : Config::GetLuaPaths()) {
             if (fs::exists(p)) {
                 watchDirs.push_back(p);
             }
         }
 
-        OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [](const std::string& path, bool isDir) {
-            if (!isDir && path.ends_with(".lua")) {
-                spdlog::info("Hot reload Lua: {}", path);
-                LuaConfig::ParseFile(path);
-            }
-        });
-
+        if (!watchDirs.empty()) {
+            OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [](const std::string& path, bool isDir) {
+                if (!isDir && path.ends_with(".lua")) {
+                    spdlog::info("Hot reload Lua: {}", path);
+                    LuaConfig::ParseFile(path);
+                }
+            });
+        }
         // 4. Install Detour Hooks
         HookManager::InstallHooks();
 
