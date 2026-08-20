@@ -77,8 +77,13 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     <meta charset="UTF-8">
     <title>OmniSteam 控制中心</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            --font-mono: 'JetBrains Mono', "Cascadia Code", "Consolas", monospace;
             --bg-base: #0b0f19;
             --bg-card: #111827;
             --bg-card-subtle: #162032;
@@ -104,7 +109,10 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             overflow: hidden;
             background: radial-gradient(circle at 50% 0%, #151d30 0%, var(--bg-base) 75%);
             color: var(--text-main);
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            font-family: var(--font-sans);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
         }
         
         .app-layout {
@@ -112,12 +120,11 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             height: 100vh;
             display: flex;
             flex-direction: column;
-            padding: 20px 24px;
-            gap: 16px;
+            padding: 16px 20px;
+            gap: 12px;
             box-sizing: border-box;
+            overflow: hidden;
         }
-        
-        /* Navigation Bar */
         .navbar {
             display: flex;
             justify-content: space-between;
@@ -150,6 +157,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             background: rgba(56, 189, 248, 0.1);
             border: 1px solid rgba(56, 189, 248, 0.2);
             color: var(--primary);
+            font-family: var(--font-mono);
             font-size: 11px;
             font-weight: 600;
             padding: 2px 8px;
@@ -168,6 +176,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             border: 1px solid var(--border);
             padding: 6px 12px;
             border-radius: 9999px;
+            font-family: var(--font-mono);
             font-size: 12px;
             color: var(--text-muted);
         }
@@ -185,7 +194,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             background: var(--warning);
             box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
         }
-
         /* Core Engine Banner */
         .core-panel {
             background: linear-gradient(135deg, rgba(22, 32, 50, 0.8) 0%, rgba(17, 24, 39, 0.9) 100%);
