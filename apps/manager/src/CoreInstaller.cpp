@@ -20,8 +20,9 @@
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
-namespace Manager {
+namespace fs = std::filesystem;
 
+namespace Manager {
 namespace {
 std::string ReadFileToString(const std::string& path) {
     if (!fs::exists(path))
