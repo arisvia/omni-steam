@@ -9,22 +9,33 @@ HMODULE g_realDwmapi = nullptr;
 FARPROC GetRealFunc(const char* name) {
     if (!g_realDwmapi) {
         char sysPath[MAX_PATH];
-        GetSystemDirectoryA(sysPath, MAX_PATH);
-        std::string realDll = std::string(sysPath) + "\\dwmapi.dll";
-        g_realDwmapi = LoadLibraryA(realDll.c_str());
+        if (GetSystemDirectoryA(sysPath, MAX_PATH)) {
+            std::string realDll = std::string(sysPath) + "\\dwmapi.dll";
+            g_realDwmapi = LoadLibraryA(realDll.c_str());
+        }
     }
     return g_realDwmapi ? GetProcAddress(g_realDwmapi, name) : nullptr;
 }
-} // namespace
 
-// Load OmniSteam Core DLL
-static void LoadOmniSteamCore() {
+void LoadOmniSteamCore() {
     static bool loaded = false;
     if (!loaded) {
         loaded = true;
+        char modulePath[MAX_PATH];
+        if (GetModuleFileNameA(nullptr, modulePath, MAX_PATH)) {
+            std::string dir(modulePath);
+            size_t pos = dir.find_last_of("\\/");
+            if (pos != std::string::npos) {
+                std::string fullCorePath = dir.substr(0, pos + 1) + "libomnisteam.dll";
+                if (LoadLibraryA(fullCorePath.c_str())) {
+                    return;
+                }
+            }
+        }
         LoadLibraryA("libomnisteam.dll");
     }
 }
+} // namespace
 
 extern "C" {
 

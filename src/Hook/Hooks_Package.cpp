@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <vector>
 
@@ -14,7 +15,7 @@ namespace {
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 PackageInfo* g_pInjectedPackageInfo = nullptr;
-bool g_licenseInitialized = false;
+std::set<uint32_t> g_injectedAppIds;
 bool g_licenseRefreshPending = false;
 
 constexpr PackageId_t kInjectedPackageId = 0;
@@ -23,7 +24,7 @@ constexpr uint64_t kInjectedPkgAccessToken = 10660652434190618804ull;
 RESOLVE_FUNC(CUtlMemoryGrow, void*, CUtlVector<AppId_t>*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
-bool InitFakeLicenseOnce(PackageInfo* pPkg);
+bool SyncInjectedLicenses(PackageInfo* pPkg);
 bool MarkLicenseAsChangedAndProcessUpdates();
 
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
@@ -37,7 +38,7 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
         if (!g_pInjectedPackageInfo) {
             g_pInjectedPackageInfo = pPkg;
         }
-        InitFakeLicenseOnce(pPkg);
+        SyncInjectedLicenses(pPkg);
     }
     return pPkg;
 }
@@ -52,35 +53,43 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     return true;
 }
 
-bool InitFakeLicenseOnce(PackageInfo* pPkg) {
-    if (g_licenseInitialized || !pPkg) {
-        return true;
+bool SyncInjectedLicenses(PackageInfo* pPkg) {
+    if (!pPkg) {
+        return false;
     }
 
     auto unlockedApps = LuaConfig::GetUnlockedApps();
-    if (!unlockedApps.empty()) {
-        uint32_t oldSize = pPkg->AppIdVec.m_Size;
-        uint32_t numToAdd = static_cast<uint32_t>(unlockedApps.size());
-        spdlog::info("Hooks_Package: Injecting {} apps into Package {} (oldSize: {})", numToAdd, kInjectedPackageId,
-                     oldSize);
-
-        if (oCUtlMemoryGrow) {
-            oCUtlMemoryGrow(&pPkg->AppIdVec, static_cast<int>(numToAdd));
-        }
-
-        if (pPkg->AppIdVec.m_Memory.m_pMemory) {
-            uint32_t idx = 0;
-            for (uint32_t appId : unlockedApps) {
-                pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + idx] = appId;
-                idx++;
-            }
-            pPkg->AppIdVec.m_Size = oldSize + numToAdd;
+    std::vector<uint32_t> newApps;
+    for (uint32_t appId : unlockedApps) {
+        if (!g_injectedAppIds.contains(appId)) {
+            newApps.push_back(appId);
         }
     }
 
-    g_licenseInitialized = true;
-    g_licenseRefreshPending = true;
+    if (newApps.empty()) {
+        return true;
+    }
 
+    uint32_t oldSize = pPkg->AppIdVec.m_Size;
+    uint32_t numToAdd = static_cast<uint32_t>(newApps.size());
+    spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (total now: {})", numToAdd, kInjectedPackageId,
+                 oldSize + numToAdd);
+
+    if (oCUtlMemoryGrow) {
+        oCUtlMemoryGrow(&pPkg->AppIdVec, static_cast<int>(numToAdd));
+    }
+
+    if (pPkg->AppIdVec.m_Memory.m_pMemory) {
+        uint32_t idx = 0;
+        for (uint32_t appId : newApps) {
+            pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + idx] = appId;
+            g_injectedAppIds.insert(appId);
+            idx++;
+        }
+        pPkg->AppIdVec.m_Size = oldSize + numToAdd;
+    }
+
+    g_licenseRefreshPending = true;
     if (MarkLicenseAsChangedAndProcessUpdates()) {
         g_licenseRefreshPending = false;
     }
@@ -88,22 +97,20 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
 }
 
 bool TryInitFakeLicenseOnce() {
-    if (g_licenseInitialized)
-        return true;
-
     if (g_pInjectedPackageInfo) {
-        return InitFakeLicenseOnce(g_pInjectedPackageInfo);
+        return SyncInjectedLicenses(g_pInjectedPackageInfo);
     }
 
     if (g_pCPackageInfo && oGetPackageInfo) {
         PackageInfo* pPkg = oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
         if (pPkg) {
             g_pInjectedPackageInfo = pPkg;
-            return InitFakeLicenseOnce(pPkg);
+            return SyncInjectedLicenses(pPkg);
         }
     }
     return false;
 }
+
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;

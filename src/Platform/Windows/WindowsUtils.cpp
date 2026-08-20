@@ -99,9 +99,16 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
             urlPath += std::wstring(urlComp.lpszExtraInfo, urlComp.dwExtraInfoLength);
         }
 
+        // Use WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY (4) on Windows 8.1+ to inherit system VPN / proxy settings
+        // automatically
         HINTERNET hSession =
-            WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0",
+                        4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!hSession) {
+            hSession =
+                WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0",
+                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        }
         if (!hSession) {
             res.error = "WinHttpOpen failed";
             return res;
