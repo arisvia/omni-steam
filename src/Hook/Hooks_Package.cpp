@@ -25,6 +25,28 @@ RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 bool SyncInjectedLicenses(PackageInfo* pPkg);
 bool MarkLicenseAsChangedAndProcessUpdates();
 
+CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
+    if (!pPkg)
+        return nullptr;
+    auto* base = reinterpret_cast<uint8_t*>(pPkg);
+
+    // Check known candidate offsets for AppIdVec in 64-bit Steamclient PackageInfo
+    for (size_t offset : {0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x10, 0x08}) {
+        auto* vec = reinterpret_cast<CUtlVector<AppId_t>*>(base + offset);
+        if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
+            vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
+            spdlog::info("Hooks_Package: Resolved AppIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
+                         vec->m_Size, vec->m_Memory.m_nAllocationCount);
+            return vec;
+        }
+        if (vec->m_Size == 0 && vec->m_Memory.m_nAllocationCount == 0 && vec->m_Memory.m_pMemory == nullptr) {
+            spdlog::info("Hooks_Package: Resolved empty AppIdVec at offset 0x{:X}", offset);
+            return vec;
+        }
+    }
+    return nullptr;
+}
+
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
         g_pCPackageInfo = pThis;
@@ -35,7 +57,7 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     if (pPkg) {
         if (!g_pInjectedPackageInfo) {
             g_pInjectedPackageInfo = pPkg;
-            g_activePackageId = packageId;
+            g_activePackageId = (packageId != 0) ? packageId : 21458;
             spdlog::info("Hooks_Package: Selected active Package {} for direct license injection", g_activePackageId);
             SyncInjectedLicenses(pPkg);
         } else if (pPkg == g_pInjectedPackageInfo) {
@@ -49,7 +71,7 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates) {
         return false;
     }
-    PackageId_t targetPkg = (g_activePackageId != 0) ? g_activePackageId : 0;
+    PackageId_t targetPkg = (g_activePackageId != 0) ? g_activePackageId : 21458;
     oMarkLicenseAsChanged(g_pCUser, targetPkg, true);
     oProcessPendingLicenseUpdates(g_pCUser);
     spdlog::info("Hooks_Package: Notified Steam of Package {} license update", targetPkg);
@@ -73,29 +95,29 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
         return true;
     }
 
-    int oldSize = pPkg->AppIdVec.m_Size;
-    if (oldSize < 0 || oldSize > 500000) {
-        spdlog::warn("Hooks_Package: Invalid Package {} AppIdVec size ({}), skipping direct memory modification",
-                     g_activePackageId, oldSize);
+    auto* pAppIdVec = FindAppIdVector(pPkg);
+    if (!pAppIdVec) {
+        spdlog::warn("Hooks_Package: Could not resolve AppIdVec offset in Package {}", g_activePackageId);
         return false;
     }
 
+    int oldSize = pAppIdVec->m_Size;
     uint32_t numToAdd = static_cast<uint32_t>(newApps.size());
-    spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (total now: {})", numToAdd, g_activePackageId,
-                 oldSize + numToAdd);
+    spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (oldSize: {}, total now: {})", numToAdd,
+                 g_activePackageId, oldSize, oldSize + numToAdd);
 
     if (oCUtlMemoryGrow) {
-        oCUtlMemoryGrow(&pPkg->AppIdVec, static_cast<int>(numToAdd));
+        oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
     }
 
-    if (pPkg->AppIdVec.m_Memory.m_pMemory) {
+    if (pAppIdVec->m_Memory.m_pMemory) {
         uint32_t idx = 0;
         for (uint32_t appId : newApps) {
-            pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + idx] = appId;
+            pAppIdVec->m_Memory.m_pMemory[oldSize + idx] = appId;
             g_injectedAppIds.insert(appId);
             idx++;
         }
-        pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
+        pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
     }
 
     g_licenseRefreshPending = true;
@@ -128,21 +150,23 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             pOwn->bOwnsLicense = true;
-            pOwn->ReleaseState = EAppReleaseState::Released;
+            pOwn->ReleaseState = EAppReleaseState::Released; // 4: Released / Launchable
             pOwn->ExistInPackageNums = 1;
             pOwn->bFreeLicense = false;
             if (g_activePackageId != 0) {
                 pOwn->PackageId = g_activePackageId;
+            } else if (pOwn->PackageId == 0) {
+                pOwn->PackageId = appId;
             }
         }
         return true;
     }
     return result;
 }
+
 } // namespace
 
 namespace Hooks_Package {
-
 void Install() {
     // 1. Resolve license management function pointers
     uintptr_t fnGrow = PatternLoader::GetFunctionAddress("CUtlMemoryGrow");
