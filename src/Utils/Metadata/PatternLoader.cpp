@@ -6,6 +6,8 @@
 #include <fstream>
 #include <mutex>
 #include <spdlog/spdlog.h>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"

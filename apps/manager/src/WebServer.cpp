@@ -12,6 +12,7 @@
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <sstream>
+#include <string>
 #include <thread>
 
 #include "OmniPlatform/OmniBuildInfo.h"

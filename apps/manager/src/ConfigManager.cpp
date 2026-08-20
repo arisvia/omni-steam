@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <spdlog/spdlog.h>
+#include <string>
 #include <toml++/toml.hpp>
 
 #include "OmniPlatform/OmniPlatform.h"

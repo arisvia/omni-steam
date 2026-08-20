@@ -1,5 +1,10 @@
 #include "LuaConfig.h"
 
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include "OmniPlatform/OmniPlatform.h"
 extern "C" {
 #include <lauxlib.h>

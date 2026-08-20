@@ -1,9 +1,11 @@
 #include <atomic>
 #include <map>
 #include <poll.h>
+#include <string>
 #include <sys/inotify.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

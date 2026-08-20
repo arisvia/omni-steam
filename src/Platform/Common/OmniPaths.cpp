@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <set>
+#include <string>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

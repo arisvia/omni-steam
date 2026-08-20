@@ -1,7 +1,9 @@
 #include <atomic>
+#include <string>
 #include <sys/event.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

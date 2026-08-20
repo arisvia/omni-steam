@@ -1,4 +1,5 @@
 #include <curl/curl.h>
+#include <string>
 
 #include "OmniPlatform/OmniPlatform.h"
 

@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <psapi.h>
+#include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"

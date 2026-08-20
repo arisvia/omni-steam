@@ -1,6 +1,8 @@
 #include "WebDavClient.h"
 
 #include <spdlog/spdlog.h>
+#include <string>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

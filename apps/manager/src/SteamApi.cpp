@@ -4,6 +4,8 @@
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"

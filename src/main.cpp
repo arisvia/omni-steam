@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <spdlog/spdlog.h>
+#include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniBuildInfo.h"

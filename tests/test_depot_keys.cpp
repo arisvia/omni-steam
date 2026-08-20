@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <string>
 
 void TestDepotKeyStore() {
     Manager::DepotKeyStore::Initialize();

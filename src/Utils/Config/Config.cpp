@@ -2,7 +2,9 @@
 
 #include <mutex>
 #include <spdlog/spdlog.h>
+#include <string>
 #include <toml++/toml.hpp>
+#include <vector>
 
 namespace {
 std::mutex g_configMutex;

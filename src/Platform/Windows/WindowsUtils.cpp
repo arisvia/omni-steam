@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <sstream>
+#include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"

@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <string>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

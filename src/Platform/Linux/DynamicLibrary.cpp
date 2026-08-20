@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <link.h>
 #include <spdlog/spdlog.h>
+#include <string>
 #include <unistd.h>
 
 #include "OmniPlatform/OmniPlatform.h"

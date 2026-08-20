@@ -7,6 +7,7 @@
 #include <mutex>
 #include <regex>
 #include <spdlog/spdlog.h>
+#include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"

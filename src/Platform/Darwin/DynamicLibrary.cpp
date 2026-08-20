@@ -1,5 +1,6 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+#include <string>
 
 #include "OmniPlatform/OmniPlatform.h"
 

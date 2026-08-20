@@ -5,8 +5,10 @@
 #include "SteamApi.h"
 #include "WebServer.h"
 
+#include <fstream>
 #include <iostream>
 #include <spdlog/spdlog.h>
+#include <string>
 
 #include "OmniPlatform/OmniBuildInfo.h"
 #include "OmniPlatform/OmniPlatform.h"

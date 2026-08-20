@@ -1,6 +1,7 @@
 #include "ManifestClient.h"
 
 #include <spdlog/spdlog.h>
+#include <string>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"

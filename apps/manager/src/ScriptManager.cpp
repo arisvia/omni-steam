@@ -8,6 +8,8 @@
 #include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 

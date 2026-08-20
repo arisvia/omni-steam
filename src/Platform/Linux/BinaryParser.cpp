@@ -1,5 +1,6 @@
 #include <elf.h>
 #include <link.h>
+#include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"

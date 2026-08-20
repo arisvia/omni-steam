@@ -3,11 +3,14 @@
 
 #include "OmniPlatform/OmniPlatform.h"
 
+#define RESOLVE_FUNC(name, retType, ...)                                                                               \
+    typedef retType (*name##_t)(__VA_ARGS__);                                                                          \
+    static name##_t o##name = nullptr
+
 #define HOOK_FUNC(name, retType, ...)                                                                                  \
     typedef retType (*name##_t)(__VA_ARGS__);                                                                          \
     static name##_t o##name = nullptr;                                                                                 \
     static retType h##name(__VA_ARGS__)
-
 #define HOOK_BEGIN() OmniPlatform::Detour::BeginTransaction()
 
 #define ATTACH_HOOK(addr, name)                                                                                        \
