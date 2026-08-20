@@ -36,10 +36,16 @@ enum EConfigStore : uint32_t {
     k_EConfigStoreUserLocal = 3
 };
 
-enum class EAppReleaseState : uint32_t { Unknown = 0, Unavailable = 1, PreloadOnly = 2, Released = 3 };
+enum class EAppReleaseState : uint32_t {
+    Unknown = 0,
+    Unavailable = 1,
+    Prerelease = 2,
+    PreloadOnly = 3,
+    Released = 4,
+    Disabled = 5
+};
 
 enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable = 2 };
-
 // ==============================================================================
 // Steam Client Ownership & License Structures
 // ==============================================================================

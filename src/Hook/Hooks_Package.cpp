@@ -133,6 +133,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
         if (pOwn) {
             pOwn->PackageId = kInjectedPackageId;
             pOwn->ReleaseState = EAppReleaseState::Released;
+            pOwn->ExistInPackageNums = 1;
             pOwn->bOwnsLicense = true;
             pOwn->bFreeLicense = false;
         }
@@ -140,7 +141,6 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
     }
     return result;
 }
-
 } // namespace
 
 namespace Hooks_Package {
