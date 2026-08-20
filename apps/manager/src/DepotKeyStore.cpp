@@ -137,7 +137,9 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
         }
     }
 
-    // 1. Try local or standard cache binary file first
+    // 1. Try local or standard cache binary file first for instant startup
+    bool loadedFromLocal = false;
+    size_t localCount = 0;
     if (!foundPath.empty()) {
         std::ifstream inFile(foundPath, std::ios::binary | std::ios::ate);
         if (inFile) {
@@ -146,37 +148,44 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
             std::vector<uint8_t> buffer(static_cast<size_t>(fileSize));
             if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
                 if (ParseBinaryContent(buffer.data(), buffer.size())) {
-                    spdlog::info("DepotKeyStore: Loaded {} depot keys from cached binary {}", g_records.size(),
+                    localCount = g_records.size();
+                    loadedFromLocal = true;
+                    spdlog::info("DepotKeyStore: Instantly loaded {} depot keys from cached binary {}", localCount,
                                  foundPath);
-                    ImportKeysFromConfigVdf();
-                    return;
                 }
             }
         }
     }
 
-    // 2. Fallback: Automatically download from GitHub Raw repo / mirrors
+    // 2. Fetch/update from our repo's primary raw endpoint or CDN mirror
     std::vector<std::string> remoteUrls = {
-        kRemoteDepotKeysUrl, "https://raw.githubusercontent.com/OpenSteam001/OpenSteamTool/main/depotkeys.bin",
-        "https://cdn.jsdelivr.net/gh/OpenSteam001/OpenSteamTool@main/depotkeys.bin"};
+        kRemoteDepotKeysUrl,
+        "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+        "https://raw.fastgit.org/arisvia/omni-steam/main/depotkeys.bin"
+    };
 
     for (const auto& url : remoteUrls) {
-        spdlog::info("DepotKeyStore: Fetching depot keys from remote {}", url);
-        auto resp = OmniPlatform::Http::Get(url, 8000);
+        spdlog::info("DepotKeyStore: Checking remote depot keys from {}", url);
+        auto resp = OmniPlatform::Http::Get(url, 6000);
         if (resp.statusCode == 200 && !resp.body.empty()) {
             const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
-            if (ParseBinaryContent(rawData, resp.body.size())) {
-                spdlog::info("DepotKeyStore: Successfully fetched and parsed {} depot keys from {}", g_records.size(),
-                             url);
-
-                // Save to standard OS cache directory
-                std::ofstream cacheOut(cacheFile, std::ios::binary | std::ios::trunc);
-                if (cacheOut) {
-                    cacheOut.write(resp.body.data(), resp.body.size());
-                    spdlog::info("DepotKeyStore: Persistently cached depotkeys.bin to {}", cacheFile);
+            if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
+                const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);
+                if (header->magic == kOmkyMagic && header->version == kCurrentVersion) {
+                    // Update if new or count is greater than local cached version
+                    if (!loadedFromLocal || header->count > localCount) {
+                        if (ParseBinaryContent(rawData, resp.body.size())) {
+                            spdlog::info("DepotKeyStore: Updated depot keys to {} entries from {}", g_records.size(),
+                                         url);
+                            std::ofstream cacheOut(cacheFile, std::ios::binary | std::ios::trunc);
+                            if (cacheOut) {
+                                cacheOut.write(resp.body.data(), resp.body.size());
+                                spdlog::info("DepotKeyStore: Persistently saved updated cache to {}", cacheFile);
+                            }
+                        }
+                    }
+                    break;
                 }
-                ImportKeysFromConfigVdf();
-                return;
             }
         }
     }

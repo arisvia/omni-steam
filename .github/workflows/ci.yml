@@ -18,15 +18,19 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            platform_id: linux-x64
             arch: x86_64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release"
           - os: ubuntu-latest
+            platform_id: linux-i386
             arch: i386
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_LIBRARY_PATH=/usr/lib/i386-linux-gnu -DCMAKE_INCLUDE_PATH=/usr/include/i386-linux-gnu -DCMAKE_SYSTEM_PROCESSOR=i686"
           - os: windows-latest
-            arch: x86_64
+            platform_id: windows-x64
+            arch: x64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"
           - os: macos-latest
+            platform_id: macos-arm64
             arch: arm64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3"
     steps:
@@ -62,15 +66,30 @@ jobs:
         run: |
           ctest --test-dir build --output-on-failure -C Release
 
-      - name: Upload Artifacts
+      - name: Package Distributables
+        run: |
+          mkdir -p dist/core dist/cli
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp build/bin/Release/*dwmapi* dist/core/ 2>/dev/null || true
+            cp build/bin/Release/*omnisteam.dll dist/core/ 2>/dev/null || true
+            cp build/lib/*omnisteam.dll dist/core/ 2>/dev/null || true
+            cp build/bin/Release/omnisteam.exe dist/cli/ 2>/dev/null || true
+            cp build/bin/omnisteam.exe dist/cli/ 2>/dev/null || true
+          else
+            cp build/lib/*omnisteam* dist/core/ 2>/dev/null || true
+            cp build/bin/omnisteam dist/cli/ 2>/dev/null || true
+          fi
+
+      - name: Upload Core Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: omnisteam-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            build/lib/*omnisteam*
-            build/lib/*dwmapi*
-            build/bin/*omnisteam*
-            build/bin/*dwmapi*
-            build/bin/Release/*omnisteam*
-            build/bin/Release/*dwmapi*
+          name: omnisteam-core-${{ matrix.platform_id }}
+          path: dist/core/*
+          if-no-files-found: ignore
+
+      - name: Upload CLI Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: omnisteam-cli-${{ matrix.platform_id }}
+          path: dist/cli/*
           if-no-files-found: ignore

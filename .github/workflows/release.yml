@@ -19,6 +19,10 @@ jobs:
             platform_id: linux-x64
             arch: x86_64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release"
+          - os: ubuntu-latest
+            platform_id: linux-i386
+            arch: i386
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_LIBRARY_PATH=/usr/lib/i386-linux-gnu -DCMAKE_INCLUDE_PATH=/usr/include/i386-linux-gnu -DCMAKE_SYSTEM_PROCESSOR=i686"
           - os: windows-latest
             platform_id: windows-x64
             arch: x64
@@ -36,8 +40,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libcurl4-openssl-dev
-
+          if [ "${{ matrix.arch }}" = "i386" ]; then
+            sudo dpkg --add-architecture i386
+            sudo apt-get update
+            sudo apt-get install -y gcc-multilib g++-multilib libssl-dev:i386 libcurl4-openssl-dev:i386
+          else
+            sudo apt-get install -y libssl-dev libcurl4-openssl-dev
+          fi
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
