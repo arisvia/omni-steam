@@ -20,9 +20,8 @@ namespace fs = std::filesystem;
 namespace Manager {
 
 namespace {
-constexpr uint32_t kOmkyMagic = 0x4F4D4B59; // "OMKY"
+constexpr uint32_t kOmkyMagic = 0x594B4D4F; // "OMKY" in little-endian ('O' | 'M'<<8 | 'K'<<16 | 'Y'<<24)
 constexpr uint32_t kCurrentVersion = 1;
-
 #pragma pack(push, 1)
 struct DepotKeyHeader {
     uint32_t magic;
