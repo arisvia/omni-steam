@@ -15,11 +15,9 @@ namespace {
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 PackageInfo* g_pInjectedPackageInfo = nullptr;
+PackageId_t g_activePackageId = 0;
 std::set<uint32_t> g_injectedAppIds;
 bool g_licenseRefreshPending = false;
-
-constexpr PackageId_t kInjectedPackageId = 0;
-constexpr uint64_t kInjectedPkgAccessToken = 10660652434190618804ull;
 
 RESOLVE_FUNC(CUtlMemoryGrow, void*, CUtlVector<AppId_t>*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
@@ -34,11 +32,15 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     }
 
     PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (pPkg && packageId == kInjectedPackageId) {
+    if (pPkg) {
         if (!g_pInjectedPackageInfo) {
             g_pInjectedPackageInfo = pPkg;
+            g_activePackageId = packageId;
+            spdlog::info("Hooks_Package: Selected active Package {} for direct license injection", g_activePackageId);
+            SyncInjectedLicenses(pPkg);
+        } else if (pPkg == g_pInjectedPackageInfo) {
+            SyncInjectedLicenses(pPkg);
         }
-        SyncInjectedLicenses(pPkg);
     }
     return pPkg;
 }
@@ -47,9 +49,10 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates) {
         return false;
     }
-    oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
+    PackageId_t targetPkg = (g_activePackageId != 0) ? g_activePackageId : 0;
+    oMarkLicenseAsChanged(g_pCUser, targetPkg, true);
     oProcessPendingLicenseUpdates(g_pCUser);
-    spdlog::info("Hooks_Package: Notified Steam of Package {} license update", kInjectedPackageId);
+    spdlog::info("Hooks_Package: Notified Steam of Package {} license update", targetPkg);
     return true;
 }
 
@@ -69,16 +72,16 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
     if (newApps.empty()) {
         return true;
     }
+
     int oldSize = pPkg->AppIdVec.m_Size;
     if (oldSize < 0 || oldSize > 500000) {
-        spdlog::warn("Hooks_Package: Invalid Package {} AppIdVec size ({}), skipping direct memory modification to "
-                     "prevent crash",
-                     kInjectedPackageId, oldSize);
+        spdlog::warn("Hooks_Package: Invalid Package {} AppIdVec size ({}), skipping direct memory modification",
+                     g_activePackageId, oldSize);
         return false;
     }
 
     uint32_t numToAdd = static_cast<uint32_t>(newApps.size());
-    spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (total now: {})", numToAdd, kInjectedPackageId,
+    spdlog::info("Hooks_Package: Injecting {} new apps into Package {} (total now: {})", numToAdd, g_activePackageId,
                  oldSize + numToAdd);
 
     if (oCUtlMemoryGrow) {
@@ -94,6 +97,7 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
         }
         pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
     }
+
     g_licenseRefreshPending = true;
     if (MarkLicenseAsChangedAndProcessUpdates()) {
         g_licenseRefreshPending = false;
@@ -104,14 +108,6 @@ bool SyncInjectedLicenses(PackageInfo* pPkg) {
 bool TryInitFakeLicenseOnce() {
     if (g_pInjectedPackageInfo) {
         return SyncInjectedLicenses(g_pInjectedPackageInfo);
-    }
-
-    if (g_pCPackageInfo && oGetPackageInfo) {
-        PackageInfo* pPkg = oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
-        if (pPkg) {
-            g_pInjectedPackageInfo = pPkg;
-            return SyncInjectedLicenses(pPkg);
-        }
     }
     return false;
 }
@@ -131,11 +127,13 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
     TryInitFakeLicenseOnce();
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
-            pOwn->PackageId = kInjectedPackageId;
+            pOwn->bOwnsLicense = true;
             pOwn->ReleaseState = EAppReleaseState::Released;
             pOwn->ExistInPackageNums = 1;
-            pOwn->bOwnsLicense = true;
             pOwn->bFreeLicense = false;
+            if (g_activePackageId != 0) {
+                pOwn->PackageId = g_activePackageId;
+            }
         }
         return true;
     }
