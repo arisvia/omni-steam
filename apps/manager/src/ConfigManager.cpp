@@ -44,6 +44,14 @@ ConfigDto ConfigManager::ReadConfig() {
             dto.statsEnableApi = *stats;
         if (auto cloud = tbl["cloud"]["enabled"].value<bool>())
             dto.cloudEnabled = *cloud;
+        if (auto serverUrl = tbl["cloud"]["webdav_server_url"].value<std::string>())
+            dto.webdavServerUrl = *serverUrl;
+        if (auto username = tbl["cloud"]["webdav_username"].value<std::string>())
+            dto.webdavUsername = *username;
+        if (auto password = tbl["cloud"]["webdav_password"].value<std::string>())
+            dto.webdavPassword = *password;
+        if (auto remoteRoot = tbl["cloud"]["webdav_remote_root"].value<std::string>())
+            dto.webdavRemoteRoot = *remoteRoot;
         if (auto paths = tbl["lua"]["paths"].as_array()) {
             for (const auto& p : *paths) {
                 if (auto str = p.value<std::string>())
@@ -78,6 +86,10 @@ bool ConfigManager::SaveConfig(const ConfigDto& dto) {
         }
         out << "]\n\n";
         out << "[cloud]\nenabled = " << (dto.cloudEnabled ? "true" : "false") << "\n";
+        out << "webdav_server_url = \"" << dto.webdavServerUrl << "\"\n";
+        out << "webdav_username = \"" << dto.webdavUsername << "\"\n";
+        out << "webdav_password = \"" << dto.webdavPassword << "\"\n";
+        out << "webdav_remote_root = \"" << dto.webdavRemoteRoot << "\"\n";
 
         spdlog::info("ConfigManager: Config saved successfully to {}", path);
         return true;

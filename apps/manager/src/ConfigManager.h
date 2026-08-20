@@ -10,8 +10,11 @@ struct ConfigDto {
     bool statsEnableApi = true;
     std::vector<std::string> luaPaths;
     bool cloudEnabled = false;
+    std::string webdavServerUrl;
+    std::string webdavUsername;
+    std::string webdavPassword;
+    std::string webdavRemoteRoot = "OmniSteam_Saves";
 };
-
 class ConfigManager {
 public:
     static std::string GetConfigFilePath();

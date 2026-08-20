@@ -1,10 +1,13 @@
 #include "WebServer.h"
 
+#include "CloudSaveManager.h"
+#include "ConfigManager.h"
 #include "CoreInstaller.h"
 #include "DenuvoImporter.h"
 #include "DepotKeyStore.h"
 #include "ScriptManager.h"
 #include "SteamApi.h"
+#include "WebDavClient.h"
 
 #include <atomic>
 #include <cstdint>
@@ -496,6 +499,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 <span class="version-chip">v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
             </div>
             <div class="status-indicators">
+                <button class="btn-secondary" style="font-size:12px; padding:6px 12px; display:flex; align-items:center; gap:6px;" onclick="openCloudModal()">☁️ WebDAV 云存档设置</button>
                 <div class="status-pill">
                     <span id="steamDot" class="dot"></span>
                     <span id="steamStatusText">Steam 状态检测中...</span>
@@ -602,6 +606,45 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                     <div id="modalDlcList" class="dlc-chip-list">
                         <div class="empty-placeholder" style="padding:10px;">未包含独立 DLC</div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WebDAV Cloud Save Modal Dialog -->
+    <div class="modal-mask" id="cloudModal" style="display:none;">
+        <div class="modal-box" style="max-width:540px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:18px 24px; border-bottom:1px solid var(--border);">
+                <h3 style="font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px;">☁️ WebDAV 云存档设置</h3>
+                <button class="modal-close-btn" style="position:static; width:28px; height:28px;" onclick="closeCloudModal()">✕</button>
+            </div>
+            <div class="modal-body" style="gap:14px; padding:20px 24px;">
+                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:600; font-size:13.5px;">
+                    <input type="checkbox" id="cloudEnabled" style="width:16px; height:16px;">
+                    <span>启用 WebDAV 多端云存档同步</span>
+                </label>
+                <div>
+                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">WebDAV 服务器 URL (例如坚果云 / 自建 Alist / Nextcloud)</label>
+                    <input type="text" id="webdavUrl" placeholder="https://dav.jianguoyun.com/dav/" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div>
+                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">用户名 / 账号 (Username)</label>
+                        <input type="text" id="webdavUser" placeholder="your_email@example.com" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
+                    </div>
+                    <div>
+                        <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">应用授权密码 / Token</label>
+                        <input type="password" id="webdavPass" placeholder="••••••••" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
+                    </div>
+                </div>
+                <div>
+                    <label style="color:var(--text-muted); display:block; margin-bottom:5px; font-size:12px;">云端存档存放根目录</label>
+                    <input type="text" id="webdavRoot" placeholder="OmniSteam_Saves" style="width:100%; padding:8px 12px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:#fff; font-size:13px;">
+                </div>
+                <div id="cloudTestMsg" style="font-size:12px; min-height:18px;"></div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px;">
+                    <button class="btn-secondary" id="btnTestCloud" onclick="testCloudConnection()">🔍 测试连接</button>
+                    <button class="btn-primary" onclick="saveCloudConfig()">💾 保存配置</button>
                 </div>
             </div>
         </div>
@@ -883,6 +926,10 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 div.className = 'list-row';
                 const displayName = s.title && s.title.trim() ? s.title.trim() : (s.primaryAppId ? `App ${s.primaryAppId}` : s.fileName);
                 const subText = s.primaryAppId ? `AppID: ${s.primaryAppId}` : `文件: ${s.fileName}`;
+                const cloudBtns = s.primaryAppId ? `
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="备份此游戏存档至 WebDAV" onclick="backupSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">☁️ 备份</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="从 WebDAV 恢复最新存档" onclick="restoreSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">📥 恢复</button>
+                ` : '';
                 div.innerHTML = `
                     <div class="row-main">
                         <div class="row-text">
@@ -891,6 +938,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                         </div>
                     </div>
                     <div class="btn-group">
+                        ${cloudBtns}
                         <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? '停用' : '启用'}</button>
                         <button class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">删除</button>
                     </div>
@@ -910,6 +958,106 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 (s.primaryAppId && s.primaryAppId.toString().includes(q))
             );
             renderScripts(filtered);
+        }
+
+        async function openCloudModal() {
+            document.getElementById('cloudModal').style.display = 'flex';
+            document.getElementById('cloudTestMsg').textContent = '';
+            try {
+                const res = await fetch('/api/cloud/config');
+                const cfg = await res.json();
+                document.getElementById('cloudEnabled').checked = !!cfg.enabled;
+                document.getElementById('webdavUrl').value = cfg.serverUrl || '';
+                document.getElementById('webdavUser').value = cfg.username || '';
+                document.getElementById('webdavPass').value = cfg.password || '';
+                document.getElementById('webdavRoot').value = cfg.remoteRoot || 'OmniSteam_Saves';
+            } catch(e) {}
+        }
+        function closeCloudModal() {
+            document.getElementById('cloudModal').style.display = 'none';
+        }
+        async function testCloudConnection() {
+            const msg = document.getElementById('cloudTestMsg');
+            const btn = document.getElementById('btnTestCloud');
+            btn.textContent = '测试中...';
+            btn.disabled = true;
+            msg.style.color = 'var(--text-muted)';
+            msg.textContent = '正在连接 WebDAV 服务器...';
+            try {
+                const res = await fetch('/api/cloud/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        serverUrl: document.getElementById('webdavUrl').value.trim(),
+                        username: document.getElementById('webdavUser').value.trim(),
+                        password: document.getElementById('webdavPass').value.trim(),
+                        remoteRoot: document.getElementById('webdavRoot').value.trim()
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    msg.style.color = 'var(--success)';
+                    msg.textContent = '✅ WebDAV 连接与鉴权成功！';
+                } else {
+                    msg.style.color = 'var(--danger)';
+                    msg.textContent = '❌ 连接失败: ' + (data.message || '网络或密码错误');
+                }
+            } catch(e) {
+                msg.style.color = 'var(--danger)';
+                msg.textContent = '❌ 请求异常，请检查网络配置。';
+            } finally {
+                btn.textContent = '🔍 测试连接';
+                btn.disabled = false;
+            }
+        }
+        async function saveCloudConfig() {
+            const res = await fetch('/api/cloud/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    enabled: document.getElementById('cloudEnabled').checked,
+                    serverUrl: document.getElementById('webdavUrl').value.trim(),
+                    username: document.getElementById('webdavUser').value.trim(),
+                    password: document.getElementById('webdavPass').value.trim(),
+                    remoteRoot: document.getElementById('webdavRoot').value.trim()
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('🎉 WebDAV 云存档设置保存成功！');
+                closeCloudModal();
+            } else {
+                alert('保存配置失败');
+            }
+        }
+        async function backupSaves(appId, nameEncoded) {
+            const name = decodeURIComponent(nameEncoded);
+            const res = await fetch('/api/cloud/backup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ appId: appId })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`🎉 游戏【${name}】存档已成功备份至 WebDAV 云端！`);
+            } else {
+                alert(`备份失败: ${data.message || '请先在云存档设置中配置有效的 WebDAV 服务器'}`);
+            }
+        }
+        async function restoreSaves(appId, nameEncoded) {
+            const name = decodeURIComponent(nameEncoded);
+            if (!confirm(`确定要从 WebDAV 云端恢复【${name}】的历史存档吗？\n当前本地存档将被覆盖。`)) return;
+            const res = await fetch('/api/cloud/restore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ appId: appId })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`🎉 游戏【${name}】存档已成功从云端恢复至本地对应目录！`);
+            } else {
+                alert(`恢复失败: ${data.message || '未检测到可用的云端备份'}`);
+            }
         }
 
         async function toggleScript(pathEncoded, enable) {
@@ -1220,6 +1368,160 @@ std::string HandleHttpRequest(const std::string& request) {
             }
         }
         std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false}";
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+    if (request.rfind("GET /api/cloud/config", 0) == 0) {
+        auto cfg = ConfigManager::ReadConfig();
+        std::ostringstream json;
+        json << "{"
+             << "\"enabled\":" << (cfg.cloudEnabled ? "true" : "false") << ","
+             << "\"serverUrl\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavServerUrl) << "\","
+             << "\"username\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavUsername) << "\","
+             << "\"password\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavPassword) << "\","
+             << "\"remoteRoot\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavRemoteRoot) << "\""
+             << "}";
+        std::string body = json.str();
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " << body.length()
+            << "\r\nConnection: close\r\n\r\n"
+            << body;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/cloud/config", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        bool ok = false;
+        if (bodyPos != std::string::npos) {
+            std::string body = request.substr(bodyPos + 4);
+            auto cfg = ConfigManager::ReadConfig();
+
+            std::regex enabledRegex("\"enabled\"\\s*:\\s*(true|false)");
+            std::regex urlRegex("\"serverUrl\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex userRegex("\"username\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex passRegex("\"password\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex rootRegex("\"remoteRoot\"\\s*:\\s*\"([^\"]*)\"");
+
+            std::smatch m;
+            if (std::regex_search(body, m, enabledRegex))
+                cfg.cloudEnabled = (m[1].str() == "true");
+            if (std::regex_search(body, m, urlRegex))
+                cfg.webdavServerUrl = m[1].str();
+            if (std::regex_search(body, m, userRegex))
+                cfg.webdavUsername = m[1].str();
+            if (std::regex_search(body, m, passRegex))
+                cfg.webdavPassword = m[1].str();
+            if (std::regex_search(body, m, rootRegex))
+                cfg.webdavRemoteRoot = m[1].str();
+
+            ok = ConfigManager::SaveConfig(cfg);
+        }
+        std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false}";
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/cloud/test", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        WebDavConfig webdav;
+        if (bodyPos != std::string::npos) {
+            std::string body = request.substr(bodyPos + 4);
+            std::regex urlRegex("\"serverUrl\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex userRegex("\"username\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex passRegex("\"password\"\\s*:\\s*\"([^\"]*)\"");
+            std::regex rootRegex("\"remoteRoot\"\\s*:\\s*\"([^\"]*)\"");
+            std::smatch m;
+            if (std::regex_search(body, m, urlRegex))
+                webdav.serverUrl = m[1].str();
+            if (std::regex_search(body, m, userRegex))
+                webdav.username = m[1].str();
+            if (std::regex_search(body, m, passRegex))
+                webdav.password = m[1].str();
+            if (std::regex_search(body, m, rootRegex))
+                webdav.remoteRootPath = m[1].str();
+        }
+        if (webdav.serverUrl.empty()) {
+            auto cfg = ConfigManager::ReadConfig();
+            webdav.serverUrl = cfg.webdavServerUrl;
+            webdav.username = cfg.webdavUsername;
+            webdav.password = cfg.webdavPassword;
+            webdav.remoteRootPath = cfg.webdavRemoteRoot.empty() ? "OmniSteam_Saves" : cfg.webdavRemoteRoot;
+        }
+
+        auto testResp = WebDavClient::MkCol(webdav, webdav.remoteRootPath);
+        bool success = testResp.isSuccess() || testResp.statusCode == 405;
+        std::string errMsg = testResp.error.empty() ? ("HTTP " + std::to_string(testResp.statusCode)) : testResp.error;
+
+        std::ostringstream json;
+        json << "{\"success\":" << (success ? "true" : "false") << ",\"statusCode\":" << testResp.statusCode
+             << ",\"message\":\"" << (success ? "OK" : OmniPlatform::Encoding::EscapeJson(errMsg)) << "\"}";
+        std::string respBody = json.str();
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/cloud/backup", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        uint32_t appId = 0;
+        if (bodyPos != std::string::npos) {
+            std::string body = request.substr(bodyPos + 4);
+            std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
+            std::smatch m;
+            if (std::regex_search(body, m, idRegex)) {
+                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+            }
+        }
+        auto cfg = ConfigManager::ReadConfig();
+        WebDavConfig webdav;
+        webdav.serverUrl = cfg.webdavServerUrl;
+        webdav.username = cfg.webdavUsername;
+        webdav.password = cfg.webdavPassword;
+        webdav.remoteRootPath = cfg.webdavRemoteRoot.empty() ? "OmniSteam_Saves" : cfg.webdavRemoteRoot;
+
+        bool success = CloudSaveManager::BackupAppSaves(appId, webdav);
+        std::ostringstream json;
+        json << "{\"success\":" << (success ? "true" : "false") << ",\"message\":\""
+             << (success ? "Backup completed" : "No save files found or WebDAV connection failed") << "\"}";
+        std::string respBody = json.str();
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/cloud/restore", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        uint32_t appId = 0;
+        if (bodyPos != std::string::npos) {
+            std::string body = request.substr(bodyPos + 4);
+            std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
+            std::smatch m;
+            if (std::regex_search(body, m, idRegex)) {
+                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+            }
+        }
+        auto cfg = ConfigManager::ReadConfig();
+        WebDavConfig webdav;
+        webdav.serverUrl = cfg.webdavServerUrl;
+        webdav.username = cfg.webdavUsername;
+        webdav.password = cfg.webdavPassword;
+        webdav.remoteRootPath = cfg.webdavRemoteRoot.empty() ? "OmniSteam_Saves" : cfg.webdavRemoteRoot;
+
+        bool success = CloudSaveManager::RestoreAppSaves(appId, webdav);
+        std::ostringstream json;
+        json << "{\"success\":" << (success ? "true" : "false") << ",\"message\":\""
+             << (success ? "Restore completed" : "No remote backups found or WebDAV connection failed") << "\"}";
+        std::string respBody = json.str();
         std::ostringstream oss;
         oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
             << respBody.length() << "\r\nConnection: close\r\n\r\n"
