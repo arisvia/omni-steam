@@ -132,7 +132,6 @@ bool TryInitFakeLicenseOnce() {
     }
     return false;
 }
-
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -150,7 +149,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
         if (pOwn) {
             pOwn->bOwnsLicense = true;
             pOwn->ReleaseState = EAppReleaseState::Released; // 4: Released / Launchable
-            pOwn->ExistInPackageNums = 1;
+            pOwn->ExistInPackageNums = 0;                    // 0: Direct Owner (not borrower/shared library)
             pOwn->bFreeLicense = false;
             if (g_activePackageId != 0) {
                 pOwn->PackageId = g_activePackageId;
@@ -162,7 +161,6 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
     }
     return result;
 }
-
 } // namespace
 
 namespace Hooks_Package {
