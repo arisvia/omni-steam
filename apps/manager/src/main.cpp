@@ -29,9 +29,9 @@ int main(int argc, char* argv[]) {
         if (cmd == "install-core") {
             std::string channel = (argc > 2 && std::string(argv[2]) == "--nightly") ? "nightly" : "release";
             std::cout << "[OmniSteam] Installing Core (" << channel << ") to Steam directory...\n";
-            bool ok = Manager::CoreInstaller::InstallCore(channel);
-            std::cout << (ok ? " [SUCCESS] Core installed successfully!\n" : " [FAILED] Core installation failed.\n");
-            return ok ? 0 : 1;
+            auto res = Manager::CoreInstaller::InstallCore(channel);
+            std::cout << (res.success ? " [SUCCESS] " : " [FAILED] ") << res.message << "\n";
+            return res.success ? 0 : 1;
         }
 
         if (cmd == "uninstall-core") {

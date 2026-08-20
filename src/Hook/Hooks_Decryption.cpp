@@ -30,10 +30,17 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
     }
 
     if (last != std::string::npos) {
+        std::string depotIdStr;
         size_t start = name.find_last_of("/\\", last - 1);
         if (start != std::string::npos) {
+            depotIdStr = name.substr(start + 1, last - start - 1);
+        } else {
+            depotIdStr = name.substr(0, last);
+        }
+
+        if (!depotIdStr.empty()) {
             try {
-                uint32_t depotId = std::stoul(name.substr(start + 1, last - start - 1));
+                uint32_t depotId = std::stoul(depotIdStr);
                 auto key = LuaConfig::GetDecryptionKey(depotId);
                 if (!key.empty()) {
                     if (KeySize >= key.size()) {
@@ -48,7 +55,6 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
             }
         }
     }
-
     return oConfigStoreGetBinary ? oConfigStoreGetBinary(pObject, eConfigStore, KeyName, Key, KeySize) : 0;
 }
 

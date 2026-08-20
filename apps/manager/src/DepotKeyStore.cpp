@@ -124,26 +124,15 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
     g_records.clear();
     g_initialized = true;
 
-    std::string cacheFile = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "depotkeys.bin").generic_string();
-    std::string configFile = (fs::path(OmniPlatform::Paths::GetConfigDirectory()) / "depotkeys.bin").generic_string();
-    std::string credFile =
-        (fs::path(OmniPlatform::CredentialStore::GetStoragePath()) / "depotkeys.bin").generic_string();
+    std::string cacheDir = OmniPlatform::Paths::GetCacheDirectory();
+    std::string targetCacheFile =
+        binFilePath.empty() ? (fs::path(cacheDir) / "depotkeys.bin").generic_string() : binFilePath;
 
-    std::vector<std::string> candidatePaths = {binFilePath, cacheFile, configFile, credFile, "depotkeys.bin"};
-
-    std::string foundPath;
-    for (const auto& p : candidatePaths) {
-        if (!p.empty() && fs::exists(p)) {
-            foundPath = p;
-            break;
-        }
-    }
-
-    // 1. Try local or standard cache binary file first for instant startup
-    bool loadedFromLocal = false;
+    // 1. Load directly from the dedicated cache path if present
+    bool loadedFromCache = false;
     size_t localCount = 0;
-    if (!foundPath.empty()) {
-        std::ifstream inFile(foundPath, std::ios::binary | std::ios::ate);
+    if (fs::exists(targetCacheFile)) {
+        std::ifstream inFile(targetCacheFile, std::ios::binary | std::ios::ate);
         if (inFile) {
             std::streamsize fileSize = inFile.tellg();
             inFile.seekg(0, std::ios::beg);
@@ -151,48 +140,70 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
             if (inFile.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
                 if (ParseBinaryContent(buffer.data(), buffer.size())) {
                     localCount = g_records.size();
-                    loadedFromLocal = true;
-                    spdlog::info("DepotKeyStore: Instantly loaded {} depot keys from cached binary {}", localCount,
-                                 foundPath);
+                    loadedFromCache = true;
+                    spdlog::info("DepotKeyStore: Loaded {} depot keys from cache ({})", localCount, targetCacheFile);
                 }
             }
         }
     }
 
-    // 2. Fetch/update from our repo's primary raw endpoint or CDN mirror
-    std::vector<std::string> remoteUrls = {kRemoteDepotKeysUrl,
-                                           "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                           "https://raw.fastgit.org/arisvia/omni-steam/main/depotkeys.bin"};
+    // 2. Fetch/update from GitHub raw endpoint or high-speed CDN mirrors (15s timeout for 6.3MB payload)
+    std::vector<std::string> remoteUrls = {"https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                           "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                           "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
+                                           kRemoteDepotKeysUrl};
 
+    bool remoteUpdated = false;
     for (const auto& url : remoteUrls) {
         spdlog::info("DepotKeyStore: Checking remote depot keys from {}", url);
-        auto resp = OmniPlatform::Http::Get(url, 6000);
+        auto resp = OmniPlatform::Http::Get(url, 15000);
         if (resp.statusCode == 200 && !resp.body.empty()) {
             const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
             if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
                 const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);
                 if (header->magic == kOmkyMagic && header->version == kCurrentVersion) {
-                    // Update if new or count is greater than local cached version
-                    if (!loadedFromLocal || header->count > localCount) {
+                    // Update if new or remote count is greater than local cached version
+                    if (!loadedFromCache || header->count > localCount) {
                         if (ParseBinaryContent(rawData, resp.body.size())) {
                             spdlog::info("DepotKeyStore: Updated depot keys to {} entries from {}", g_records.size(),
                                          url);
-                            std::ofstream cacheOut(cacheFile, std::ios::binary | std::ios::trunc);
-                            if (cacheOut) {
-                                cacheOut.write(resp.body.data(), resp.body.size());
-                                spdlog::info("DepotKeyStore: Persistently saved updated cache to {}", cacheFile);
+                            try {
+                                fs::create_directories(fs::path(targetCacheFile).parent_path());
+                                std::ofstream cacheOut(targetCacheFile, std::ios::binary | std::ios::trunc);
+                                if (cacheOut) {
+                                    cacheOut.write(resp.body.data(), resp.body.size());
+                                    spdlog::info("DepotKeyStore: Saved updated keys to cache ({})", targetCacheFile);
+                                }
+                            } catch (const std::exception& e) {
+                                spdlog::warn("DepotKeyStore: Failed to write cache file: {}", e.what());
                             }
                         }
+                    } else {
+                        spdlog::info("DepotKeyStore: Cache ({} entries) is already up to date with remote ({} entries)",
+                                     localCount, header->count);
                     }
+                    remoteUpdated = true;
                     break;
+                } else {
+                    spdlog::warn("DepotKeyStore: Remote payload from {} has invalid magic/version", url);
                 }
+            } else {
+                spdlog::warn("DepotKeyStore: Remote payload from {} is incomplete ({} bytes)", url, resp.body.size());
             }
+        } else {
+            spdlog::warn("DepotKeyStore: Remote check failed for {} (Status: {}, Error: {})", url, resp.statusCode,
+                         resp.error.empty() ? "None" : resp.error);
         }
     }
 
-    ImportKeysFromConfigVdf();
-}
+    if (!remoteUpdated && !loadedFromCache) {
+        spdlog::warn("DepotKeyStore: No local cache found at {} and all remote CDN mirrors unreachable",
+                     targetCacheFile);
+    }
 
+    ImportKeysFromConfigVdf();
+    spdlog::info("DepotKeyStore: Initialization completed with {} active depot keys.", g_records.size());
+}
 std::string DepotKeyStore::GetKeyForDepot(uint32_t depotId) {
     std::lock_guard<std::mutex> lock(g_storeMutex);
     if (!g_initialized) {

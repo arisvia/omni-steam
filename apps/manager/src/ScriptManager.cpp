@@ -193,7 +193,12 @@ std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& target
 
 bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
     try {
-        if (!fs::exists(filePath))
+        fs::path p(filePath);
+        if (!fs::exists(p) || !fs::is_regular_file(p))
+            return false;
+
+        std::string filename = p.filename().string();
+        if (!filename.ends_with(".lua") && !filename.ends_with(".disabled"))
             return false;
 
         std::string newPath;
@@ -205,7 +210,7 @@ bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
             return true; // Already in requested state
         }
 
-        fs::rename(filePath, newPath);
+        fs::rename(p, newPath);
         spdlog::info("ScriptManager: Renamed {} -> {}", filePath, newPath);
         return true;
     } catch (const std::exception& e) {
@@ -216,16 +221,22 @@ bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
 
 bool ScriptManager::DeleteScript(const std::string& filePath) {
     try {
-        if (fs::exists(filePath)) {
-            fs::remove(filePath);
-            spdlog::info("ScriptManager: Deleted script {}", filePath);
-            return true;
+        fs::path p(filePath);
+        if (!fs::exists(p) || !fs::is_regular_file(p))
+            return false;
+
+        std::string filename = p.filename().string();
+        if (!filename.ends_with(".lua") && !filename.ends_with(".disabled")) {
+            spdlog::warn("ScriptManager: Rejected delete on non-script file: {}", filePath);
+            return false;
         }
-        return false;
+
+        fs::remove(p);
+        spdlog::info("ScriptManager: Deleted script {}", filePath);
+        return true;
     } catch (const std::exception& e) {
         spdlog::error("ScriptManager: Delete failed: {}", e.what());
         return false;
     }
 }
-
 } // namespace Manager

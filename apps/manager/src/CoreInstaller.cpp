@@ -118,11 +118,11 @@ std::string CoreInstaller::GetLatestRemoteVersion(const std::string& channel) {
     return OMNISTEAM_VERSION;
 }
 
-bool CoreInstaller::InstallCore(const std::string& channel) {
+InstallResult CoreInstaller::InstallCore(const std::string& channel) {
     std::string steamPath = OmniPlatform::Paths::GetSteamInstallPath();
     if (steamPath.empty() || !fs::exists(steamPath)) {
         spdlog::error("CoreInstaller: Target Steam install path does not exist: {}", steamPath);
-        return false;
+        return {false, "未检测到有效的 Steam 安装目录，请确认 Steam 客户端已安装并至少运行过一次。"};
     }
 
     spdlog::info("CoreInstaller: Initiating Core installation (channel: {}) to {}", channel, steamPath);
@@ -148,6 +148,7 @@ bool CoreInstaller::InstallCore(const std::string& channel) {
         "bin",
         "Release",
         "build/bin/Release",
+        "build/bin/Debug",
         "build/lib",
         (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path()).generic_string()};
     for (const auto& d : localSearchDirs) {
@@ -157,7 +158,8 @@ bool CoreInstaller::InstallCore(const std::string& channel) {
             fs::copy_file(coreDll, fs::path(steamPath) / "libomnisteam.dll", fs::copy_options::overwrite_existing);
             fs::copy_file(proxyDll, fs::path(steamPath) / "dwmapi.dll", fs::copy_options::overwrite_existing);
             spdlog::info("CoreInstaller: Successfully deployed local Core binaries from {} to {}", d, steamPath);
-            return true;
+            return {true, "已成功从本地构建产物 (" + d +
+                              ") 部署 Core 拦截引擎 (libomnisteam.dll + dwmapi.dll) 到 Steam 目录！"};
         }
     }
 #endif
@@ -200,13 +202,14 @@ bool CoreInstaller::InstallCore(const std::string& channel) {
 #endif
                 int unpackResult = std::system(unpackCmd.c_str());
                 spdlog::info("CoreInstaller: Archive extraction executed (result: {})", unpackResult);
-                return true;
+                return {true, "已成功从远程下载并解压部署 OmniSteam Core 引擎到 Steam 目录！"};
             }
         }
     }
 
     spdlog::warn("CoreInstaller: All remote asset candidate downloads failed");
-    return false;
+    return {false, "未检测到远程每夜版资产（GitHub 仓库暂未发布 Release 产物）。如为本地源码开发，请先在 build/ "
+                   "目录编译生成 Core 动态库 (libomnisteam.dll / dwmapi.dll) 后点击安装。"};
 }
 
 bool CoreInstaller::UninstallCore() {

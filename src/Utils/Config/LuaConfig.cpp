@@ -109,6 +109,32 @@ void ParseFile(const std::string& filePath) {
         return;
     luaL_openlibs(L);
 
+    // Sanitize execution environment: neutralize dangerous OS and IO primitives
+    lua_pushnil(L);
+    lua_setglobal(L, "dofile");
+    lua_pushnil(L);
+    lua_setglobal(L, "loadfile");
+
+    lua_getglobal(L, "os");
+    if (lua_istable(L, -1)) {
+        lua_pushnil(L);
+        lua_setfield(L, -2, "execute");
+        lua_pushnil(L);
+        lua_setfield(L, -2, "remove");
+        lua_pushnil(L);
+        lua_setfield(L, -2, "rename");
+        lua_pushnil(L);
+        lua_setfield(L, -2, "exit");
+    }
+    lua_pop(L, 1);
+
+    lua_getglobal(L, "io");
+    if (lua_istable(L, -1)) {
+        lua_pushnil(L);
+        lua_setfield(L, -2, "popen");
+    }
+    lua_pop(L, 1);
+
     lua_register(L, "addappid", Lua_AddAppId);
     lua_register(L, "addAppId", Lua_AddAppId);
     lua_register(L, "addtoken", Lua_AddToken);

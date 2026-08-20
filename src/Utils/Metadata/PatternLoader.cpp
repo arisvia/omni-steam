@@ -96,21 +96,28 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         return false;
 
     uint32_t magic = 0, version = 0, count = 0;
-    file.read(reinterpret_cast<char*>(&magic), 4);
-    file.read(reinterpret_cast<char*>(&version), 4);
-    file.read(reinterpret_cast<char*>(&count), 4);
+    if (!file.read(reinterpret_cast<char*>(&magic), 4) || !file.read(reinterpret_cast<char*>(&version), 4) ||
+        !file.read(reinterpret_cast<char*>(&count), 4)) {
+        return false;
+    }
 
-    if (magic != kPatternCacheMagic || version != 1) {
+    if (magic != kPatternCacheMagic || version != 1 || count > 500) {
         return false;
     }
 
     for (uint32_t i = 0; i < count; ++i) {
         uint16_t nameLen = 0;
-        file.read(reinterpret_cast<char*>(&nameLen), 2);
+        if (!file.read(reinterpret_cast<char*>(&nameLen), 2) || nameLen == 0 || nameLen > 256) {
+            return false;
+        }
         std::string name(nameLen, '\0');
-        file.read(&name[0], nameLen);
+        if (!file.read(&name[0], nameLen)) {
+            return false;
+        }
         uint64_t rva = 0;
-        file.read(reinterpret_cast<char*>(&rva), 8);
+        if (!file.read(reinterpret_cast<char*>(&rva), 8)) {
+            return false;
+        }
 
         uintptr_t addr = moduleBase + static_cast<uintptr_t>(rva);
         std::string norm = NormalizeFunctionName(name);

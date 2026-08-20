@@ -14,23 +14,7 @@ namespace fs = std::filesystem;
 namespace Manager {
 
 std::string SavePathResolver::GetSteamInstallDirectory() {
-#if defined(OMNI_PLATFORM_WINDOWS)
-    return "C:/Program Files (x86)/Steam";
-#elif defined(OMNI_PLATFORM_MACOS)
-    const char* home = std::getenv("HOME");
-    return home ? std::string(home) + "/Library/Application Support/Steam" : "";
-#else
-    const char* home = std::getenv("HOME");
-    if (!home)
-        return "";
-    std::string defaultPath = std::string(home) + "/.local/share/Steam";
-    if (fs::exists(defaultPath))
-        return defaultPath;
-    std::string altPath = std::string(home) + "/.steam/steam";
-    if (fs::exists(altPath))
-        return altPath;
-    return defaultPath;
-#endif
+    return OmniPlatform::Paths::GetSteamInstallPath();
 }
 
 std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId) {

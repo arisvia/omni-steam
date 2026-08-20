@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <regex>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
@@ -27,84 +28,90 @@ std::string ExtractJsonString(const std::string& json, const std::string& key) {
 std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, const std::string& language,
                                                     const std::string& countryCode) {
     std::vector<SearchResultItem> results;
+    std::set<uint32_t> seenAppIds;
     if (query.empty())
         return results;
 
     // 1. Direct AppID lookup if query is purely numeric
     std::regex numericRegex("^\\d{3,10}$");
     if (std::regex_match(query, numericRegex)) {
-        uint32_t directId = static_cast<uint32_t>(std::stoul(query));
-        auto details = GetAppDetails(directId, language);
-        if (!details.name.empty()) {
-            SearchResultItem item;
-            item.appId = directId;
-            item.name = details.name;
-            item.tinyImage =
-                std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(directId) + "/capsule_sm_120.jpg";
-            results.push_back(item);
-            return results;
+        try {
+            uint32_t directId = static_cast<uint32_t>(std::stoul(query));
+            auto details = GetAppDetails(directId, language);
+            if (!details.name.empty()) {
+                SearchResultItem item;
+                item.appId = directId;
+                item.name = details.name;
+                item.tinyImage =
+                    std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(directId) + "/capsule_sm_120.jpg";
+                results.push_back(item);
+                return results;
+            }
+        } catch (...) {
         }
     }
 
-    // 2. Primary: Store Search API with US catalog
     std::string encodedQ = OmniPlatform::Encoding::UrlEncode(query);
+    std::string effectiveCc = countryCode.empty() ? "US" : countryCode;
+
+    // 2. Primary: Store Search API
     std::string url = std::string(OmniEndpoints::Steam::kStoreSearchApi) + "?term=" + encodedQ + "&l=" + language +
-                      "&cc=" + countryCode;
+                      "&cc=" + effectiveCc;
 
     spdlog::info("SteamApi: Querying store search: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 6000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
-        std::regex itemSplitRegex("\\{\\s*\"type\"\\s*:\\s*\"app\"");
-        std::sregex_token_iterator iter(resp.body.begin(), resp.body.end(), itemSplitRegex, -1);
-        std::sregex_token_iterator end;
-        for (; iter != end; ++iter) {
-            std::string block = iter->str();
-            std::smatch idMatch, nameMatch, imgMatch;
-            if (std::regex_search(block, idMatch, std::regex("\"id\"\\s*:\\s*(\\d+)")) &&
-                std::regex_search(block, nameMatch, std::regex("\"name\"\\s*:\\s*\"([^\"]+)\""))) {
+        std::regex itemRegex(
+            R"regex(\{\s*"type"\s*:\s*"app"\s*,\s*"name"\s*:\s*"([^"]+)"\s*,\s*"id"\s*:\s*(\d+))regex");
+        auto begin = std::sregex_iterator(resp.body.begin(), resp.body.end(), itemRegex);
+        auto end = std::sregex_iterator();
+
+        for (auto it = begin; it != end; ++it) {
+            std::smatch m = *it;
+            try {
+                uint32_t appId = static_cast<uint32_t>(std::stoul(m[2].str()));
+                if (seenAppIds.contains(appId))
+                    continue;
+                seenAppIds.insert(appId);
+
                 SearchResultItem item;
-                item.appId = static_cast<uint32_t>(std::stoul(idMatch[1].str()));
-                item.name = nameMatch[1].str();
-                if (std::regex_search(block, imgMatch, std::regex("\"tiny_image\"\\s*:\\s*\"([^\"]+)\""))) {
-                    std::string img = imgMatch[1].str();
-                    size_t pos = 0;
-                    while ((pos = img.find("\\/", pos)) != std::string::npos) {
-                        img.replace(pos, 2, "/");
-                        pos += 1;
-                    }
-                    item.tinyImage = img;
-                } else {
-                    item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) +
-                                     "/capsule_sm_120.jpg";
-                }
+                item.appId = appId;
+                item.name = m[1].str();
+                item.tinyImage =
+                    std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(appId) + "/capsule_sm_120.jpg";
                 results.push_back(item);
+            } catch (...) {
             }
         }
     }
 
-    // 3. Fallback: Search Suggest API (effective for non-Latin / Chinese search terms)
+    // 3. Fallback: Search Suggest API (effective for Chinese / non-Latin terms)
     if (results.empty()) {
         std::string suggestUrl = "https://store.steampowered.com/search/suggest?term=" + encodedQ +
-                                 "&f=games&cc=" + countryCode + "&l=" + language;
-        spdlog::info("SteamApi: Fallback query suggest endpoint: {}", suggestUrl);
+                                 "&f=games&cc=" + effectiveCc + "&l=" + language;
+        spdlog::info("SteamApi: Querying suggest endpoint: {}", suggestUrl);
         auto suggestResp = OmniPlatform::Http::Get(suggestUrl, 6000);
         if (suggestResp.statusCode == 200 && !suggestResp.body.empty()) {
-            std::regex suggestRegex("data-ds-appid=\"(\\d+)\"[\\s\\S]*?<div "
-                                    "class=\"match_name\">([^<]+)</div>(?:[\\s\\S]*?<img src=\"([^\"]+)\")?");
+            std::regex suggestRegex(
+                R"regex(data-ds-appid="(\d+)"[^>]*>[\s\S]*?<div class="match_name">([^<]+)</div>)regex");
             auto s_begin = std::sregex_iterator(suggestResp.body.begin(), suggestResp.body.end(), suggestRegex);
             auto s_end = std::sregex_iterator();
-            for (std::sregex_iterator it = s_begin; it != s_end; ++it) {
+            for (auto it = s_begin; it != s_end; ++it) {
                 std::smatch match = *it;
-                SearchResultItem item;
-                item.appId = static_cast<uint32_t>(std::stoul(match[1].str()));
-                item.name = match[2].str();
-                if (match.size() > 3 && match[3].matched && !match[3].str().empty()) {
-                    item.tinyImage = match[3].str();
-                } else {
-                    item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) +
+                try {
+                    uint32_t appId = static_cast<uint32_t>(std::stoul(match[1].str()));
+                    if (seenAppIds.contains(appId))
+                        continue;
+                    seenAppIds.insert(appId);
+
+                    SearchResultItem item;
+                    item.appId = appId;
+                    item.name = match[2].str();
+                    item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(appId) +
                                      "/capsule_sm_120.jpg";
+                    results.push_back(item);
+                } catch (...) {
                 }
-                results.push_back(item);
             }
         }
     }

@@ -72,188 +72,503 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>OmniSteam Control Center</title>
+    <title>OmniSteam 控制中心</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root {
-            --bg: #090d16;
-            --card-bg: #131a2a;
-            --card-border: #1e293b;
-            --accent: #38bdf8;
-            --accent-hover: #0ea5e9;
+            --bg-base: #0b0f19;
+            --bg-card: #111827;
+            --bg-card-subtle: #162032;
+            --border: #1f293d;
+            --border-hover: #334155;
+            --primary: #38bdf8;
+            --primary-hover: #0ea5e9;
             --success: #22c55e;
             --danger: #ef4444;
             --warning: #f59e0b;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
+            --text-sub: #64748b;
+            --radius: 12px;
+            --radius-sm: 8px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { width: 100vw; height: 100vh; margin: 0; padding: 0; overflow: hidden; background: var(--bg); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 0%, #151d30 0%, var(--bg-base) 75%);
+            color: var(--text-main);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
         
-        /* Full viewport app wrapper */
-        .app-layout { width: 100vw; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; box-sizing: border-box; gap: 12px; overflow: hidden; }
+        .app-layout {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 24px;
+            gap: 16px;
+            box-sizing: border-box;
+        }
         
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px; flex-shrink: 0; }
-        .logo { font-size: 22px; font-weight: 800; color: var(--accent); display: flex; align-items: center; gap: 8px; }
-        .status-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .badge { background: #1e293b; border: 1px solid var(--card-border); padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
-        .badge.online { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
-        .badge.warning { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: var(--warning); }
-        
-        /* Core Banner */
-        .core-banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 10px; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-shrink: 0; }
-        .core-info { display: flex; flex-direction: column; gap: 4px; }
-        .core-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-        .hook-tags { display: flex; gap: 6px; font-size: 11px; margin-top: 2px; flex-wrap: wrap; }
-        .hook-tag { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--accent); padding: 2px 6px; border-radius: 4px; }
-        .hook-tag.active { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
+        /* Navigation Bar */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 20px;
+            flex-shrink: 0;
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .brand-icon {
+            font-size: 24px;
+            line-height: 1;
+        }
+        .brand-name {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #ffffff 0%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .version-chip {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 9999px;
+        }
+        .status-indicators {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-card-subtle);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-sub);
+        }
+        .dot.online {
+            background: var(--success);
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+        }
+        .dot.warning {
+            background: var(--warning);
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+        }
 
-        /* Main 2-column layout */
-        .container { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; overflow: hidden; }
-        @media (max-width: 1024px) { .container { grid-template-columns: 1fr; } .core-banner { flex-direction: column; align-items: flex-start; } }
+        /* Core Engine Banner */
+        .core-panel {
+            background: linear-gradient(135deg, rgba(22, 32, 50, 0.8) 0%, rgba(17, 24, 39, 0.9) 100%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+        .core-info {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .core-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .hook-tag-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .hook-pill {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+        }
+        .hook-pill.active {
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(34, 197, 94, 0.3);
+            color: var(--success);
+            font-weight: 500;
+        }
+        .core-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Main 2-Column Grid */
+        .workspace {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 16px;
+        }
+        @media (max-width: 1024px) {
+            .workspace { grid-template-columns: 1fr; }
+            .core-panel { flex-direction: column; align-items: flex-start; }
+        }
         
-        .card { background: var(--card-bg); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--card-border); display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
-        .card-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .panel-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0;
+            box-sizing: border-box;
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            flex-shrink: 0;
+        }
+        .panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         
+        /* Inputs & Buttons */
+        .search-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+        select, input[type="text"] {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: var(--radius-sm);
+            padding: 9px 12px;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        select:focus, input[type="text"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+        }
+        input[type="text"] { flex: 1; }
+
+        button, a.btn {
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .btn-primary { background: var(--primary); color: #0b0f19; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-secondary { background: var(--bg-card-subtle); border: 1px solid var(--border); color: var(--text-main); }
+        .btn-secondary:hover { background: #1e293b; border-color: var(--border-hover); }
+        .btn-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: #fff; }
+
         /* Dropzone */
-        .dropzone { border: 2px dashed #334155; border-radius: 8px; padding: 10px 14px; text-align: center; background: rgba(15, 23, 42, 0.5); cursor: pointer; transition: all 0.2s ease; margin-bottom: 10px; flex-shrink: 0; }
-        .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(56, 189, 248, 0.05); }
-        .drop-icon { font-size: 20px; margin-bottom: 2px; }
-        .drop-text { font-size: 12px; color: var(--text-muted); }
+        .ticket-dropzone {
+            border: 1.5px dashed #2d3748;
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+        .ticket-dropzone:hover, .ticket-dropzone.dragover {
+            border-color: var(--primary);
+            background: rgba(56, 189, 248, 0.06);
+        }
+        .ticket-title { font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 2px; }
+        .ticket-sub { font-size: 11.5px; color: var(--text-muted); }
 
-        .search-box { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
-        input[type="text"] { flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--bg); color: #fff; font-size: 13px; outline: none; }
-        input[type="text"]:focus { border-color: var(--accent); }
-        button, a.btn { padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
-        .btn-primary { background: var(--accent); color: #090d16; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-success { background: var(--success); color: #fff; }
-        .btn-danger { background: var(--danger); color: #fff; padding: 5px 10px; font-size: 12px; }
-        .btn-toggle { background: #334155; color: #f8fafc; padding: 5px 10px; font-size: 12px; }
-        .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text-main); }
-        .btn-outline:hover { background: #1e293b; color: #fff; }
-
-        /* Scrollable Panels */
-        .item-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
-        .item-list::-webkit-scrollbar { width: 6px; }
-        .item-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+        /* Scrollable List Containers */
+        .scroll-list {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+        }
+        .scroll-list::-webkit-scrollbar { width: 5px; }
+        .scroll-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         
-        .game-item { display: flex; align-items: center; justify-content: space-between; background: #0f172a; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; gap: 12px; min-height: 56px; box-sizing: border-box; }
-        .game-info { display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1; }
-        .game-thumb-box { width: 80px; height: 38px; min-width: 80px; max-width: 80px; border-radius: 4px; overflow: hidden; background: #1e293b; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.06); }
-        .game-thumb { width: 100%; height: 100%; object-fit: cover; }
-        .game-thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-muted); background: #1e293b; }
-        .game-meta { display: flex; flex-direction: column; overflow: hidden; justify-content: center; }
-        .game-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-        .game-sub { font-size: 11.5px; color: var(--text-muted); display: flex; gap: 8px; margin-top: 2px; }
-        .action-group { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-        .empty-hint { text-align: center; color: var(--text-muted); padding: 30px 0; font-size: 13px; }
+        .list-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            gap: 12px;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .list-row:hover {
+            background: rgba(22, 32, 50, 0.8);
+            border-color: var(--border-hover);
+        }
+        .row-main {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: hidden;
+            flex: 1;
+        }
+        .game-art-box {
+            width: 84px;
+            height: 40px;
+            min-width: 84px;
+            border-radius: 4px;
+            overflow: hidden;
+            background: var(--bg-card-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .game-art { width: 100%; height: 100%; object-fit: cover; }
+        .row-text { display: flex; flex-direction: column; overflow: hidden; }
+        .row-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .row-desc { font-size: 11.5px; color: var(--text-muted); display: flex; gap: 8px; margin-top: 2px; }
+        .btn-group { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+        .empty-placeholder { text-align: center; color: var(--text-sub); padding: 40px 0; font-size: 13px; }
 
-        /* Modal */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-        .modal-content { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; width: 100%; max-width: 680px; max-height: 88vh; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; position: relative; }
-        .modal-header-img { width: 100%; height: 180px; object-fit: cover; border-radius: 8px; background: #090d16; }
-        .modal-close { position: absolute; top: 14px; right: 14px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; font-size: 15px; }
-        .dlc-tag-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding: 8px; background: #090d16; border-radius: 8px; }
-        .dlc-tag { background: #1e293b; padding: 4px 8px; border-radius: 4px; font-size: 12px; color: var(--text-main); display: flex; align-items: center; gap: 6px; }
+        /* Modal Dialog */
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 8, 15, 0.8);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .modal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 640px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        }
+        .modal-hero { width: 100%; height: 160px; object-fit: cover; border-radius: var(--radius-sm); }
+        .modal-close-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: none;
+        }
+        .dlc-chip-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-height: 160px;
+            overflow-y: auto;
+            padding: 10px;
+            background: var(--bg-base);
+            border-radius: var(--radius-sm);
+        }
+        .dlc-chip {
+            background: var(--bg-card-subtle);
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
     </style>
 </head>
 <body>
     <div class="app-layout">
-        <div class="header">
-            <div class="logo">🎮 OmniSteam Control Center</div>
-            <div class="status-bar">
-                <span id="steamStatus" class="badge">Steam: 检测中...</span>
-                <span id="depotKeyStatus" class="badge">Depot Keys: 0 条</span>
-                <span class="badge">CLI v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
+        <!-- Navigation Header -->
+        <div class="navbar">
+            <div class="brand">
+                <span class="brand-icon">🎮</span>
+                <span class="brand-name">OmniSteam 控制中心</span>
+                <span class="version-chip">v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
+            </div>
+            <div class="status-indicators">
+                <div class="status-pill">
+                    <span id="steamDot" class="dot"></span>
+                    <span id="steamStatusText">Steam 状态检测中...</span>
+                </div>
+                <div class="status-pill">
+                    <span>🔑</span>
+                    <span id="depotKeyStatus">Depot 索引: 0 条</span>
+                </div>
             </div>
         </div>
 
-        <!-- Core Management Banner -->
-        <div class="core-banner">
+        <!-- Core Engine Status & Deployment Panel -->
+        <div class="core-panel">
             <div class="core-info">
-                <div class="core-title">
-                    <span id="coreStatusIcon">⚙️</span>
-                    <span id="coreStatusText">Core 注入引擎: 检测中...</span>
+                <div class="core-header">
+                    <span id="coreStatusDot" class="dot"></span>
+                    <span id="coreStatusTitle">Core 拦截引擎: 检测中...</span>
                 </div>
-                <div class="hook-tags">
-                    <span id="hookAppOwn" class="hook-tag">所有权模拟 (CheckAppOwnership)</span>
-                    <span id="hookPackage" class="hook-tag">许可证注入 (Package 0)</span>
-                    <span id="hookConfig" class="hook-tag">Depot 解密 (ConfigStore)</span>
-                    <span id="hookIpc" class="hook-tag">IPC 拦截 (IPCProcessMessage)</span>
+                <div class="hook-tag-row">
+                    <span id="hookAppOwn" class="hook-pill">所有权模拟 (CheckAppOwnership)</span>
+                    <span id="hookPackage" class="hook-pill">包注入 (Package 0)</span>
+                    <span id="hookConfig" class="hook-pill">Depot 解密 (ConfigStore)</span>
+                    <span id="hookIpc" class="hook-pill">IPC 拦截 (IPCProcessMessage)</span>
                 </div>
             </div>
-            <div class="action-group" style="display:flex; gap:8px;">
-                <select id="channelSelect" style="padding:6px 10px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff; font-size:12px;">
+            <div class="core-controls">
+                <select id="channelSelect">
                     <option value="release">正式版 (Release)</option>
                     <option value="nightly">每夜版 (Nightly)</option>
                 </select>
                 <button class="btn-primary" id="btnInstallCore" onclick="installCore()">🚀 一键安装/更新 Core</button>
-                <button class="btn-outline" onclick="uninstallCore()">🗑️ 卸载 Core</button>
+                <button class="btn-secondary" onclick="uninstallCore()">🗑️ 卸载</button>
             </div>
         </div>
 
-        <div class="container">
-            <!-- Search & Denuvo Section -->
-            <div class="card">
-                <div class="card-title">
-                    <span>🔍 搜索与解锁 Steam 游戏 / DLC</span>
+        <!-- Workspace -->
+        <div class="workspace">
+            <!-- Left: Game Search & Unlock Panel -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">🔍 搜索与解锁 Steam 游戏 / DLC</span>
                 </div>
 
-                <!-- Denuvo Drag & Drop Area -->
-                <div class="dropzone" id="dropzone" onclick="document.getElementById('ticketFileInput').click()">
-                    <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleFileSelect(event)">
-                    <div class="drop-icon">📥</div>
-                    <strong style="font-size:13px;">拖入 D 加密授权文件 (appticket.bin / tickets.txt)</strong>
-                    <div class="drop-text">自动识别 AppID、写入平台凭证、匹配本地 config.vdf 与 depotkeys.bin 生成一体化解锁脚本</div>
+                <!-- Denuvo Ticket Drag & Drop Area -->
+                <div class="ticket-dropzone" id="ticketDropzone" onclick="document.getElementById('ticketFileInput').click()">
+                    <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleTicketSelect(event)">
+                    <div class="ticket-title">📥 拖入 D 加密授权文件 (appticket.bin / tickets.txt)</div>
+                    <div class="ticket-sub">自动识别 AppID、写入平台凭证并匹配 Depot 解密 Key 生成一体化脚本</div>
                 </div>
 
-                <div class="search-box">
-                    <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 魔女, 黑神话, Palworld)..." onkeydown="if(event.key==='Enter') searchGames()">
+                <!-- Search Input Toolbar with Region Filter -->
+                <div class="search-bar">
+                    <select id="regionSelect" title="选择 Steam 商店目录区域（推荐使用全球库以避开锁区限制）" style="width:130px;">
+                        <option value="US" selected>🌐 全球 (US)</option>
+                        <option value="HK">🇭🇰 港区 (HK)</option>
+                        <option value="CN">🇨🇳 国区 (CN)</option>
+                    </select>
+                    <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 黑神话, 艾尔登法环)..." onkeydown="handleSearchKey(event)">
                     <button class="btn-primary" id="searchBtn" onclick="searchGames()">搜索</button>
                 </div>
-                <div id="searchResults" class="item-list">
-                    <div class="empty-hint">输入游戏名称开始在线检索 Steam Store 库</div>
+
+                <!-- Search Results -->
+                <div id="searchResults" class="scroll-list">
+                    <div class="empty-placeholder">输入游戏名称开始在线检索 Steam Store 库</div>
                 </div>
             </div>
 
-            <!-- Installed Scripts Section -->
-            <div class="card">
-                <div class="card-title">
-                    <span>📜 已安装解锁脚本 (<span id="scriptCount">0</span>)</span>
+            <!-- Right: Installed Scripts Panel -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">📜 已安装解锁脚本 (<span id="scriptCount">0</span>)</span>
                     <div style="display:flex; gap:6px;">
-                        <input type="text" id="scriptFilterInput" placeholder="过滤脚本..." style="padding:4px 8px; font-size:12px;" oninput="filterScripts()">
-                        <button class="btn-toggle" onclick="loadScripts()">🔄 刷新</button>
+                        <input type="text" id="scriptFilterInput" placeholder="过滤脚本..." style="width:120px; padding:6px 10px; font-size:12px;" oninput="filterScripts()">
+                        <button class="btn-secondary" style="padding:6px 10px; font-size:12px;" onclick="loadScripts()">🔄 刷新</button>
                     </div>
                 </div>
-                <div id="scriptList" class="item-list">
-                    <div class="empty-hint">正在读取脚本目录...</div>
+                <div id="scriptList" class="scroll-list">
+                    <div class="empty-placeholder">正在读取脚本目录...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Game Details Modal -->
-    <div class="modal-overlay" id="gameModal">
-        <div class="modal-content">
-            <button class="modal-close" onclick="closeModal()">✕</button>
-            <img id="modalCover" class="modal-header-img" src="" onerror="this.style.display='none'">
+    <!-- Game Details Modal Dialog -->
+    <div class="modal-mask" id="gameModal">
+        <div class="modal-box">
+            <button class="modal-close-btn" onclick="closeModal()">✕</button>
+            <img id="modalCover" class="modal-hero" src="" onerror="this.style.display='none'">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
-                <div style="display:flex; flex-direction:column; gap:6px;">
-                    <h2 id="modalTitle" style="font-size:20px; font-weight:700; color:#fff;">游戏详情</h2>
-                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
-                        <span id="modalAppId" class="badge" style="font-weight:600; background:#1e293b; color:var(--accent);">AppID: -</span>
-                        <a id="btnSteamDb" href="#" target="_blank" class="btn btn-outline" style="font-size:12px; padding:3px 10px;">📊 SteamDB</a>
-                        <a id="btnSteamStore" href="#" target="_blank" class="btn btn-outline" style="font-size:12px; padding:3px 10px;">🛍️ Steam 商店</a>
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <h2 id="modalTitle" style="font-size:18px; font-weight:700;">游戏详情</h2>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                        <span id="modalAppId" class="status-pill" style="padding:2px 8px; font-size:11px; color:var(--primary);">AppID: -</span>
+                        <a id="btnSteamDb" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">📊 SteamDB</a>
+                        <a id="btnSteamStore" href="#" target="_blank" class="btn btn-secondary" style="font-size:11px; padding:3px 8px;">🛍️ Steam 商店</a>
                     </div>
                 </div>
-                <button class="btn-primary" id="modalUnlockBtn" style="padding:10px 18px; font-size:13px; flex-shrink:0;">✨ 立即生成并载入解锁</button>
+                <button class="btn-primary" id="modalUnlockBtn" style="padding:9px 16px;">✨ 一键解锁</button>
             </div>
-            <p id="modalDesc" style="font-size:13px; color:var(--text-muted); line-height:1.5;"></p>
+            <p id="modalDesc" style="font-size:12.5px; color:var(--text-muted); line-height:1.6; max-height:80px; overflow-y:auto;"></p>
             <div>
-                <h4 style="font-size:14px; font-weight:600; margin-bottom:8px;">📦 包含的 DLC 列表 (<span id="modalDlcCount">0</span> 个)</h4>
-                <div id="modalDlcList" class="dlc-tag-list">
-                    <div class="empty-hint" style="padding:10px;">未包含独立 DLC</div>
+                <h4 style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 包含的 DLC 列表 (<span id="modalDlcCount">0</span> 个)</h4>
+                <div id="modalDlcList" class="dlc-chip-list">
+                    <div class="empty-placeholder" style="padding:10px;">未包含独立 DLC</div>
                 </div>
             </div>
         </div>
@@ -262,43 +577,51 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     <script>
         let g_allScripts = [];
 
+        function handleSearchKey(event) {
+            if (event.isComposing) return;
+            if (event.key === 'Enter') {
+                searchGames();
+            }
+        }
+
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 
-                // Steam status
-                const sElem = document.getElementById('steamStatus');
+                // Steam Status
+                const sDot = document.getElementById('steamDot');
+                const sText = document.getElementById('steamStatusText');
                 if (data.steamRunning) {
-                    sElem.textContent = `Steam: 运行中 (PID: ${data.steamPid})`;
-                    sElem.className = 'badge online';
+                    sDot.className = 'dot online';
+                    sText.textContent = `Steam: 运行中 (PID: ${data.steamPid})`;
                 } else {
-                    sElem.textContent = 'Steam: 未启动';
-                    sElem.className = 'badge';
+                    sDot.className = 'dot';
+                    sText.textContent = 'Steam: 未运行';
                 }
-                document.getElementById('depotKeyStatus').textContent = `Depot Keys: ${data.depotKeysCount.toLocaleString()} 条`;
+                document.getElementById('depotKeyStatus').textContent = `Depot 索引: ${data.depotKeysCount.toLocaleString()} 条`;
 
-                // Core Hook status
-                const cIcon = document.getElementById('coreStatusIcon');
-                const cText = document.getElementById('coreStatusText');
+                // Core Status
+                const cDot = document.getElementById('coreStatusDot');
+                const cTitle = document.getElementById('coreStatusTitle');
                 const hAppOwn = document.getElementById('hookAppOwn');
                 const hPackage = document.getElementById('hookPackage');
                 const hConfig = document.getElementById('hookConfig');
                 const hIpc = document.getElementById('hookIpc');
 
                 if (data.core && data.core.active) {
-                    cIcon.textContent = '🟢';
-                    cText.textContent = `Core 注入引擎: 已生效 (v${data.core.installedVersion || '1.0.0'}, 目标: ${data.core.targetModule || 'steamclient'})`;
-                    hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-tag active' : 'hook-tag';
-                    hPackage.className = 'hook-tag active';
-                    hConfig.className = data.core.configStoreHook ? 'hook-tag active' : 'hook-tag';
-                    hIpc.className = data.core.ipcHook ? 'hook-tag active' : 'hook-tag';
+                    cDot.className = 'dot online';
+                    cTitle.textContent = `Core 拦截引擎: 已就绪生效 (v${data.core.installedVersion || '1.0.0'}, 目标: ${data.core.targetModule || 'steamclient'})`;
+                    hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-pill active' : 'hook-pill';
+                    hPackage.className = 'hook-pill active';
+                    hConfig.className = data.core.configStoreHook ? 'hook-pill active' : 'hook-pill';
+                    hIpc.className = data.core.ipcHook ? 'hook-pill active' : 'hook-pill';
                 } else if (data.core && data.core.installed) {
-                    cIcon.textContent = '🟡';
-                    cText.textContent = `Core 已就绪于 Steam 目录 (等待 Steam 启动即时注入)`;
+                    cDot.className = 'dot warning';
+                    cTitle.textContent = 'Core 已部署于 Steam 目录 (等待 Steam 启动即时注入)';
                 } else {
-                    cIcon.textContent = '⚪';
-                    cText.textContent = 'Core 尚未安装至 Steam 目录';
+                    cDot.className = 'dot';
+                    cTitle.textContent = 'Core 尚未部署至 Steam 目录';
                 }
             } catch(e) {}
         }
@@ -306,7 +629,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         async function installCore() {
             const channel = document.getElementById('channelSelect').value;
             const btn = document.getElementById('btnInstallCore');
-            btn.textContent = '正在下载部署...';
+            btn.textContent = '正在处理部署...';
             btn.disabled = true;
 
             try {
@@ -317,13 +640,13 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 });
                 const data = await res.json();
                 if (data.success) {
-                    alert('🎉 Core 核心已成功安装/更新至 Steam 目录！\n启动或重启 Steam 即可直接生效。');
+                    alert(data.message || '🎉 Core 核心已成功安装/更新至 Steam 目录！\n启动或重启 Steam 即可直接生效。');
                     fetchStatus();
                 } else {
-                    alert('安装 Core 失败：' + (data.message || '网络连接失败'));
+                    alert('安装 Core 提示：\n' + (data.message || '网络连接失败或未找到可用资产。'));
                 }
             } catch(e) {
-                alert('请求异常');
+                alert('请求异常，请检查本地后台服务。');
             } finally {
                 btn.textContent = '🚀 一键安装/更新 Core';
                 btn.disabled = false;
@@ -338,8 +661,8 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             fetchStatus();
         }
 
-        // Dropzone handlers
-        const dropzone = document.getElementById('dropzone');
+        // Ticket Dropzone Handlers
+        const dropzone = document.getElementById('ticketDropzone');
         ['dragenter', 'dragover'].forEach(name => {
             dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
         });
@@ -351,7 +674,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 uploadTicketFile(e.dataTransfer.files[0]);
             }
         });
-        function handleFileSelect(e) {
+        function handleTicketSelect(e) {
             if (e.target.files && e.target.files[0]) {
                 uploadTicketFile(e.target.files[0]);
             }
@@ -370,7 +693,7 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 if (data.success) {
                     let msg = `🎉 成功解析并入库 D 加密游戏【${data.gameName}】(AppID: ${data.appId})！\n已自动载入 ${data.dlcCount} 个 DLC 与 ${data.resolvedDepotKeysCount} 条 Depot 解密 Key。`;
                     if (data.missingDepots && data.missingDepots.length > 0) {
-                        msg += `\n\n⚠️ 注意: 缺少 ${data.missingDepots.length} 个 Depot 的解密 Key，已自动生成脚本并在后台尝试同步。可在 GitHub Issue 提交补全。`;
+                        msg += `\n\n⚠️ 缺少 ${data.missingDepots.length} 个 Depot 的解密 Key，已自动生成脚本并在后台尝试同步。可在 GitHub Issue 提交补全。`;
                     }
                     alert(msg);
                     loadScripts();
@@ -388,45 +711,46 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         async function searchGames() {
             const q = document.getElementById('queryInput').value.trim();
             if(!q) return;
+            const cc = document.getElementById('regionSelect').value;
             const btn = document.getElementById('searchBtn');
             btn.textContent = '检索中...';
             btn.disabled = true;
 
             const container = document.getElementById('searchResults');
-            container.innerHTML = '<div class="empty-hint">正在连接 Steam 商店 API 检索...</div>';
+            container.innerHTML = '<div class="empty-placeholder">正在连接 Steam 商店 API 检索...</div>';
 
             try {
-                const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&cc=${encodeURIComponent(cc)}`);
                 const data = await res.json();
                 container.innerHTML = '';
                 if (!data || data.length === 0) {
-                    container.innerHTML = '<div class="empty-hint">未找到匹配的 Steam 游戏</div>';
+                    container.innerHTML = '<div class="empty-placeholder">未找到匹配的 Steam 游戏（可尝试切换全球库或港区再次检索）</div>';
                     return;
                 }
                 data.forEach(item => {
                     const div = document.createElement('div');
-                    div.className = 'game-item';
+                    div.className = 'list-row';
                     const thumbHtml = item.tinyImage ? 
-                        `<div class="game-thumb-box"><img class="game-thumb" src="${item.tinyImage}" onerror="this.parentElement.innerHTML='<div class=\\'game-thumb-placeholder\\'>🎮 App</div>'"></div>` :
-                        `<div class="game-thumb-box"><div class="game-thumb-placeholder">🎮 App</div></div>`;
+                        `<div class="game-art-box"><img class="game-art" src="${item.tinyImage}" onerror="this.parentElement.innerHTML='<span style=\\'font-size:11px;color:var(--text-sub)\\'>🎮</span>'"></div>` :
+                        `<div class="game-art-box"><span style="font-size:11px;color:var(--text-sub)">🎮</span></div>`;
                     
                     div.innerHTML = `
-                        <div class="game-info" onclick="viewGameDetails(${item.appId})" style="cursor:pointer;">
+                        <div class="row-main" onclick="viewGameDetails(${item.appId})" style="cursor:pointer;">
                             ${thumbHtml}
-                            <div class="game-meta">
-                                <span class="game-name" title="${item.name}">${item.name}</span>
-                                <span class="game-sub">AppID: ${item.appId}</span>
+                            <div class="row-text">
+                                <span class="row-title" title="${item.name}">${item.name}</span>
+                                <span class="row-desc">AppID: ${item.appId}</span>
                             </div>
                         </div>
-                        <div class="action-group">
-                            <button class="btn-outline" onclick="viewGameDetails(${item.appId})" style="font-size:12px; padding:5px 10px;">🔍 详情</button>
+                        <div class="btn-group">
+                            <button class="btn-secondary" onclick="viewGameDetails(${item.appId})" style="font-size:12px; padding:5px 10px;">🔍 详情</button>
                             <button class="btn-primary" onclick="unlockGame(${item.appId}, '${encodeURIComponent(item.name)}')">✨ 解锁</button>
                         </div>
                     `;
                     container.appendChild(div);
                 });
             } catch(e) {
-                container.innerHTML = '<div class="empty-hint">检索失败，请检查网络或后端服务</div>';
+                container.innerHTML = '<div class="empty-placeholder">检索失败，请检查网络连接</div>';
             } finally {
                 btn.textContent = '搜索';
                 btn.disabled = false;
@@ -456,12 +780,12 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             if (data.dlcList && data.dlcList.length > 0) {
                 data.dlcList.forEach(dlc => {
                     const tag = document.createElement('div');
-                    tag.className = 'dlc-tag';
-                    tag.innerHTML = `<span>${dlc.name}</span> <span class="badge" style="font-size:10px;">${dlc.dlcId}</span>`;
+                    tag.className = 'dlc-chip';
+                    tag.innerHTML = `<span>${dlc.name}</span> <span class="version-chip" style="font-size:10px;">${dlc.dlcId}</span>`;
                     dlcContainer.appendChild(tag);
                 });
             } else {
-                dlcContainer.innerHTML = '<div class="empty-hint" style="padding:6px;">未包含独立 DLC</div>';
+                dlcContainer.innerHTML = '<div class="empty-placeholder" style="padding:6px;">未包含独立 DLC</div>';
             }
 
             document.getElementById('modalUnlockBtn').onclick = () => {
@@ -503,23 +827,23 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             const container = document.getElementById('scriptList');
             container.innerHTML = '';
             if (!scripts || scripts.length === 0) {
-                container.innerHTML = '<div class="empty-hint">暂未检测到已安装的 .lua 脚本</div>';
+                container.innerHTML = '<div class="empty-placeholder">暂未检测到已安装的 .lua 脚本</div>';
                 return;
             }
             scripts.forEach(s => {
                 const div = document.createElement('div');
-                div.className = 'game-item';
+                div.className = 'list-row';
                 const displayName = s.title ? `${s.title} (${s.fileName})` : s.fileName;
                 div.innerHTML = `
-                    <div class="game-info">
-                        <div class="game-meta">
-                            <span class="game-name" title="${s.fullPath}">${displayName}</span>
-                            <span class="game-sub">AppID: ${s.primaryAppId || '通用'} | 状态: <strong style="color:${s.enabled ? '#22c55e' : '#94a3b8'}">${s.enabled ? '已启用' : '已停用'}</strong></span>
+                    <div class="row-main">
+                        <div class="row-text">
+                            <span class="row-title" title="${s.fullPath}">${displayName}</span>
+                            <span class="row-desc">AppID: ${s.primaryAppId || '通用'} | 状态: <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${s.enabled ? '已启用' : '已停用'}</strong></span>
                         </div>
                     </div>
-                    <div class="action-group">
-                        <button class="btn-toggle" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? '停用' : '启用'}</button>
-                        <button class="btn-danger" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">删除</button>
+                    <div class="btn-group">
+                        <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? '停用' : '启用'}</button>
+                        <button class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">删除</button>
                     </div>
                 `;
                 container.appendChild(div);
@@ -567,7 +891,6 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
     </script>
 </body>
 </html>)rawhtml";
-
 std::string HandleHttpRequest(const std::string& request) {
     if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /index.html", 0) == 0) {
         std::string body = kIndexHtml;
@@ -656,15 +979,17 @@ std::string HandleHttpRequest(const std::string& request) {
                 channel = "nightly";
             }
         }
-        bool ok = CoreInstaller::InstallCore(channel);
-        std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Install failed\"}";
+        auto res = CoreInstaller::InstallCore(channel);
+        std::ostringstream json;
+        json << "{\"success\":" << (res.success ? "true" : "false") << ",\"message\":\""
+             << OmniPlatform::Encoding::EscapeJson(res.message) << "\"}";
+        std::string respBody = json.str();
         std::ostringstream oss;
         oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
             << respBody.length() << "\r\nConnection: close\r\n\r\n"
             << respBody;
         return oss.str();
     }
-
     if (request.rfind("POST /api/core/uninstall", 0) == 0) {
         bool ok = CoreInstaller::UninstallCore();
         std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false}";
@@ -720,8 +1045,19 @@ std::string HandleHttpRequest(const std::string& request) {
             size_t endPos = request.find_first_of(" &\r\n", qPos);
             q = request.substr(qPos + 2, endPos - (qPos + 2));
         }
+
+        std::string cc = "US";
+        size_t ccPos = request.find("cc=");
+        if (ccPos != std::string::npos) {
+            size_t endPos = request.find_first_of(" &\r\n", ccPos);
+            std::string rawCc = request.substr(ccPos + 3, endPos - (ccPos + 3));
+            if (!rawCc.empty()) {
+                cc = rawCc;
+            }
+        }
+
         std::string decodedQ = OmniPlatform::Encoding::UrlDecode(q);
-        auto results = SteamApi::SearchStore(decodedQ);
+        auto results = SteamApi::SearchStore(decodedQ, "schinese", cc);
         std::ostringstream json;
         json << "[";
         for (size_t i = 0; i < results.size(); ++i) {

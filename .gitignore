@@ -10,3 +10,7 @@ build64/
 *.dylib
 .vscode/
 .idea/
+__pycache__/
+*.pyc
+*.exe
+*.obj

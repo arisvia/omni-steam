@@ -18,6 +18,13 @@ import shutil
 from pathlib import Path
 from typing import List, Tuple, Dict
 
+# Force UTF-8 on Windows stdout/stderr to prevent encoding errors
+if sys.platform == 'win32':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 CHECK_RULES = [
     (re.compile(r'\bstd::(ifstream|ofstream|fstream)\b'), '<fstream>'),
     (re.compile(r'\bstd::(stringstream|istringstream|ostringstream)\b'), '<sstream>'),
@@ -41,27 +48,40 @@ CHECK_RULES = [
     (re.compile(r'\bstd::(sort|lower_bound|min|max)\b'), '<algorithm>')
 ]
 
+IGNORED_DIRS = {
+    'build', '.git', '.cache', 'dist', 'packages', 'node_modules',
+    '.vs', 'out', 'bin', 'obj', 'third_party', 'vendor'
+}
+
+CPP_TOKEN_PATTERN = re.compile(
+    r'(R"([a-zA-Z0-9_]*)\([\s\S]*?\)\2")|'   # 1,2: Raw string literal
+    r'("(\\.|[^"\\])*")|'                    # 3,4: Normal string literal
+    r"('(\\.|[^'\\])*')|"                    # 5,6: Character literal
+    r'(/\*[\s\S]*?\*/)|'                      # 7: Block comment
+    r'(//[^\n]*)'                             # 8: Line comment
+)
+
 def find_cpp_files(root_dir: str) -> List[Path]:
-    """Find all C++ source and header files, skipping build/ and .git/."""
+    """Find all C++ source and header files, skipping build/ and temporary directories."""
     cpp_files = []
     for root, dirs, files in os.walk(root_dir):
-        dirs[:] = [d for d in dirs if d not in ('build', '.git', '.cache', 'dist', 'packages')]
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith('cmake-build-')]
         for f in files:
             if f.endswith(('.cpp', '.h', '.hpp', '.c')):
                 cpp_files.append(Path(root) / f)
     return cpp_files
 
-def check_delimiters(content: str, filename: str) -> List[str]:
-    """Check bracket, brace, and parenthesis balance while ignoring comments and strings."""
-    errors = []
-    # Strip line comments and block comments
-    clean = re.sub(r'//.*', '', content)
-    clean = re.sub(r'/\*[\s\S]*?\*/', '', clean)
-    # Strip string literals
-    clean = re.sub(r'R"rawhtml\([\s\S]*?\)rawhtml"', '""', clean)
-    clean = re.sub(r'"(\\.|[^"\\])*"', '""', clean)
-    clean = re.sub(r"'(\\.|[^'\\])*'", "''", clean)
+def strip_tokens(content: str) -> str:
+    """Strip comments and normalize string literals to prevent false matches."""
+    def replacer(match: re.Match) -> str:
+        if match.group(1) or match.group(3) or match.group(5):
+            return '""'
+        return ' '
+    return CPP_TOKEN_PATTERN.sub(replacer, content)
 
+def check_delimiters(clean: str) -> List[str]:
+    """Check bracket, brace, and parenthesis balance on cleaned code content."""
+    errors = []
     counts = {
         '{': clean.count('{'), '}': clean.count('}'),
         '(': clean.count('('), ')': clean.count(')'),
@@ -77,23 +97,31 @@ def check_delimiters(content: str, filename: str) -> List[str]:
 
     return errors
 
-def check_includes(content: str) -> List[str]:
-    """Identify missing standard library headers."""
+def check_includes(clean: str, raw_content: str) -> List[str]:
+    """Identify missing standard library headers based on cleaned code content."""
     missing = []
     for pattern, header in CHECK_RULES:
-        if pattern.search(content) and f'#include {header}' not in content:
+        if pattern.search(clean) and f'#include {header}' not in raw_content:
             missing.append(header)
     return missing
 
 def heal_file_includes(file_path: Path, missing_headers: List[str]):
-    """Insert missing standard includes at top of file."""
+    """Insert missing standard includes safely in the file."""
     content = file_path.read_text(encoding='utf-8')
     headers_text = '\n'.join(f'#include {h}' for h in missing_headers)
-    if content.startswith('#pragma once'):
-        idx = content.find('\n')
-        new_content = content[:idx+1] + '\n' + headers_text + '\n' + content[idx+1:]
+
+    pragma_match = re.search(r'^[ \t]*#pragma\s+once[^\n]*\n', content, flags=re.MULTILINE)
+    if pragma_match:
+        idx = pragma_match.end()
+        new_content = content[:idx] + '\n' + headers_text + '\n' + content[idx:]
     else:
-        new_content = headers_text + '\n' + content
+        first_include = re.search(r'^[ \t]*#include\s+[<"][^>\n]+[>"][^\n]*\n', content, flags=re.MULTILINE)
+        if first_include:
+            idx = first_include.end()
+            new_content = content[:idx] + headers_text + '\n' + content[idx:]
+        else:
+            new_content = headers_text + '\n\n' + content
+
     file_path.write_text(new_content, encoding='utf-8')
 
 def run_clang_format(files: List[Path]) -> bool:
@@ -124,39 +152,42 @@ def main():
 
     print(f"=== OmniSteam Code Check (Files: {len(cpp_files)}) ===")
 
-    total_issues = 0
+    total_syntax_issues = 0
     files_with_missing_headers: Dict[Path, List[str]] = {}
 
     for file_path in cpp_files:
         try:
-            content = file_path.read_text(encoding='utf-8')
+            raw_content = file_path.read_text(encoding='utf-8')
         except Exception as e:
             print(f"[ERROR] Could not read {file_path}: {e}")
-            total_issues += 1
+            total_syntax_issues += 1
             continue
 
-        # Check delimiters
-        delim_errors = check_delimiters(content, str(file_path))
+        clean_content = strip_tokens(raw_content)
+
+        delim_errors = check_delimiters(clean_content)
         for err in delim_errors:
             print(f"[FAIL] {file_path.relative_to(root_dir)}: {err}")
-            total_issues += 1
+            total_syntax_issues += 1
 
-        # Check missing includes
-        missing = check_includes(content)
+        missing = check_includes(clean_content, raw_content)
         if missing:
             files_with_missing_headers[file_path] = missing
             print(f"[MISSING INCLUDES] {file_path.relative_to(root_dir)}: {', '.join(missing)}")
-            total_issues += len(missing)
+
+    missing_include_count = sum(len(m) for m in files_with_missing_headers.values())
 
     if args.fix and files_with_missing_headers:
         print(f"\n[INFO] Auto-healing missing includes across {len(files_with_missing_headers)} files...")
         for file_path, missing in files_with_missing_headers.items():
             heal_file_includes(file_path, missing)
         print("[PASS] All missing headers injected successfully.")
-        total_issues = 0
+        missing_include_count = 0
 
     if args.format or args.fix:
         run_clang_format(cpp_files)
+
+    total_issues = total_syntax_issues + missing_include_count
 
     print("\n" + "=" * 50)
     if total_issues == 0:
