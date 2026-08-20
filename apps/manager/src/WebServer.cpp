@@ -1,5 +1,7 @@
 #include "WebServer.h"
 
+#include "CoreInstaller.h"
+#include "DenuvoImporter.h"
 #include "DepotKeyStore.h"
 #include "ScriptManager.h"
 #include "SteamApi.h"
@@ -12,6 +14,8 @@
 #include <sstream>
 #include <thread>
 
+#include "OmniPlatform/OmniBuildInfo.h"
+#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
 #if defined(OMNI_PLATFORM_WINDOWS)
@@ -66,13 +70,13 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>OmniSteam Manager Dashboard</title>
+    <title>OmniSteam Control Center</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root {
-            --bg: #0b0f19;
-            --card-bg: #151d30;
-            --card-border: #23314e;
+            --bg: #090d16;
+            --card-bg: #131a2a;
+            --card-border: #1e293b;
             --accent: #38bdf8;
             --accent-hover: #0ea5e9;
             --success: #22c55e;
@@ -83,50 +87,104 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); padding: 24px; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; margin-bottom: 24px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; margin-bottom: 20px; }
         .logo { font-size: 24px; font-weight: 800; color: var(--accent); display: flex; align-items: center; gap: 8px; }
-        .status-bar { display: flex; gap: 12px; align-items: center; }
+        .status-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .badge { background: #1e293b; border: 1px solid var(--card-border); padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 500; color: var(--text-muted); }
         .badge.online { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
+        .badge.warning { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: var(--warning); }
+        
+        /* Core Banner */
+        .core-banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 12px; padding: 18px 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+        .core-info { display: flex; flex-direction: column; gap: 6px; }
+        .core-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .hook-tags { display: flex; gap: 8px; font-size: 12px; margin-top: 4px; }
+        .hook-tag { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--accent); padding: 2px 8px; border-radius: 4px; }
+        .hook-tag.active { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.3); color: var(--success); }
+
         .container { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 24px; }
-        @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+        @media (max-width: 960px) { .container { grid-template-columns: 1fr; } .core-banner { flex-direction: column; align-items: flex-start; } }
         .card { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid var(--card-border); display: flex; flex-direction: column; }
-        .card-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .card-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+        
+        /* Dropzone */
+        .dropzone { border: 2px dashed #334155; border-radius: 10px; padding: 20px; text-align: center; background: rgba(15, 23, 42, 0.5); cursor: pointer; transition: all 0.2s ease; margin-bottom: 16px; }
+        .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(56, 189, 248, 0.05); }
+        .drop-icon { font-size: 28px; margin-bottom: 6px; }
+        .drop-text { font-size: 13px; color: var(--text-muted); }
+
         .search-box { display: flex; gap: 10px; margin-bottom: 16px; }
         input[type="text"] { flex: 1; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--bg); color: #fff; font-size: 14px; outline: none; }
         input[type="text"]:focus { border-color: var(--accent); }
-        button { padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
-        .btn-primary { background: var(--accent); color: #0b0f19; }
+        button { padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: var(--accent); color: #090d16; }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-success { background: var(--success); color: #fff; }
         .btn-danger { background: var(--danger); color: #fff; padding: 6px 12px; font-size: 12px; }
         .btn-toggle { background: #334155; color: #f8fafc; padding: 6px 12px; font-size: 12px; }
-        .item-list { display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
+        .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text-main); }
+        .btn-outline:hover { background: #1e293b; }
+
+        .item-list { display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px; }
         .item-list::-webkit-scrollbar { width: 6px; }
         .item-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
         .game-item { display: flex; align-items: center; justify-content: space-between; background: #0f172a; border: 1px solid var(--card-border); padding: 12px; border-radius: 8px; gap: 12px; }
         .game-info { display: flex; align-items: center; gap: 12px; overflow: hidden; }
         .game-thumb { width: 70px; height: 32px; border-radius: 4px; object-fit: cover; background: #1e293b; }
         .game-meta { display: flex; flex-direction: column; overflow: hidden; }
-        .game-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+        .game-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
         .game-sub { font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; margin-top: 2px; }
-        .action-group { display: flex; gap: 8px; align-items: center; }
-        .empty-hint { text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 14px; }
+        .empty-hint { text-align: center; color: var(--text-muted); padding: 30px 0; font-size: 13px; }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="logo">🎮 OmniSteam Manager</div>
+        <div class="logo">🎮 OmniSteam Control Center</div>
         <div class="status-bar">
             <span id="steamStatus" class="badge">Steam: 检测中...</span>
-            <span id="depotKeyStatus" class="badge">密钥库: 加载中</span>
+            <span id="depotKeyStatus" class="badge">Depot Keys: 0 条</span>
+            <span class="badge">CLI v)rawhtml" OMNISTEAM_VERSION R"rawhtml(</span>
         </div>
     </div>
+
+    <!-- Core Management Banner -->
+    <div class="core-banner">
+        <div class="core-info">
+            <div class="core-title">
+                <span id="coreStatusIcon">⚙️</span>
+                <span id="coreStatusText">Core 注入引擎: 检测中...</span>
+            </div>
+            <div class="hook-tags">
+                <span id="hookAppOwn" class="hook-tag">所有权模拟 (CheckAppOwnership)</span>
+                <span id="hookConfig" class="hook-tag">Depot 解密 (ConfigStore)</span>
+                <span id="hookIpc" class="hook-tag">IPC 拦截 (IPCProcessMessage)</span>
+            </div>
+        </div>
+        <div class="action-group" style="display:flex; gap:10px;">
+            <select id="channelSelect" style="padding:8px 12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff; font-size:12px;">
+                <option value="release">正式版 (Release)</option>
+                <option value="nightly">每夜版 (Nightly)</option>
+            </select>
+            <button class="btn-primary" id="btnInstallCore" onclick="installCore()">🚀 一键安装/更新 Core</button>
+            <button class="btn-outline" onclick="uninstallCore()">🗑️ 卸载 Core</button>
+        </div>
+    </div>
+
     <div class="container">
+        <!-- Search & Denuvo Section -->
         <div class="card">
             <div class="card-title">
                 <span>🔍 搜索与解锁 Steam 游戏 / DLC</span>
             </div>
+
+            <!-- Denuvo Drag & Drop Area -->
+            <div class="dropzone" id="dropzone" onclick="document.getElementById('ticketFileInput').click()">
+                <input type="file" id="ticketFileInput" style="display:none" accept=".bin,.txt" onchange="handleFileSelect(event)">
+                <div class="drop-icon">📥</div>
+                <strong>拖入 D 加密授权文件 (appticket.bin / tickets.txt)</strong>
+                <div class="drop-text">自动识别 AppID、写入平台凭证、匹配 DepotKey 并生成全套一体化解锁脚本</div>
+            </div>
+
             <div class="search-box">
                 <input type="text" id="queryInput" placeholder="输入游戏名称 (例如: Cyberpunk 2077, 黑神话, Palworld)..." onkeydown="if(event.key==='Enter') searchGames()">
                 <button class="btn-primary" id="searchBtn" onclick="searchGames()">搜索</button>
@@ -135,6 +193,8 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                 <div class="empty-hint">输入游戏名称开始在线检索 Steam Store 库</div>
             </div>
         </div>
+
+        <!-- Installed Scripts Section -->
         <div class="card">
             <div class="card-title">
                 <span>📜 已安装解锁脚本</span>
@@ -151,6 +211,8 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
+                
+                // Steam status
                 const sElem = document.getElementById('steamStatus');
                 if (data.steamRunning) {
                     sElem.textContent = `Steam: 运行中 (PID: ${data.steamPid})`;
@@ -160,7 +222,110 @@ const char* kIndexHtml = R"rawhtml(<!DOCTYPE html>
                     sElem.className = 'badge';
                 }
                 document.getElementById('depotKeyStatus').textContent = `Depot Keys: ${data.depotKeysCount.toLocaleString()} 条`;
+
+                // Core Hook status
+                const cIcon = document.getElementById('coreStatusIcon');
+                const cText = document.getElementById('coreStatusText');
+                const hAppOwn = document.getElementById('hookAppOwn');
+                const hConfig = document.getElementById('hookConfig');
+                const hIpc = document.getElementById('hookIpc');
+
+                if (data.core && data.core.active) {
+                    cIcon.textContent = '🟢';
+                    cText.textContent = `Core 注入引擎: 已生效 (v${data.core.installedVersion || '1.0.0'}, 目标: ${data.core.targetModule || 'steamclient'})`;
+                    hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-tag active' : 'hook-tag';
+                    hConfig.className = data.core.configStoreHook ? 'hook-tag active' : 'hook-tag';
+                    hIpc.className = data.core.ipcHook ? 'hook-tag active' : 'hook-tag';
+                } else if (data.core && data.core.installed) {
+                    cIcon.textContent = '🟡';
+                    cText.textContent = `Core 已安装在 Steam 目录 (等待 Steam 启动注入)`;
+                } else {
+                    cIcon.textContent = '⚪';
+                    cText.textContent = 'Core 尚未安装至 Steam 目录';
+                }
             } catch(e) {}
+        }
+
+        async function installCore() {
+            const channel = document.getElementById('channelSelect').value;
+            const btn = document.getElementById('btnInstallCore');
+            btn.textContent = '正在下载部署...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/core/install', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ channel })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('🎉 Core 核心已成功安装/更新至 Steam 目录！\n启动或重启 Steam 即可直接生效。');
+                    fetchStatus();
+                } else {
+                    alert('安装 Core 失败：' + (data.message || '网络连接失败'));
+                }
+            } catch(e) {
+                alert('请求异常');
+            } finally {
+                btn.textContent = '🚀 一键安装/更新 Core';
+                btn.disabled = false;
+            }
+        }
+
+        async function uninstallCore() {
+            if (!confirm('确定要从 Steam 目录卸载 OmniSteam 注入核心吗？')) return;
+            const res = await fetch('/api/core/uninstall', { method: 'POST' });
+            const data = await res.json();
+            alert(data.success ? 'Core 卸载完成，Steam 已恢复纯净状态。' : '未检测到需清理的 Core 文件');
+            fetchStatus();
+        }
+
+        // Dropzone handlers
+        const dropzone = document.getElementById('dropzone');
+        ['dragenter', 'dragover'].forEach(name => {
+            dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+        });
+        ['dragleave', 'drop'].forEach(name => {
+            dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); });
+        });
+        dropzone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                uploadTicketFile(e.dataTransfer.files[0]);
+            }
+        });
+        function handleFileSelect(e) {
+            if (e.target.files && e.target.files[0]) {
+                uploadTicketFile(e.target.files[0]);
+            }
+        }
+
+        async function uploadTicketFile(file) {
+            const reader = new FileReader();
+            reader.onload = async () => {
+                const payload = reader.result;
+                const res = await fetch('/api/denuvo/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
+                    body: payload
+                });
+                const data = await res.json();
+                if (data.success) {
+                    let msg = `🎉 成功解析并入库 D 加密游戏【${data.gameName}】(AppID: ${data.appId})！\n已自动载入 ${data.dlcCount} 个 DLC 与 ${data.resolvedDepotKeysCount} 条 Depot 解密 Key。`;
+                    if (data.missingDepots && data.missingDepots.length > 0) {
+                        msg += `\n\n⚠️ 注意: 缺少 ${data.missingDepots.length} 个 Depot 的解密 Key，已自动生成脚本并在后台尝试同步。可在 GitHub Issue 提交补全。`;
+                    }
+                    alert(msg);
+                    loadScripts();
+                } else {
+                    alert('导入失败: ' + (data.message || '无法识别有效票据'));
+                }
+            };
+            if (file.name.endsWith('.txt')) {
+                reader.readAsText(file);
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
         }
 
         async function searchGames() {
@@ -295,15 +460,24 @@ std::string HandleHttpRequest(const std::string& request) {
         uint32_t pid = 0;
         bool isRunning = CheckSteamProcess(&pid);
         auto scripts = ScriptManager::ListScripts();
+        auto coreStatus = CoreInstaller::GetStatus();
 
         std::ostringstream json;
         json << "{"
              << "\"steamRunning\":" << (isRunning ? "true" : "false") << ","
              << "\"steamPid\":" << pid << ","
-             << "\"depotKeysCount\":" << DepotKeyStore::GetTotalKeyCount() << ","
+             << "\"depotKeysCount\":" << DepotKeyStore::Count() << ","
              << "\"installedScriptsCount\":" << scripts.size() << ","
              << "\"defaultLuaDir\":\"" << OmniPlatform::Encoding::EscapeJson(ScriptManager::GetDefaultLuaDirectory())
-             << "\""
+             << "\","
+             << "\"core\":{"
+             << "\"installed\":" << (coreStatus.installed ? "true" : "false") << ","
+             << "\"active\":" << (coreStatus.active ? "true" : "false") << ","
+             << "\"installedVersion\":\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.installedVersion) << "\","
+             << "\"targetModule\":\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.targetModule) << "\","
+             << "\"checkAppOwnershipHook\":" << (coreStatus.checkAppOwnershipHook ? "true" : "false") << ","
+             << "\"configStoreHook\":" << (coreStatus.configStoreHook ? "true" : "false") << ","
+             << "\"ipcHook\":" << (coreStatus.ipcHook ? "true" : "false") << "}"
              << "}";
 
         std::string body = json.str();
@@ -311,6 +485,74 @@ std::string HandleHttpRequest(const std::string& request) {
         oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " << body.length()
             << "\r\nConnection: close\r\n\r\n"
             << body;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/core/install", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        std::string channel = "release";
+        if (bodyPos != std::string::npos) {
+            std::string body = request.substr(bodyPos + 4);
+            if (body.find("\"nightly\"") != std::string::npos) {
+                channel = "nightly";
+            }
+        }
+        bool ok = CoreInstaller::InstallCore(channel);
+        std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Install failed\"}";
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/core/uninstall", 0) == 0) {
+        bool ok = CoreInstaller::UninstallCore();
+        std::string respBody = ok ? "{\"success\":true}" : "{\"success\":false}";
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
+        return oss.str();
+    }
+
+    if (request.rfind("POST /api/denuvo/upload", 0) == 0) {
+        size_t bodyPos = request.find("\r\n\r\n");
+        std::string payload = (bodyPos != std::string::npos) ? request.substr(bodyPos + 4) : "";
+
+        // Extract filename from header if present
+        std::string filename = "";
+        size_t fnPos = request.find("X-Filename:");
+        if (fnPos != std::string::npos) {
+            size_t fnEnd = request.find("\r\n", fnPos);
+            std::string enc = request.substr(fnPos + 11, fnEnd - (fnPos + 11));
+            // Trim spaces
+            while (!enc.empty() && enc.front() == ' ')
+                enc.erase(0, 1);
+            filename = OmniPlatform::Encoding::UrlDecode(enc);
+        }
+
+        auto res = DenuvoImporter::ImportFromPayload(payload, filename);
+        std::ostringstream json;
+        json << "{"
+             << "\"success\":" << (res.success ? "true" : "false") << ","
+             << "\"appId\":" << res.appId << ","
+             << "\"gameName\":\"" << OmniPlatform::Encoding::EscapeJson(res.gameName) << "\","
+             << "\"dlcCount\":" << res.dlcCount << ","
+             << "\"resolvedDepotKeysCount\":" << res.resolvedDepotKeysCount << ","
+             << "\"missingDepots\":[";
+        for (size_t i = 0; i < res.missingDepots.size(); ++i) {
+            json << res.missingDepots[i];
+            if (i + 1 < res.missingDepots.size())
+                json << ",";
+        }
+        json << "],\"message\":\"" << OmniPlatform::Encoding::EscapeJson(res.message) << "\"}";
+
+        std::string respBody = json.str();
+        std::ostringstream oss;
+        oss << "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: "
+            << respBody.length() << "\r\nConnection: close\r\n\r\n"
+            << respBody;
         return oss.str();
     }
 
@@ -491,7 +733,7 @@ bool WebServer::Start(const std::string& host, uint16_t port) {
                 continue;
             }
 
-            char buffer[8192];
+            char buffer[65536];
             int bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
             if (bytesRead > 0) {
                 buffer[bytesRead] = '\0';

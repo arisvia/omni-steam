@@ -1,7 +1,10 @@
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <spdlog/spdlog.h>
 #include <vector>
 
+#include "OmniPlatform/OmniBuildInfo.h"
 #include "OmniPlatform/OmniPlatform.h"
 
 #include "Utils/Config/Config.h"
@@ -16,9 +19,61 @@ namespace Log {
 void Init(const std::string& componentName = "omnisteam_core");
 }
 
+namespace {
+void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t luaCount = 0) {
+    try {
+        std::string cacheDir = OmniPlatform::Paths::GetCacheDirectory();
+        std::string statusPath = (fs::path(cacheDir) / "core_status.json").generic_string();
+        auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+
+        std::ofstream out(statusPath, std::ios::trunc);
+        if (out) {
+            out << "{\n"
+                << "  \"active\": " << (active ? "true" : "false") << ",\n"
+                << "  \"pid\": " << OmniPlatform::Process::GetCurrentProcessId() << ",\n"
+                << "  \"version\": \"" << OMNISTEAM_VERSION << "\",\n"
+                << "  \"commit\": \"" << OMNISTEAM_GIT_COMMIT << "\",\n"
+                << "  \"targetModule\": \"" << targetModule << "\",\n"
+                << "  \"hooks\": {\n"
+                << "    \"CheckAppOwnership\": true,\n"
+                << "    \"ConfigStore_GetBinary\": true,\n"
+                << "    \"IPCProcessMessage\": true\n"
+                << "  },\n"
+                << "  \"luaFilesCount\": " << luaCount << ",\n"
+                << "  \"timestamp\": " << now << "\n"
+                << "}\n";
+        }
+    } catch (...) {
+    }
+}
+} // namespace
+
+// Exported standard metadata query symbols
+extern "C" {
+#if defined(OMNI_PLATFORM_WINDOWS)
+__declspec(dllexport)
+#else
+__attribute__((visibility("default")))
+#endif
+const char* OmniSteam_GetVersion() {
+    return OMNISTEAM_VERSION;
+}
+
+#if defined(OMNI_PLATFORM_WINDOWS)
+__declspec(dllexport)
+#else
+__attribute__((visibility("default")))
+#endif
+const char* OmniSteam_GetCommitHash() {
+    return OMNISTEAM_GIT_COMMIT;
+}
+}
+
 static void InitializeOmniSteam() {
     Log::Init();
-    spdlog::info("OmniSteam cross-platform core initializing...");
+    spdlog::info("OmniSteam cross-platform core initializing (Version: {}, Commit: {})...", OMNISTEAM_VERSION,
+                 OMNISTEAM_GIT_COMMIT);
 
     std::string exePath = OmniPlatform::Process::GetExecutablePath();
     spdlog::info("Attached Process: {} (PID: {})", exePath, OmniPlatform::Process::GetCurrentProcessId());
@@ -46,6 +101,7 @@ static void InitializeOmniSteam() {
 
         // 3. Parse and monitor all Lua script directories
         auto luaDirs = OmniPlatform::Paths::GetCandidateLuaDirectories();
+        size_t totalLuaLoaded = 0;
         for (const auto& dir : luaDirs) {
             spdlog::info("Scanning Lua directory: {}", dir);
             LuaConfig::ParseDirectory(dir);
@@ -67,6 +123,9 @@ static void InitializeOmniSteam() {
 
         // 4. Install Detour Hooks
         HookManager::InstallHooks();
+
+        // 5. Update live core status
+        UpdateCoreStatus(true, targetModule, LuaConfig::GetUnlockedApps().size());
     });
 }
 
@@ -77,6 +136,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
         DisableThreadLibraryCalls(hModule);
         InitializeOmniSteam();
     } else if (dwReason == DLL_PROCESS_DETACH) {
+        UpdateCoreStatus(false);
         HookManager::UninstallHooks();
     }
     return TRUE;
@@ -86,6 +146,7 @@ __attribute__((constructor)) static void LibraryInit() {
     InitializeOmniSteam();
 }
 __attribute__((destructor)) static void LibraryFini() {
+    UpdateCoreStatus(false);
     HookManager::UninstallHooks();
 }
 #endif

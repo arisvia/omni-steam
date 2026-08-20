@@ -27,6 +27,26 @@ endif()
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Extract Git Commit Hash
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "unknown")
+endif()
+
+string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M:%S UTC" UTC)
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OmniBuildInfo.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/OmniBuildInfo.h"
+    @ONLY
+)
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
 # Project Options
 option(ENABLE_LOGGING "Enable debug logging" ON)
 option(BUILD_STATIC_DEPS "Statically link dependencies" ON)
@@ -271,6 +291,8 @@ set(MANAGER_SOURCES
     apps/manager/src/CloudSaveManager.cpp
     apps/manager/src/ConfigManager.cpp
     apps/manager/src/DepotKeyStore.cpp
+    apps/manager/src/CoreInstaller.cpp
+    apps/manager/src/DenuvoImporter.cpp
 )
 
 add_executable(omnisteam_cli ${MANAGER_SOURCES})
