@@ -88,10 +88,19 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         }
 
         std::wstring hostName(urlComp.lpszHostName, urlComp.dwHostNameLength);
-        std::wstring urlPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength + urlComp.dwExtraInfoLength);
+        std::wstring urlPath;
+        if (urlComp.dwUrlPathLength > 0 && urlComp.lpszUrlPath) {
+            urlPath = std::wstring(urlComp.lpszUrlPath, urlComp.dwUrlPathLength);
+        } else {
+            urlPath = L"/";
+        }
+        if (urlComp.dwExtraInfoLength > 0 && urlComp.lpszExtraInfo) {
+            urlPath += std::wstring(urlComp.lpszExtraInfo, urlComp.dwExtraInfoLength);
+        }
 
-        HINTERNET hSession = WinHttpOpen(L"OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                         WINHTTP_NO_PROXY_BYPASS, 0);
+        HINTERNET hSession =
+            WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OmniSteam/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (!hSession) {
             res.error = "WinHttpOpen failed";
             return res;
@@ -124,6 +133,12 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
 
         DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
         WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+        if (urlComp.nScheme == INTERNET_SCHEME_HTTPS) {
+            DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                             SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+            WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+        }
 
         BOOL bResults =
             WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);

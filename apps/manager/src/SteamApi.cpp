@@ -53,18 +53,31 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     spdlog::info("SteamApi: Querying store search: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 6000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
-        std::regex itemRegex("\\{\\s*\"id\"\\s*:\\s*(\\d+)\\s*,\\s*\"name\"\\s*:\\s*\"([^\"]+)\"");
-        auto words_begin = std::sregex_iterator(resp.body.begin(), resp.body.end(), itemRegex);
-        auto words_end = std::sregex_iterator();
-
-        for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
-            std::smatch match = *i;
-            SearchResultItem item;
-            item.appId = static_cast<uint32_t>(std::stoul(match[1].str()));
-            item.name = match[2].str();
-            item.tinyImage =
-                std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) + "/capsule_sm_120.jpg";
-            results.push_back(item);
+        std::regex itemSplitRegex("\\{\\s*\"type\"\\s*:\\s*\"app\"");
+        std::sregex_token_iterator iter(resp.body.begin(), resp.body.end(), itemSplitRegex, -1);
+        std::sregex_token_iterator end;
+        for (; iter != end; ++iter) {
+            std::string block = iter->str();
+            std::smatch idMatch, nameMatch, imgMatch;
+            if (std::regex_search(block, idMatch, std::regex("\"id\"\\s*:\\s*(\\d+)")) &&
+                std::regex_search(block, nameMatch, std::regex("\"name\"\\s*:\\s*\"([^\"]+)\""))) {
+                SearchResultItem item;
+                item.appId = static_cast<uint32_t>(std::stoul(idMatch[1].str()));
+                item.name = nameMatch[1].str();
+                if (std::regex_search(block, imgMatch, std::regex("\"tiny_image\"\\s*:\\s*\"([^\"]+)\""))) {
+                    std::string img = imgMatch[1].str();
+                    size_t pos = 0;
+                    while ((pos = img.find("\\/", pos)) != std::string::npos) {
+                        img.replace(pos, 2, "/");
+                        pos += 1;
+                    }
+                    item.tinyImage = img;
+                } else {
+                    item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) +
+                                     "/capsule_sm_120.jpg";
+                }
+                results.push_back(item);
+            }
         }
     }
 
@@ -75,7 +88,8 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
         spdlog::info("SteamApi: Fallback query suggest endpoint: {}", suggestUrl);
         auto suggestResp = OmniPlatform::Http::Get(suggestUrl, 6000);
         if (suggestResp.statusCode == 200 && !suggestResp.body.empty()) {
-            std::regex suggestRegex("data-ds-appid=\"(\\d+)\"[^>]*>[\\s\\S]*?<div class=\"match_name\">([^<]+)</div>");
+            std::regex suggestRegex("data-ds-appid=\"(\\d+)\"[\\s\\S]*?<div "
+                                    "class=\"match_name\">([^<]+)</div>(?:[\\s\\S]*?<img src=\"([^\"]+)\")?");
             auto s_begin = std::sregex_iterator(suggestResp.body.begin(), suggestResp.body.end(), suggestRegex);
             auto s_end = std::sregex_iterator();
             for (std::sregex_iterator it = s_begin; it != s_end; ++it) {
@@ -83,8 +97,12 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
                 SearchResultItem item;
                 item.appId = static_cast<uint32_t>(std::stoul(match[1].str()));
                 item.name = match[2].str();
-                item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) +
-                                 "/capsule_sm_120.jpg";
+                if (match.size() > 3 && match[3].matched && !match[3].str().empty()) {
+                    item.tinyImage = match[3].str();
+                } else {
+                    item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(item.appId) +
+                                     "/capsule_sm_120.jpg";
+                }
                 results.push_back(item);
             }
         }
