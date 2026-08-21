@@ -19,10 +19,9 @@ void* g_pCPackageInfo = nullptr;
 bool g_userNotified = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 
-static std::vector<AppId_t> g_injectedAppIds;
-static std::vector<DepotId_t> g_injectedDepotIds;
-static alignas(16) uint8_t g_fakePackage0[512] = {0};
-
+std::vector<AppId_t> g_injectedAppIds;
+std::vector<DepotId_t> g_injectedDepotIds;
+alignas(16) uint8_t g_fakePackage0[512] = {0};
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
