@@ -72,8 +72,8 @@ struct PackageInfo {
     EPackageStatus Status;
     uint32_t BillingType;
     uint32_t LicenseFlags;
-    uint32_t PackageFlags;
-    uint32_t AccountId;
     CUtlVector<AppId_t> AppIdVec;
     CUtlVector<DepotId_t> DepotIdVec;
+    uint32_t PackageFlags;
+    uint32_t AccountId;
 };
