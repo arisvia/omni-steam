@@ -17,7 +17,7 @@ void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 PackageInfo* g_pInjectedPackageInfo = nullptr;
 bool g_licenseInitialized = false;
-
+bool g_userNotified = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
 
@@ -68,6 +68,7 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     }
     oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
     oProcessPendingLicenseUpdates(g_pCUser);
+    g_userNotified = true;
     spdlog::info("Hooks_Package: Notified Steam of Package {} license update", kInjectedPackageId);
     return true;
 }
@@ -93,12 +94,12 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
         if (oCUtlMemoryGrow) {
             oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
         }
-
         if (pAppIdVec->m_Memory.m_pMemory) {
             for (size_t i = 0; i < numToAdd; ++i) {
                 pAppIdVec->m_Memory.m_pMemory[oldSize + i] = appIds[i];
             }
             pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
+            pAppIdVec->m_pElements = pAppIdVec->m_Memory.m_pMemory;
         }
     }
 
@@ -122,11 +123,13 @@ bool TryInitFakeLicenseOnce() {
     }
     return false;
 }
-
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
+        if (g_licenseInitialized && !g_userNotified) {
+            MarkLicenseAsChangedAndProcessUpdates();
+        }
     }
 
     TryInitFakeLicenseOnce();
