@@ -35,6 +35,18 @@
 ### E. JSON Parsing Robustness
 - **Rule**: When parsing external JSON APIs (e.g. Steam Store API), NEVER assume fixed field order in regex patterns. Match fields independently or extract object tokens safely.
 
+### F. Centralized Endpoints & Steam Magic Constants
+- **Rule**: NEVER hardcode raw URL literals or Valve magic protocol tokens across implementation files.
+- **Convention**:
+  - All external network URLs, GitHub asset paths, CDN mirrors, and WebAPI endpoints MUST reside in `include/OmniPlatform/OmniEndpoints.h` under their respective namespaces (`GitHub`, `Manifest`, `Stats`, `Steam`).
+  - All Steam protocol magic tokens, package IDs, and internal structures MUST reside in `include/OmniPlatform/SteamTypes.h`.
+
+### G. Manager Architecture & Decoupling
+- **Rule**: The manager dashboard MUST adhere to the 3-layer architecture:
+  - `StaticAssets.h/.cpp`: Pure HTML/CSS/JS/i18n assets (no business/network logic).
+  - `ApiRouter.h/.cpp`: `/api/*` REST routing, request payload parsing, and response serialization.
+  - `WebServer.h/.cpp`: Pure TCP socket lifecycle, listening loop, and connection management.
+
 ---
 
 ## 3. Pre-Commit Quality Checks
