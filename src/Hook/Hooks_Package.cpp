@@ -32,6 +32,10 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     }
 
     PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
+    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
+        g_pInjectedPackageInfo = pPkg;
+        InitFakeLicenseOnce(pPkg);
+    }
     return pPkg;
 }
 
@@ -68,12 +72,6 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
 bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     if (!pPkg)
         return false;
-
-    if (pPkg->Status != EPackageStatus::Available) {
-        spdlog::warn("Hooks_Package: Package 0 status is not Available ({}), skipping injection",
-                     static_cast<int>(pPkg->Status));
-        return false;
-    }
 
     auto* pAppIdVec = FindAppIdVector(pPkg);
     if (!pAppIdVec) {
@@ -128,13 +126,18 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
     }
 
-    bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     TryInitFakeLicenseOnce();
+    bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
 
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             pOwn->bOwnsLicense = true;
             pOwn->bFreeLicense = false;
+            pOwn->ReleaseState = EAppReleaseState::Released;
+            if (pOwn->ExistInPackageNums == 0) {
+                pOwn->ExistInPackageNums = 1;
+                pOwn->PackageId = kInjectedPackageId;
+            }
         }
         return true;
     }
