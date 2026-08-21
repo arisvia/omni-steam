@@ -1,12 +1,14 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <bcrypt.h>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include <winhttp.h>
 
@@ -60,13 +62,65 @@ uintptr_t ByteSearch::FindPatternInModule(const std::string& moduleName, const s
         return 0;
     return FindPattern(textStart, textSize, pattern);
 }
+static std::atomic<bool> g_watchRunning{false};
+static std::thread g_watchThread;
 
 bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Callback onChange) {
+    if (directories.empty() || !onChange || g_watchRunning.load())
+        return false;
+
+    g_watchRunning.store(true);
+    g_watchThread = std::thread([directories, onChange]() {
+        std::vector<HANDLE> changeHandles;
+        for (const auto& dir : directories) {
+            if (fs::exists(dir)) {
+                std::wstring wDir = Encoding::Utf8ToWide(dir);
+                HANDLE hChange = FindFirstChangeNotificationW(
+                    wDir.c_str(), FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+                if (hChange != INVALID_HANDLE_VALUE) {
+                    changeHandles.push_back(hChange);
+                }
+            }
+        }
+
+        if (changeHandles.empty()) {
+            g_watchRunning.store(false);
+            return;
+        }
+
+        while (g_watchRunning.load()) {
+            DWORD waitStatus =
+                WaitForMultipleObjects(static_cast<DWORD>(changeHandles.size()), changeHandles.data(), FALSE, 1000);
+            if (waitStatus >= WAIT_OBJECT_0 && waitStatus < WAIT_OBJECT_0 + changeHandles.size()) {
+                size_t idx = waitStatus - WAIT_OBJECT_0;
+                // Re-scan directory and trigger callback
+                try {
+                    for (const auto& entry : fs::directory_iterator(directories[idx])) {
+                        if (entry.is_regular_file()) {
+                            onChange(entry.path().generic_string(), false);
+                        }
+                    }
+                } catch (...) {
+                }
+                FindNextChangeNotification(changeHandles[idx]);
+            }
+        }
+
+        for (HANDLE h : changeHandles) {
+            FindCloseChangeNotification(h);
+        }
+    });
     return true;
 }
 
-void DirectoryWatch::StopWatch() {}
-
+void DirectoryWatch::StopWatch() {
+    if (g_watchRunning.load()) {
+        g_watchRunning.store(false);
+        if (g_watchThread.joinable()) {
+            g_watchThread.join();
+        }
+    }
+}
 Http::Response Http::Get(const std::string& url, int timeoutMs) {
     Response res;
     if (url.empty())

@@ -28,6 +28,7 @@ RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 bool InitFakeLicenseOnce(PackageInfo* pPkg);
 bool TryInitFakeLicenseOnce();
 bool MarkLicenseAsChangedAndProcessUpdates();
+
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
         g_pCPackageInfo = pThis;
@@ -35,9 +36,11 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     }
 
     PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
+    if (packageId == kInjectedPackageId && pPkg) {
         g_pInjectedPackageInfo = pPkg;
-        InitFakeLicenseOnce(pPkg);
+        if (!g_licenseInitialized) {
+            InitFakeLicenseOnce(pPkg);
+        }
     }
     return pPkg;
 }
@@ -47,14 +50,46 @@ CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
         return nullptr;
     auto* base = reinterpret_cast<uint8_t*>(pPkg);
 
-    // Check known candidate offsets for AppIdVec in 64-bit Steamclient PackageInfo
-    for (size_t offset : {0x40, 0x20, 0x18, 0x38, 0x28, 0x30, 0x10, 0x08}) {
+    // AppIdVec is the first CUtlVector inside PackageInfo (offset 0x20 in x64, 0x18 in x86)
+#if defined(OMNI_ARCH_X64) || defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
+    constexpr size_t kOffsets[] = {0x20, 0x18, 0x28, 0x30, 0x38, 0x10, 0x08};
+#else
+    constexpr size_t kOffsets[] = {0x18, 0x14, 0x20, 0x24, 0x10, 0x08};
+#endif
+
+    for (size_t offset : kOffsets) {
         auto* vec = reinterpret_cast<CUtlVector<AppId_t>*>(base + offset);
         if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
             vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
             if (vec->m_Size > 0 && vec->m_Memory.m_pMemory == nullptr)
                 continue;
             spdlog::info("Hooks_Package: Resolved AppIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
+                         vec->m_Size, vec->m_Memory.m_nAllocationCount);
+            return vec;
+        }
+    }
+    return nullptr;
+}
+
+CUtlVector<DepotId_t>* FindDepotIdVector(void* pPkg) {
+    if (!pPkg)
+        return nullptr;
+    auto* base = reinterpret_cast<uint8_t*>(pPkg);
+
+    // DepotIdVec is the second CUtlVector inside PackageInfo (offset 0x40 in x64, 0x2C in x86)
+#if defined(OMNI_ARCH_X64) || defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
+    constexpr size_t kOffsets[] = {0x40, 0x38, 0x30, 0x48, 0x28};
+#else
+    constexpr size_t kOffsets[] = {0x2C, 0x28, 0x24, 0x30};
+#endif
+
+    for (size_t offset : kOffsets) {
+        auto* vec = reinterpret_cast<CUtlVector<DepotId_t>*>(base + offset);
+        if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
+            vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
+            if (vec->m_Size > 0 && vec->m_Memory.m_pMemory == nullptr)
+                continue;
+            spdlog::info("Hooks_Package: Resolved DepotIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
                          vec->m_Size, vec->m_Memory.m_nAllocationCount);
             return vec;
         }
@@ -84,22 +119,69 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     }
 
     auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::vector<uint32_t> appIds(unlockedApps.begin(), unlockedApps.end());
-    if (!appIds.empty()) {
+    std::set<uint32_t> existingApps;
+    if (pAppIdVec->m_Memory.m_pMemory && pAppIdVec->m_Size > 0) {
+        for (int i = 0; i < pAppIdVec->m_Size; ++i) {
+            existingApps.insert(pAppIdVec->m_Memory.m_pMemory[i]);
+        }
+    }
+
+    std::vector<uint32_t> appsToAdd;
+    for (uint32_t id : unlockedApps) {
+        if (existingApps.find(id) == existingApps.end()) {
+            appsToAdd.push_back(id);
+        }
+    }
+
+    if (!appsToAdd.empty()) {
         int oldSize = pAppIdVec->m_Size;
-        uint32_t numToAdd = static_cast<uint32_t>(appIds.size());
-        spdlog::info("Hooks_Package: Injecting {} apps/DLCs into Package 0 (oldSize: {}, total: {})", numToAdd, oldSize,
-                     oldSize + numToAdd);
+        uint32_t numToAdd = static_cast<uint32_t>(appsToAdd.size());
+        spdlog::info("Hooks_Package: Injecting {} apps/DLCs into Package 0 AppIdVec (oldSize: {}, total: {})", numToAdd,
+                     oldSize, oldSize + numToAdd);
 
         if (oCUtlMemoryGrow) {
             oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
         }
         if (pAppIdVec->m_Memory.m_pMemory) {
             for (size_t i = 0; i < numToAdd; ++i) {
-                pAppIdVec->m_Memory.m_pMemory[oldSize + i] = appIds[i];
+                pAppIdVec->m_Memory.m_pMemory[oldSize + i] = appsToAdd[i];
             }
             pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
             pAppIdVec->m_pElements = pAppIdVec->m_Memory.m_pMemory;
+        }
+    }
+
+    // Also inject Depot IDs into DepotIdVec
+    auto* pDepotIdVec = FindDepotIdVector(pPkg);
+    if (pDepotIdVec) {
+        std::set<uint32_t> existingDepots;
+        if (pDepotIdVec->m_Memory.m_pMemory && pDepotIdVec->m_Size > 0) {
+            for (int i = 0; i < pDepotIdVec->m_Size; ++i) {
+                existingDepots.insert(pDepotIdVec->m_Memory.m_pMemory[i]);
+            }
+        }
+        auto depotKeys = LuaConfig::GetDepotKeys();
+        std::vector<uint32_t> depotsToAdd;
+        for (const auto& [depotId, _] : depotKeys) {
+            if (existingDepots.find(depotId) == existingDepots.end()) {
+                depotsToAdd.push_back(depotId);
+            }
+        }
+        if (!depotsToAdd.empty()) {
+            int oldDepotSize = pDepotIdVec->m_Size;
+            uint32_t numDepots = static_cast<uint32_t>(depotsToAdd.size());
+            spdlog::info("Hooks_Package: Injecting {} depot IDs into Package 0 DepotIdVec (oldSize: {}, total: {})",
+                         numDepots, oldDepotSize, oldDepotSize + numDepots);
+            if (oCUtlMemoryGrow) {
+                oCUtlMemoryGrow(pDepotIdVec, static_cast<int>(numDepots));
+            }
+            if (pDepotIdVec->m_Memory.m_pMemory) {
+                for (size_t i = 0; i < numDepots; ++i) {
+                    pDepotIdVec->m_Memory.m_pMemory[oldDepotSize + i] = depotsToAdd[i];
+                }
+                pDepotIdVec->m_Size = static_cast<int>(oldDepotSize + numDepots);
+                pDepotIdVec->m_pElements = pDepotIdVec->m_Memory.m_pMemory;
+            }
         }
     }
 
@@ -107,9 +189,8 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     MarkLicenseAsChangedAndProcessUpdates();
     return true;
 }
-
 bool TryInitFakeLicenseOnce() {
-    if (g_licenseInitialized)
+    if (g_licenseInitialized && g_userNotified)
         return true;
 
     if (g_pCPackageInfo && oGetPackageInfo) {
@@ -185,5 +266,13 @@ void Install() {
 }
 
 void Uninstall() {}
+
+void SyncInjectedLicenses() {
+    if (g_pInjectedPackageInfo) {
+        InitFakeLicenseOnce(g_pInjectedPackageInfo);
+    } else {
+        TryInitFakeLicenseOnce();
+    }
+}
 
 } // namespace Hooks_Package

@@ -14,8 +14,11 @@
 
 #include "Hook/HookManager.h"
 
-namespace fs = std::filesystem;
+namespace Hooks_Package {
+void SyncInjectedLicenses();
+}
 
+namespace fs = std::filesystem;
 namespace Log {
 void Init(const std::string& componentName = "omnisteam_core");
 }
@@ -127,13 +130,12 @@ static void InitializeOmniSteam() {
                 if (!isDir && path.ends_with(".lua")) {
                     spdlog::info("Hot reload Lua: {}", path);
                     LuaConfig::ParseFile(path);
+                    Hooks_Package::SyncInjectedLicenses();
                 }
             });
         }
         // 4. Install Detour Hooks
         HookManager::InstallHooks();
-
-        // 5. Update live core status
         UpdateCoreStatus(true, targetModule, LuaConfig::GetUnlockedApps().size());
     });
 }
