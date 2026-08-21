@@ -9,6 +9,10 @@
 
 #include "Hook/HookMacros.h"
 
+namespace Hooks_Package {
+void SyncInjectedLicenses();
+}
+
 namespace {
 
 #pragma pack(push, 8)
@@ -26,14 +30,15 @@ HOOK_FUNC(BGetCallback, bool, int32_t hSteamPipe, CallbackMsg_t* pCallbackMsg) {
 
     bool result = oBGetCallback(hSteamPipe, pCallbackMsg);
     if (result && pCallbackMsg) {
-        // Intercept and log license & DLC broadcast notifications
+        // Intercept and trigger license sync when Steam broadcasts LicensesUpdated
         if (pCallbackMsg->m_iCallback == k_iCallback_LicensesUpdated) {
-            spdlog::debug("Hooks_IPC: Dispatched LicensesUpdated callback ({})", k_iCallback_LicensesUpdated);
+            spdlog::info("Hooks_IPC: Received LicensesUpdated callback ({}), triggering package sync",
+                         k_iCallback_LicensesUpdated);
+            Hooks_Package::SyncInjectedLicenses();
         }
     }
     return result;
 }
-
 HOOK_FUNC(IPCProcessMessage, bool, void* pServer, int32_t hSteamPipe, void* pRead, void* pWrite) {
     if (!oIPCProcessMessage)
         return false;

@@ -68,17 +68,15 @@ void UpdateFakePackage0() {
     spdlog::info("Hooks_Package: Synthesized Package 0 with {} apps and {} depots", g_injectedAppIds.size(),
                  g_injectedDepotIds.size());
 }
-
 void NotifyLicensesChanged() {
-    if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates && !g_userNotified) {
+    if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates) {
         UpdateFakePackage0();
         oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
         oProcessPendingLicenseUpdates(g_pCUser);
-        g_userNotified = true;
-        spdlog::info("Hooks_Package: Notified Steam of Package {} license update", kInjectedPackageId);
+        spdlog::info("Hooks_Package: Successfully notified Steam CUser {:p} of Package {} license update", g_pCUser,
+                     kInjectedPackageId);
     }
 }
-
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
         g_pCPackageInfo = pThis;
@@ -89,11 +87,14 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
         if (g_injectedAppIds.empty()) {
             UpdateFakePackage0();
         }
+        spdlog::info("Hooks_Package: GetPackageInfo(Package 0) -> returning synthesized Package 0 with {} apps",
+                     g_injectedAppIds.size());
         return reinterpret_cast<PackageInfo*>(g_fakePackage0);
     }
 
     return oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
 }
+
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -125,6 +126,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
                 raw[0x0D] = 0; // bFreeLicense
             }
         }
+        spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> intercepted as OWNED", appId);
         return true;
     }
     return result;
