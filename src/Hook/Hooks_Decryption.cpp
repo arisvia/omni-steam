@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <spdlog/spdlog.h>
@@ -10,11 +12,9 @@
 #include "Utils/Metadata/PatternLoader.h"
 
 #include "Hook/HookMacros.h"
-
 namespace {
 
 void* g_pConfigStoreLocal = nullptr;
-
 HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key,
           uint32_t KeySize) {
     if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal) {
@@ -22,36 +22,36 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
         spdlog::debug("Captured local ConfigStore instance at {:p}", g_pConfigStoreLocal);
     }
 
-    std::string name(KeyName ? KeyName : "");
-    // Handles both Windows "\\" and POSIX "/" path separators
-    size_t last = name.find("/DecryptionKey");
-    if (last == std::string::npos) {
-        last = name.find("\\DecryptionKey");
-    }
+    if (KeyName) {
+        std::string name(KeyName);
+        std::string lowerName = name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    if (last != std::string::npos) {
-        std::string depotIdStr;
-        size_t start = name.find_last_of("/\\", last - 1);
-        if (start != std::string::npos) {
-            depotIdStr = name.substr(start + 1, last - start - 1);
-        } else {
-            depotIdStr = name.substr(0, last);
-        }
+        size_t keyPos = lowerName.find("decryptionkey");
+        if (keyPos != std::string::npos) {
+            size_t endDigits = lowerName.find_last_not_of("/\\ ", keyPos - 1);
+            if (endDigits != std::string::npos && std::isdigit(static_cast<unsigned char>(lowerName[endDigits]))) {
+                size_t startDigits = lowerName.find_last_not_of("0123456789", endDigits);
+                std::string depotIdStr = (startDigits == std::string::npos)
+                                             ? lowerName.substr(0, endDigits + 1)
+                                             : lowerName.substr(startDigits + 1, endDigits - startDigits);
 
-        if (!depotIdStr.empty()) {
-            try {
-                uint32_t depotId = std::stoul(depotIdStr);
-                auto key = LuaConfig::GetDecryptionKey(depotId);
-                if (!key.empty()) {
-                    if (KeySize >= key.size()) {
-                        spdlog::info("Injecting depot decryption key for depot {}: {} bytes", depotId, key.size());
-                        std::memcpy(Key, key.data(), key.size());
-                        return static_cast<int32_t>(key.size());
-                    } else {
-                        spdlog::warn("Key buffer size ({} bytes) too small for depot {}", KeySize, depotId);
+                try {
+                    uint32_t depotId = static_cast<uint32_t>(std::stoul(depotIdStr));
+                    auto key = LuaConfig::GetDecryptionKey(depotId);
+                    if (!key.empty()) {
+                        if (Key && KeySize >= key.size()) {
+                            spdlog::info("Hooks_Decryption: Injected depot decryption key for depot {} ({} bytes)",
+                                         depotId, key.size());
+                            std::memcpy(Key, key.data(), key.size());
+                            return static_cast<int32_t>(key.size());
+                        } else if (!Key || KeySize == 0) {
+                            return static_cast<int32_t>(key.size());
+                        }
                     }
+                } catch (...) {
                 }
-            } catch (...) {
             }
         }
     }

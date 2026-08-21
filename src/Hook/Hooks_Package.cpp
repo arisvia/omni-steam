@@ -154,7 +154,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
         if (pOwn) {
             pOwn->bOwnsLicense = true;
             pOwn->ReleaseState = EAppReleaseState::Released; // 4: Released / Launchable
-            pOwn->ExistInPackageNums = 0;                    // 0: Direct Owner (not borrower/shared library)
+            pOwn->ExistInPackageNums = 1;                    // 1: Direct Owner in active package
             pOwn->bFreeLicense = false;
             pOwn->PackageId = (g_activePackageId != 0) ? g_activePackageId : 21458;
         }
