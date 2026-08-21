@@ -632,13 +632,13 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 btnSave: "💾 保存配置",
                 btnBackup: "☁️ 备份",
                 btnRestore: "📥 恢复",
+                btnLaunch: "🚀 安装/启动",
                 btnDisable: "停用",
                 btnEnable: "启用",
                 btnDelete: "删除",
                 statusActive: "已启用",
                 statusDisabled: "已停用"
             },
-            en: {
                 langToggle: "🌐 中文",
                 cloudBtn: "☁️ Cloud Saves",
                 steamOnline: "Steam: Online",
@@ -671,6 +671,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 btnSave: "💾 Save Settings",
                 btnBackup: "☁️ Backup",
                 btnRestore: "📥 Restore",
+                btnLaunch: "🚀 Install/Play",
                 btnDisable: "Disable",
                 btnEnable: "Enable",
                 btnDelete: "Delete",
@@ -954,12 +955,13 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             });
             const data = await res.json();
             if (data.success) {
-                alert(`🎉 成功为【${name}】生成并载入解锁脚本！\n包含 ${data.dlcCount || 0} 个 DLC 与所有匹配的 Depot 解密 Key。Steam 核心已自动热重载生效！`);
+                if (confirm(`🎉 成功为【${name}】生成并载入解锁脚本！\n包含 ${data.dlcCount || 0} 个 DLC 与所有匹配的 Depot 解密 Key。\n\n是否立即在 Steam 中调起安装/启动？`)) {
+                    window.location.href = `steam://run/${appId}`;
+                }
                 loadScripts();
             } else {
                 alert('写入解锁脚本失败');
             }
-        }
 
         async function loadScripts() {
             try {
@@ -983,6 +985,9 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 const displayName = s.title && s.title.trim() ? s.title.trim() : (s.primaryAppId ? `App ${s.primaryAppId}` : s.fileName);
                 const subText = s.primaryAppId ? `AppID: ${s.primaryAppId}` : `${s.fileName}`;
                 const statusText = s.enabled ? t('statusActive') : t('statusDisabled');
+                const launchBtn = s.primaryAppId ? `
+                    <button class="btn-primary" style="padding:4px 8px; font-size:12px; background:var(--accent);" title="Install / Launch in Steam" onclick="window.location.href='steam://run/${s.primaryAppId}'">${t('btnLaunch')}</button>
+                ` : '';
                 const cloudBtns = s.primaryAppId ? `
                     <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="Backup" onclick="backupSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">${t('btnBackup')}</button>
                     <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" title="Restore" onclick="restoreSaves(${s.primaryAppId}, '${encodeURIComponent(displayName)}')">${t('btnRestore')}</button>
@@ -995,6 +1000,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                         </div>
                     </div>
                     <div class="btn-group">
+                        ${launchBtn}
                         ${cloudBtns}
                         <button class="btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="toggleScript('${encodeURIComponent(s.fullPath)}', ${!s.enabled})">${s.enabled ? t('btnDisable') : t('btnEnable')}</button>
                         <button class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="deleteScript('${encodeURIComponent(s.fullPath)}')">${t('btnDelete')}</button>
