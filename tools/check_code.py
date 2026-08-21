@@ -41,9 +41,9 @@ CHECK_RULES = [
     (re.compile(r'\bstd::unordered_set\b'), '<unordered_set>'),
     (re.compile(r'\bstd::map\b'), '<map>'),
     (re.compile(r'\bstd::unordered_map\b'), '<unordered_map>'),
-    (re.compile(r'\bstd::(from_chars|to_chars)\b'), '<charconv>'),
-    (re.compile(r'\bstd::(memcpy|memset|memcmp)\b'), '<cstring>'),
-    (re.compile(r'\bstd::(shared_ptr|unique_ptr|make_shared|make_unique)\b'), '<memory>'),
+    (re.compile(r'\b(std::filesystem|fs::)\b'), '<filesystem>'),
+    (re.compile(r'\b(std::memcpy|std::memset|std::memmove)\b'), '<cstring>'),
+    (re.compile(r'\b(uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|uintptr_t|intptr_t)\b'), '<cstdint>'),
     (re.compile(r'\bstd::chrono::'), '<chrono>'),
     (re.compile(r'\bstd::(sort|lower_bound|min|max)\b'), '<algorithm>')
 ]

@@ -4,8 +4,8 @@
 #include <atomic>
 #include <bcrypt.h>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -14,8 +14,9 @@
 
 #include "OmniPlatform/OmniPlatform.h"
 
-namespace OmniPlatform {
+namespace fs = std::filesystem;
 
+namespace OmniPlatform {
 namespace {
 std::vector<int16_t> ParsePattern(const std::string& pattern) {
     std::vector<int16_t> bytes;
