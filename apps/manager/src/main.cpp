@@ -256,8 +256,7 @@ int main(int argc, char* argv[]) {
             webdav.serverUrl = config.webdavServerUrl;
             webdav.username = config.webdavUsername;
             webdav.password = config.webdavPassword;
-            webdav.remoteRoot = config.webdavRemoteRoot;
-
+            webdav.remoteRootPath = config.webdavRemoteRoot.empty() ? "OmniSteam_Saves" : config.webdavRemoteRoot;
             if (argc > 2) {
                 uint32_t appId = static_cast<uint32_t>(std::stoul(argv[2]));
                 std::cout << "[OmniSteam] Backing up saves for AppID " << appId << " to WebDAV...\n";
@@ -293,8 +292,7 @@ int main(int argc, char* argv[]) {
             webdav.serverUrl = config.webdavServerUrl;
             webdav.username = config.webdavUsername;
             webdav.password = config.webdavPassword;
-            webdav.remoteRoot = config.webdavRemoteRoot;
-
+            webdav.remoteRootPath = config.webdavRemoteRoot.empty() ? "OmniSteam_Saves" : config.webdavRemoteRoot;
             std::cout << "[OmniSteam] Restoring saves for AppID " << appId << " from WebDAV...\n";
             bool ok = Manager::CloudSaveManager::RestoreAppSaves(appId, webdav);
             std::cout << (ok ? " [SUCCESS] Restore completed.\n" : " [FAILED] Restore failed.\n");
