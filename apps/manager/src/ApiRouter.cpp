@@ -378,10 +378,14 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
         }
         if (webdav.serverUrl.empty()) {
             auto cfg = ConfigManager::ReadConfig();
+            webdav.serverUrl = cfg.webdavServerUrl;
+            webdav.username = cfg.webdavUsername;
             webdav.password = cfg.webdavPassword;
             webdav.remoteRootPath =
                 cfg.webdavRemoteRoot.empty() ? OmniEndpoints::CloudSave::kDefaultRemoteRoot : cfg.webdavRemoteRoot;
         }
+
+        auto testResp = WebDavClient::MkCol(webdav, webdav.remoteRootPath);
         bool success = testResp.isSuccess() || testResp.statusCode == 405;
         std::string errMsg = testResp.error.empty() ? ("HTTP " + std::to_string(testResp.statusCode)) : testResp.error;
 

@@ -188,7 +188,6 @@ def main():
         run_clang_format(cpp_files)
 
     total_issues = total_syntax_issues + missing_include_count
-
     print("\n" + "=" * 50)
     if total_issues == 0:
         print("🎉 [ALL CHECKS PASSED] 100% include integrity, syntax balance, and cleanliness!")
