@@ -135,7 +135,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOw
             pOwn->bFreeLicense = false;
             pOwn->ReleaseState = EAppReleaseState::Released;
             if (pOwn->ExistInPackageNums == 0) {
-                pOwn->ExistInPackageNums = 1;
+                pOwn->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
                 pOwn->PackageId = kInjectedPackageId;
             }
         }

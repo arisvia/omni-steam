@@ -26,9 +26,9 @@ HOOK_FUNC(BGetCallback, bool, int32_t hSteamPipe, CallbackMsg_t* pCallbackMsg) {
 
     bool result = oBGetCallback(hSteamPipe, pCallbackMsg);
     if (result && pCallbackMsg) {
-        // Intercept and log license & DLC broadcast notifications (e.g. k_iCallback_LicensesUpdated = 125)
-        if (pCallbackMsg->m_iCallback == 125) {
-            spdlog::debug("Hooks_IPC: Dispatched LicensesUpdated callback (125)");
+        // Intercept and log license & DLC broadcast notifications
+        if (pCallbackMsg->m_iCallback == k_iCallback_LicensesUpdated) {
+            spdlog::debug("Hooks_IPC: Dispatched LicensesUpdated callback ({})", k_iCallback_LicensesUpdated);
         }
     }
     return result;

@@ -15,6 +15,12 @@ using HSteamUser = int32_t;
 inline constexpr PackageId_t kSteamDefaultBasePackageId = 0;
 inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 10660652434190618804ull;
 
+// Default synthesized license count for unowned standalone apps & DLCs
+inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
+
+// Steam Client Internal Callback IDs
+inline constexpr int32_t k_iCallback_LicensesUpdated = 125;
+
 // ==============================================================================
 // Valve Tier1 Containers (CUtlMemory / CUtlVector)
 // ==============================================================================
