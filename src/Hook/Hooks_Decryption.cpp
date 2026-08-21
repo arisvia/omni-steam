@@ -30,13 +30,27 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
 
         size_t keyPos = lowerName.find("decryptionkey");
         if (keyPos != std::string::npos) {
-            size_t endDigits = lowerName.find_last_not_of("/\\ ", keyPos - 1);
-            if (endDigits != std::string::npos && std::isdigit(static_cast<unsigned char>(lowerName[endDigits]))) {
-                size_t startDigits = lowerName.find_last_not_of("0123456789", endDigits);
-                std::string depotIdStr = (startDigits == std::string::npos)
-                                             ? lowerName.substr(0, endDigits + 1)
-                                             : lowerName.substr(startDigits + 1, endDigits - startDigits);
+            std::string depotIdStr;
+            if (keyPos > 0) {
+                size_t endDigits = lowerName.find_last_not_of("/\\ ", keyPos - 1);
+                if (endDigits != std::string::npos && std::isdigit(static_cast<unsigned char>(lowerName[endDigits]))) {
+                    size_t startDigits = lowerName.find_last_not_of("0123456789", endDigits);
+                    depotIdStr = (startDigits == std::string::npos)
+                                     ? lowerName.substr(0, endDigits + 1)
+                                     : lowerName.substr(startDigits + 1, endDigits - startDigits);
+                }
+            }
+            if (depotIdStr.empty()) {
+                size_t startDigits = lowerName.find_first_of("0123456789", keyPos + 13);
+                if (startDigits != std::string::npos) {
+                    size_t endDigits = lowerName.find_first_not_of("0123456789", startDigits);
+                    depotIdStr = (endDigits == std::string::npos)
+                                     ? lowerName.substr(startDigits)
+                                     : lowerName.substr(startDigits, endDigits - startDigits);
+                }
+            }
 
+            if (!depotIdStr.empty()) {
                 try {
                     uint32_t depotId = static_cast<uint32_t>(std::stoul(depotIdStr));
                     auto key = LuaConfig::GetDecryptionKey(depotId);

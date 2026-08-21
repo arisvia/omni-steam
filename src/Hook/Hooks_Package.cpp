@@ -98,16 +98,18 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
         uint32_t numToAdd = static_cast<uint32_t>(appsToAdd.size());
         spdlog::info("Hooks_Package: Injecting {} apps/DLCs into Package 0 AppIdVec (oldSize: {}, total: {})", numToAdd,
                      oldSize, oldSize + numToAdd);
-
         if (oCUtlMemoryGrow) {
             oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
         }
-        if (pAppIdVec->m_Memory.m_pMemory) {
+        if (pAppIdVec->m_Memory.m_pMemory &&
+            pAppIdVec->m_Memory.m_nAllocationCount >= oldSize + static_cast<int>(numToAdd)) {
             for (size_t i = 0; i < numToAdd; ++i) {
                 pAppIdVec->m_Memory.m_pMemory[oldSize + i] = appsToAdd[i];
             }
             pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
             pAppIdVec->m_pElements = pAppIdVec->m_Memory.m_pMemory;
+        } else {
+            spdlog::warn("Hooks_Package: Memory allocation failed or capacity insufficient for AppIdVec");
         }
     }
 
@@ -135,17 +137,18 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
             if (oCUtlMemoryGrow) {
                 oCUtlMemoryGrow(pDepotIdVec, static_cast<int>(numDepots));
             }
-            if (pDepotIdVec->m_Memory.m_pMemory) {
+            if (pDepotIdVec->m_Memory.m_pMemory &&
+                pDepotIdVec->m_Memory.m_nAllocationCount >= oldDepotSize + static_cast<int>(numDepots)) {
                 for (size_t i = 0; i < numDepots; ++i) {
                     pDepotIdVec->m_Memory.m_pMemory[oldDepotSize + i] = depotsToAdd[i];
                 }
                 pDepotIdVec->m_Size = static_cast<int>(oldDepotSize + numDepots);
                 pDepotIdVec->m_pElements = pDepotIdVec->m_Memory.m_pMemory;
+            } else {
+                spdlog::warn("Hooks_Package: Memory allocation failed or capacity insufficient for DepotIdVec");
             }
         }
     }
-
-    g_licenseInitialized = true;
     MarkLicenseAsChangedAndProcessUpdates();
     return true;
 }
