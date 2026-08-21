@@ -15,50 +15,11 @@ namespace {
 
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
-PackageInfo* g_pInjectedPackageInfo = nullptr;
 bool g_userNotified = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
-constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
-
-static std::vector<AppId_t> g_injectedAppIds;
-static std::vector<DepotId_t> g_injectedDepotIds;
 
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
-
-void InjectPackage0(PackageInfo* pPkg) {
-    if (!pPkg)
-        return;
-
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::set<AppId_t> allApps;
-    for (uint32_t id : unlockedApps) {
-        allApps.insert(id);
-    }
-    g_injectedAppIds.assign(allApps.begin(), allApps.end());
-
-    pPkg->AppIdVec.m_Memory.m_pMemory = g_injectedAppIds.data();
-    pPkg->AppIdVec.m_Memory.m_nAllocationCount = static_cast<int>(g_injectedAppIds.size());
-    pPkg->AppIdVec.m_Memory.m_nGrowSize = 0;
-    pPkg->AppIdVec.m_Size = static_cast<int>(g_injectedAppIds.size());
-    pPkg->AppIdVec.m_pElements = g_injectedAppIds.data();
-
-    auto depotKeys = LuaConfig::GetDepotKeys();
-    std::set<DepotId_t> allDepots;
-    for (const auto& [depotId, _] : depotKeys) {
-        allDepots.insert(depotId);
-    }
-    g_injectedDepotIds.assign(allDepots.begin(), allDepots.end());
-
-    pPkg->DepotIdVec.m_Memory.m_pMemory = g_injectedDepotIds.data();
-    pPkg->DepotIdVec.m_Memory.m_nAllocationCount = static_cast<int>(g_injectedDepotIds.size());
-    pPkg->DepotIdVec.m_Memory.m_nGrowSize = 0;
-    pPkg->DepotIdVec.m_Size = static_cast<int>(g_injectedDepotIds.size());
-    pPkg->DepotIdVec.m_pElements = g_injectedDepotIds.data();
-
-    spdlog::info("Hooks_Package: Successfully injected {} apps and {} depots into Package 0", g_injectedAppIds.size(),
-                 g_injectedDepotIds.size());
-}
 
 void NotifyLicensesChanged() {
     if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates && !g_userNotified) {
@@ -74,41 +35,30 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
         g_pCPackageInfo = pThis;
         spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
     }
-
-    PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (packageId == kInjectedPackageId && pPkg) {
-        g_pInjectedPackageInfo = pPkg;
-        InjectPackage0(pPkg);
-    }
-    return pPkg;
+    return oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
 }
 
-HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
+HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
         NotifyLicensesChanged();
     }
 
-    if (!g_pInjectedPackageInfo && g_pCPackageInfo && oGetPackageInfo) {
-        PackageInfo* pPkg = oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
-        if (pPkg) {
-            g_pInjectedPackageInfo = pPkg;
-            InjectPackage0(pPkg);
-        }
-    }
-
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
 
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
-            pOwn->bOwnsLicense = true;
-            pOwn->bFreeLicense = false;
-            pOwn->ReleaseState = EAppReleaseState::Released;
-            if (pOwn->ExistInPackageNums == 0) {
-                pOwn->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
-                pOwn->PackageId = kInjectedPackageId;
-            }
+            uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
+            // 64-bit SteamClient verified memory offsets
+            *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId; // PackageId = 0
+            *reinterpret_cast<uint32_t*>(raw + 0x1C) =
+                static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
+            *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums = 1
+            raw[0x28] = 1;                                         // bOwnsLicense = true
+            raw[0x30] = 1;                                         // bIsSubscribed = true
+            raw[0x33] = 1;
+            raw[0x34] = 1;
         }
         return true;
     }
@@ -147,15 +97,6 @@ void Install() {
 void Uninstall() {}
 
 void SyncInjectedLicenses() {
-    if (g_pInjectedPackageInfo) {
-        InjectPackage0(g_pInjectedPackageInfo);
-    } else if (g_pCPackageInfo && oGetPackageInfo) {
-        PackageInfo* pPkg = oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
-        if (pPkg) {
-            g_pInjectedPackageInfo = pPkg;
-            InjectPackage0(pPkg);
-        }
-    }
     g_userNotified = false;
     NotifyLicensesChanged();
 }
