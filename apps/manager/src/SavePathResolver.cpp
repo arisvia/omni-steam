@@ -37,7 +37,35 @@ std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId
         }
     }
 
-#if !defined(OMNI_PLATFORM_WINDOWS)
+#if defined(OMNI_PLATFORM_WINDOWS)
+    // 2. Windows Native Saved Games & AppData/Local/AppId paths
+    const char* userProfile = std::getenv("USERPROFILE");
+    const char* localAppData = std::getenv("LOCALAPPDATA");
+    const char* appData = std::getenv("APPDATA");
+
+    if (localAppData) {
+        std::string localSavePath = std::string(localAppData) + "/" + std::to_string(appId);
+        if (fs::exists(localSavePath)) {
+            locations.push_back({appId, localSavePath, "Windows LocalAppData/" + std::to_string(appId), true});
+        }
+    }
+    if (appData) {
+        std::string roamingSavePath = std::string(appData) + "/" + std::to_string(appId);
+        if (fs::exists(roamingSavePath)) {
+            locations.push_back({appId, roamingSavePath, "Windows AppData/Roaming/" + std::to_string(appId), true});
+        }
+    }
+    if (userProfile) {
+        std::string savedGamesPath = std::string(userProfile) + "/Saved Games/" + std::to_string(appId);
+        if (fs::exists(savedGamesPath)) {
+            locations.push_back({appId, savedGamesPath, "Windows Saved Games/" + std::to_string(appId), true});
+        }
+        std::string docSavePath = std::string(userProfile) + "/Documents/My Games/" + std::to_string(appId);
+        if (fs::exists(docSavePath)) {
+            locations.push_back({appId, docSavePath, "Windows Documents/My Games/" + std::to_string(appId), true});
+        }
+    }
+#else
     // 2. Linux / Steam Deck Proton CompatData (WINE Prefix):
     // <Steam>/steamapps/compatdata/<appid>/pfx/drive_c/users/steamuser/
     std::string compatDataPath =
@@ -62,7 +90,6 @@ std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId
         }
     }
 #endif
-
     return locations;
 }
 
