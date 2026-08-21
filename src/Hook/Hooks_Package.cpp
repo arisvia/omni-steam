@@ -45,56 +45,16 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     return pPkg;
 }
 
-CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
+CUtlVector<AppId_t>* FindAppIdVector(PackageInfo* pPkg) {
     if (!pPkg)
         return nullptr;
-    auto* base = reinterpret_cast<uint8_t*>(pPkg);
-
-    // AppIdVec is the first CUtlVector inside PackageInfo (offset 0x20 in x64, 0x18 in x86)
-#if defined(OMNI_ARCH_X64) || defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
-    constexpr size_t kOffsets[] = {0x20, 0x18, 0x28, 0x30, 0x38, 0x10, 0x08};
-#else
-    constexpr size_t kOffsets[] = {0x18, 0x14, 0x20, 0x24, 0x10, 0x08};
-#endif
-
-    for (size_t offset : kOffsets) {
-        auto* vec = reinterpret_cast<CUtlVector<AppId_t>*>(base + offset);
-        if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
-            vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
-            if (vec->m_Size > 0 && vec->m_Memory.m_pMemory == nullptr)
-                continue;
-            spdlog::info("Hooks_Package: Resolved AppIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
-                         vec->m_Size, vec->m_Memory.m_nAllocationCount);
-            return vec;
-        }
-    }
-    return nullptr;
+    return &pPkg->AppIdVec;
 }
 
-CUtlVector<DepotId_t>* FindDepotIdVector(void* pPkg) {
+CUtlVector<DepotId_t>* FindDepotIdVector(PackageInfo* pPkg) {
     if (!pPkg)
         return nullptr;
-    auto* base = reinterpret_cast<uint8_t*>(pPkg);
-
-    // DepotIdVec is the second CUtlVector inside PackageInfo (offset 0x40 in x64, 0x2C in x86)
-#if defined(OMNI_ARCH_X64) || defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
-    constexpr size_t kOffsets[] = {0x40, 0x38, 0x30, 0x48, 0x28};
-#else
-    constexpr size_t kOffsets[] = {0x2C, 0x28, 0x24, 0x30};
-#endif
-
-    for (size_t offset : kOffsets) {
-        auto* vec = reinterpret_cast<CUtlVector<DepotId_t>*>(base + offset);
-        if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
-            vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
-            if (vec->m_Size > 0 && vec->m_Memory.m_pMemory == nullptr)
-                continue;
-            spdlog::info("Hooks_Package: Resolved DepotIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
-                         vec->m_Size, vec->m_Memory.m_nAllocationCount);
-            return vec;
-        }
-    }
-    return nullptr;
+    return &pPkg->DepotIdVec;
 }
 
 bool MarkLicenseAsChangedAndProcessUpdates() {
