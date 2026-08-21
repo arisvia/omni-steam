@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
+
 namespace Manager {
 
 struct ConfigDto {
@@ -13,8 +15,9 @@ struct ConfigDto {
     std::string webdavServerUrl;
     std::string webdavUsername;
     std::string webdavPassword;
-    std::string webdavRemoteRoot = "OmniSteam_Saves";
+    std::string webdavRemoteRoot = OmniEndpoints::CloudSave::kDefaultRemoteRoot;
 };
+
 class ConfigManager {
 public:
     static std::string GetConfigFilePath();

@@ -58,4 +58,11 @@ inline constexpr const char* kSteamDbAppBase = "https://steamdb.info/app/";
 inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.com/app/";
 } // namespace Steam
 
+// ==============================================================================
+// 5. 云存档 WebDAV 默认配置
+// ==============================================================================
+namespace CloudSave {
+inline constexpr const char* kDefaultRemoteRoot = "OmniSteam_Saves";
+} // namespace CloudSave
+
 } // namespace OmniEndpoints

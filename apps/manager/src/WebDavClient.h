@@ -3,13 +3,15 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
+
 namespace Manager {
 
 struct WebDavConfig {
     std::string serverUrl; // e.g. "https://dav.jianguoyun.com/dav/"
     std::string username;
     std::string password;
-    std::string remoteRootPath = "OmniSteam_Saves";
+    std::string remoteRootPath = OmniEndpoints::CloudSave::kDefaultRemoteRoot;
 };
 
 struct WebDavResponse {
