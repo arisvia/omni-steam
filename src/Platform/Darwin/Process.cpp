@@ -1,11 +1,10 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <libproc.h>
 #include <string>
 #include <thread>
 #include <unistd.h>
-
-#include "OmniPlatform/OmniPlatform.h"
 
 namespace OmniPlatform {
 
@@ -18,9 +17,12 @@ std::string Process::GetProcessName(uint32_t pid) {
 }
 
 std::string Process::GetExecutablePath() {
+    char path[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(getpid(), path, sizeof(path)) > 0) {
+        return std::string(path);
+    }
     return "";
 }
-
 void Thread::StartDetached(std::function<void()> task) {
     std::thread t(task);
     t.detach();

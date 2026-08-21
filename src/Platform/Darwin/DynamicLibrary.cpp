@@ -2,8 +2,7 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <string>
-
-#include "OmniPlatform/OmniPlatform.h"
+#include <unistd.h>
 
 namespace OmniPlatform {
 
@@ -24,15 +23,21 @@ bool DynamicLibrary::Free(ModuleHandle handle) {
 }
 
 std::string DynamicLibrary::GetCurrentDirectoryPath() {
-    return "";
+    char buf[1024];
+    return getcwd(buf, sizeof(buf)) ? std::string(buf) : "";
 }
 
 std::string DynamicLibrary::GetModulePath(ModuleHandle handle) {
+    if (!handle)
+        return "";
+    Dl_info info;
+    if (dladdr(handle, &info) && info.dli_fname) {
+        return std::string(info.dli_fname);
+    }
     return "";
 }
 
 uint32_t DynamicLibrary::GetLastErrorCode() {
     return 0;
 }
-
 } // namespace OmniPlatform
