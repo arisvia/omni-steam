@@ -5,6 +5,7 @@
 #include "SteamApi.h"
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -36,7 +37,8 @@ uint32_t ExtractAppIdFromBinaryTicket(const uint8_t* data, size_t size) {
     // Valve AppOwnershipTicket typically contains uint32 AppID at fixed offsets (usually offset 8, 12, or 16)
     if (size >= 16) {
         for (size_t offset = 0; offset + 4 <= size && offset <= 32; offset += 4) {
-            uint32_t val = *reinterpret_cast<const uint32_t*>(data + offset);
+            uint32_t val = 0;
+            std::memcpy(&val, data + offset, sizeof(uint32_t));
             if (val >= 10 && val <= 50000000) {
                 return val;
             }
