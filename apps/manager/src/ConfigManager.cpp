@@ -13,18 +13,18 @@ namespace fs = std::filesystem;
 namespace Manager {
 
 std::string ConfigManager::GetConfigFilePath() {
-#if defined(OMNI_PLATFORM_WINDOWS)
-    return "omnisteam.toml";
-    const char* home = std::getenv("HOME");
-    std::string base = home ? std::string(home) + "/Library/Application Support/OmniSteam" : "/tmp/omnisteam";
-    fs::create_directories(base);
-    return base + "/omnisteam.toml";
-#else
-    const char* home = std::getenv("HOME");
-    std::string base = home ? std::string(home) + "/.config/omnisteam" : "/tmp/omnisteam";
-    fs::create_directories(base);
-    return base + "/omnisteam.toml";
-#endif
+    if (fs::exists("omnisteam.toml")) {
+        return "omnisteam.toml";
+    }
+    if (fs::exists("config/omnisteam.toml")) {
+        return "config/omnisteam.toml";
+    }
+    std::string configDir = OmniPlatform::Paths::GetConfigDirectory();
+    try {
+        fs::create_directories(configDir);
+    } catch (...) {
+    }
+    return (fs::path(configDir) / "omnisteam.toml").generic_string();
 }
 
 ConfigDto ConfigManager::ReadConfig() {
