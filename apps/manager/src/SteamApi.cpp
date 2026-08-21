@@ -99,9 +99,8 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     }
     // 3. Fallback: Search Suggest API (effective for Chinese / non-Latin terms)
     if (results.empty()) {
-        std::string suggestUrl = "https://store.steampowered.com/search/suggest?term=" + encodedQ +
+        std::string suggestUrl = std::string(OmniEndpoints::Steam::kStoreSuggestApi) + "?term=" + encodedQ +
                                  "&f=games&cc=" + effectiveCc + "&l=" + language;
-        spdlog::info("SteamApi: Querying suggest endpoint: {}", suggestUrl);
         auto suggestResp = OmniPlatform::Http::Get(suggestUrl, 6000);
         if (suggestResp.statusCode == 200 && !suggestResp.body.empty()) {
             std::regex suggestRegex(

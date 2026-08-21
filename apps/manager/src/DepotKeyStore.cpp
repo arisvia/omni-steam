@@ -119,10 +119,9 @@ void ImportKeysFromConfigVdf() {
 
 void TriggerAsyncBackgroundUpdate(size_t localCount, const std::string& targetCacheFile) {
     std::thread([localCount, targetCacheFile]() {
-        std::vector<std::string> remoteUrls = {"https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                               "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                               "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                               kRemoteDepotKeysUrl};
+        std::vector<std::string> remoteUrls = {
+            OmniEndpoints::GitHub::kDepotKeysJsDelivr, OmniEndpoints::GitHub::kDepotKeysFastly,
+            OmniEndpoints::GitHub::kDepotKeysGcore, OmniEndpoints::GitHub::kDepotKeysBin};
 
         for (const auto& url : remoteUrls) {
             auto resp = OmniPlatform::Http::Get(url, 6000);
@@ -205,10 +204,9 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
     }
 
     // 3. Cold Start Fallback: Fetch from CDN mirrors
-    std::vector<std::string> remoteUrls = {"https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                           "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                           "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin",
-                                           kRemoteDepotKeysUrl};
+    std::vector<std::string> remoteUrls = {
+        OmniEndpoints::GitHub::kDepotKeysJsDelivr, OmniEndpoints::GitHub::kDepotKeysFastly,
+        OmniEndpoints::GitHub::kDepotKeysGcore, OmniEndpoints::GitHub::kDepotKeysBin};
 
     bool remoteUpdated = false;
     for (const auto& url : remoteUrls) {

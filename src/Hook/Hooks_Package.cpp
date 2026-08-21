@@ -18,8 +18,8 @@ void* g_pCPackageInfo = nullptr;
 PackageInfo* g_pInjectedPackageInfo = nullptr;
 bool g_licenseInitialized = false;
 
-constexpr PackageId_t kInjectedPackageId = 0;
-constexpr uint64_t kInjectedPkgAccessToken = 10660652434190618804ull;
+constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
+constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
 
 RESOLVE_FUNC(CUtlMemoryGrow, void*, CUtlVector<AppId_t>*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);

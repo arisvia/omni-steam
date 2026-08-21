@@ -143,7 +143,7 @@ std::string CoreInstaller::GetLatestRemoteVersion(const std::string& channel) {
         return "nightly-latest";
     }
 
-    std::string apiUrl = "https://api.github.com/repos/arisvia/omni-steam/releases/latest";
+    std::string apiUrl = OmniEndpoints::GitHub::kApiReleasesLatest;
     auto resp = OmniPlatform::Http::Get(apiUrl, 4000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
         std::string tag = ExtractJsonValue(resp.body, "tag_name");
@@ -205,15 +205,14 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
         std::vector<std::string> downloadSources;
         if (channel == "nightly") {
             downloadSources.push_back(std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/nightly/" + assetName);
-            downloadSources.push_back("https://cdn.jsdelivr.net/gh/arisvia/omni-steam@nightly/" + assetName);
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kJsDelivrNightlyBase) + assetName);
         } else {
-            downloadSources.push_back("https://github.com/arisvia/omni-steam/releases/latest/download/" + assetName);
-            downloadSources.push_back("https://github.com/arisvia/omni-steam/releases/download/v" +
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kReleasesLatestDownload) + assetName);
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kReleasesDownloadBase) + "v" +
                                       std::string(OMNISTEAM_VERSION) + "/" + assetName);
             downloadSources.push_back(std::string(OmniEndpoints::GitHub::kRawBaseUrl) + "/main/" + assetName);
-            downloadSources.push_back("https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/" + assetName);
+            downloadSources.push_back(std::string(OmniEndpoints::GitHub::kJsDelivrMainBase) + assetName);
         }
-
         for (const auto& downloadUrl : downloadSources) {
             spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
             auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);

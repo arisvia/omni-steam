@@ -13,9 +13,18 @@ inline constexpr const char* kBranch = "main";
 
 // GitHub Raw 基础镜像路径 (可切换为加速镜像如 raw.fastgit.org / cdn.jsdelivr.net)
 inline constexpr const char* kRawBaseUrl = "https://raw.githubusercontent.com/arisvia/omni-steam/main";
+inline constexpr const char* kApiReleasesLatest = "https://api.github.com/repos/arisvia/omni-steam/releases/latest";
+inline constexpr const char* kReleasesLatestDownload =
+    "https://github.com/arisvia/omni-steam/releases/latest/download/";
+inline constexpr const char* kReleasesDownloadBase = "https://github.com/arisvia/omni-steam/releases/download/";
+inline constexpr const char* kJsDelivrMainBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/";
+inline constexpr const char* kJsDelivrNightlyBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@nightly/";
 
-// 远程全局 Depot 解密 Key 二进制数据库
+// 远程全局 Depot 解密 Key 二进制数据库与加速 CDN 镜像
 inline constexpr const char* kDepotKeysBin = "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.bin";
+inline constexpr const char* kDepotKeysJsDelivr = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
+inline constexpr const char* kDepotKeysFastly = "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
+inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
 } // namespace GitHub
 
 // ==============================================================================
@@ -40,8 +49,13 @@ inline constexpr const char* kStatsBaseUrl = "https://stats.opensteamtool.com";
 // ==============================================================================
 namespace Steam {
 inline constexpr const char* kStoreSearchApi = "https://store.steampowered.com/api/storesearch/";
+inline constexpr const char* kStoreSuggestApi = "https://store.steampowered.com/search/suggest";
 inline constexpr const char* kAppDetailsApi = "https://store.steampowered.com/api/appdetails";
 inline constexpr const char* kImageCdnBase = "https://cdn.cloudflare.steamstatic.com/steam/apps/";
+inline constexpr const char* kAkamaiImageCdnBase =
+    "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/";
+inline constexpr const char* kSteamDbAppBase = "https://steamdb.info/app/";
+inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.com/app/";
 } // namespace Steam
 
 } // namespace OmniEndpoints
