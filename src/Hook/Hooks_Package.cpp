@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstring>
 #include <set>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -18,11 +19,49 @@ void* g_pCPackageInfo = nullptr;
 bool g_userNotified = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 
+static std::vector<AppId_t> g_injectedAppIds;
+static std::vector<DepotId_t> g_injectedDepotIds;
+static alignas(16) uint8_t g_fakePackage0[512] = {0};
+
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
+void UpdateFakePackage0() {
+    auto unlockedApps = LuaConfig::GetUnlockedApps();
+    std::set<AppId_t> allApps;
+    for (uint32_t id : unlockedApps) {
+        allApps.insert(id);
+    }
+    g_injectedAppIds.assign(allApps.begin(), allApps.end());
+
+    auto depotKeys = LuaConfig::GetDepotKeys();
+    std::set<DepotId_t> allDepots;
+    for (const auto& [depotId, _] : depotKeys) {
+        allDepots.insert(depotId);
+    }
+    g_injectedDepotIds.assign(allDepots.begin(), allDepots.end());
+
+    std::memset(g_fakePackage0, 0, sizeof(g_fakePackage0));
+    *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x00) = kInjectedPackageId;
+    *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x18) = 0; // EPackageStatus::Available = 0
+
+    // AppIdVec (64-bit ABI offsets verified from steamclient64.dll disassembly)
+    *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x40) =
+        reinterpret_cast<uintptr_t>(g_injectedAppIds.data());                                           // m_pElements
+    *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x50) = static_cast<int32_t>(g_injectedAppIds.size()); // m_Size
+
+    // DepotIdVec
+    *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x60) =
+        reinterpret_cast<uintptr_t>(g_injectedDepotIds.data());                                           // m_pElements
+    *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x70) = static_cast<int32_t>(g_injectedDepotIds.size()); // m_Size
+
+    spdlog::info("Hooks_Package: Synthesized Package 0 with {} apps and {} depots", g_injectedAppIds.size(),
+                 g_injectedDepotIds.size());
+}
+
 void NotifyLicensesChanged() {
     if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates && !g_userNotified) {
+        UpdateFakePackage0();
         oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
         oProcessPendingLicenseUpdates(g_pCUser);
         g_userNotified = true;
@@ -35,9 +74,16 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
         g_pCPackageInfo = pThis;
         spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
     }
+
+    if (packageId == kInjectedPackageId) {
+        if (g_injectedAppIds.empty()) {
+            UpdateFakePackage0();
+        }
+        return reinterpret_cast<PackageInfo*>(g_fakePackage0);
+    }
+
     return oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
 }
-
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -97,6 +143,7 @@ void Install() {
 void Uninstall() {}
 
 void SyncInjectedLicenses() {
+    UpdateFakePackage0();
     g_userNotified = false;
     NotifyLicensesChanged();
 }
