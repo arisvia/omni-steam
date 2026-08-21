@@ -1,3 +1,4 @@
+#include "CloudSaveManager.h"
 #include "ConfigManager.h"
 #include "CoreInstaller.h"
 #include "DenuvoImporter.h"
@@ -5,6 +6,7 @@
 #include "Doctor.h"
 #include "ScriptManager.h"
 #include "SteamApi.h"
+#include "WebDavClient.h"
 #include "WebServer.h"
 
 #include <cstdint>
@@ -130,11 +132,10 @@ int main(int argc, char* argv[]) {
             }
 
             // Auto-resolve depot keys from local DB
-            auto keys = Manager::DepotKeyStore::FindKeysForGame(appId, spec.dlcAppIds);
+            auto keys = Manager::DepotKeyStore::FindDepotKeysForApp(appId, spec.dlcAppIds);
             for (const auto& kv : keys) {
                 spec.depotKeys[kv.first] = kv.second;
             }
-
             bool saved = Manager::ScriptManager::SaveGameUnlock(spec);
             if (saved) {
                 std::cout << " [SUCCESS] Unlocked " << spec.gameName << " (AppID: " << appId << ")\n";
