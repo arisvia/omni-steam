@@ -16,14 +16,14 @@ namespace {
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 PackageInfo* g_pInjectedPackageInfo = nullptr;
-PackageId_t g_activePackageId = 0;
-bool g_licenseRefreshPending = false;
+bool g_licenseInitialized = false;
+
+constexpr PackageId_t kInjectedPackageId = 0;
+constexpr uint64_t kInjectedPkgAccessToken = 10660652434190618804ull;
 
 RESOLVE_FUNC(CUtlMemoryGrow, void*, CUtlVector<AppId_t>*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
-bool SyncInjectedLicenses(PackageInfo* pPkg, PackageId_t pkgId);
-bool MarkLicenseAsChangedAndProcessUpdates();
 
 CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
     if (!pPkg)
@@ -45,6 +45,73 @@ CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
     return nullptr;
 }
 
+bool MarkLicenseAsChangedAndProcessUpdates() {
+    if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates) {
+        return false;
+    }
+    oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
+    oProcessPendingLicenseUpdates(g_pCUser);
+    spdlog::info("Hooks_Package: Notified Steam of Package {} license update", kInjectedPackageId);
+    return true;
+}
+
+bool InitFakeLicenseOnce(PackageInfo* pPkg) {
+    if (!pPkg)
+        return false;
+
+    if (pPkg->Status != EPackageStatus::Available) {
+        spdlog::warn("Hooks_Package: Package 0 status is not Available ({}), skipping injection",
+                     static_cast<int>(pPkg->Status));
+        return false;
+    }
+
+    auto* pAppIdVec = FindAppIdVector(pPkg);
+    if (!pAppIdVec) {
+        spdlog::warn("Hooks_Package: Could not resolve AppIdVec offset in Package 0");
+        return false;
+    }
+
+    auto unlockedApps = LuaConfig::GetUnlockedApps();
+    std::vector<uint32_t> appIds(unlockedApps.begin(), unlockedApps.end());
+    if (!appIds.empty()) {
+        int oldSize = pAppIdVec->m_Size;
+        uint32_t numToAdd = static_cast<uint32_t>(appIds.size());
+        spdlog::info("Hooks_Package: Injecting {} apps/DLCs into Package 0 (oldSize: {}, total: {})", numToAdd, oldSize,
+                     oldSize + numToAdd);
+
+        if (oCUtlMemoryGrow) {
+            oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
+        }
+
+        if (pAppIdVec->m_Memory.m_pMemory) {
+            for (size_t i = 0; i < numToAdd; ++i) {
+                pAppIdVec->m_Memory.m_pMemory[oldSize + i] = appIds[i];
+            }
+            pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
+        }
+    }
+
+    g_licenseInitialized = true;
+    MarkLicenseAsChangedAndProcessUpdates();
+    return true;
+}
+
+bool TryInitFakeLicenseOnce() {
+    if (g_licenseInitialized)
+        return true;
+
+    if (g_pCPackageInfo && oGetPackageInfo) {
+        PackageInfo* pPkg = oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
+        if (!pPkg) {
+            spdlog::warn("Hooks_Package: GetPackageInfo returned null for Package 0");
+            return false;
+        }
+        g_pInjectedPackageInfo = pPkg;
+        return InitFakeLicenseOnce(pPkg);
+    }
+    return false;
+}
+
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
         g_pCPackageInfo = pThis;
@@ -52,116 +119,28 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
     }
 
     PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (pPkg && packageId != 0) {
-        if (g_activePackageId == 0) {
-            g_activePackageId = packageId;
-            g_pInjectedPackageInfo = pPkg;
-            spdlog::info("Hooks_Package: Selected active Package {} for direct license injection", g_activePackageId);
-        }
-        SyncInjectedLicenses(pPkg, packageId);
-    }
     return pPkg;
 }
 
-bool MarkLicenseAsChangedAndProcessUpdates() {
-    if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates) {
-        return false;
-    }
-    PackageId_t targetPkg = (g_activePackageId != 0) ? g_activePackageId : 21458;
-    oMarkLicenseAsChanged(g_pCUser, targetPkg, true);
-    oProcessPendingLicenseUpdates(g_pCUser);
-    spdlog::info("Hooks_Package: Notified Steam of Package {} license update", targetPkg);
-    return true;
-}
-
-bool SyncInjectedLicenses(PackageInfo* pPkg, PackageId_t pkgId) {
-    if (!pPkg) {
-        return false;
-    }
-
-    auto* pAppIdVec = FindAppIdVector(pPkg);
-    if (!pAppIdVec) {
-        spdlog::warn("Hooks_Package: Could not resolve AppIdVec offset in Package {}", pkgId);
-        return false;
-    }
-
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::vector<uint32_t> newApps;
-
-    std::set<uint32_t> existingInVec;
-    if (pAppIdVec->m_Memory.m_pMemory && pAppIdVec->m_Size > 0) {
-        for (int i = 0; i < pAppIdVec->m_Size; ++i) {
-            existingInVec.insert(pAppIdVec->m_Memory.m_pMemory[i]);
-        }
-    }
-
-    for (uint32_t appId : unlockedApps) {
-        if (!existingInVec.contains(appId)) {
-            newApps.push_back(appId);
-        }
-    }
-
-    if (newApps.empty()) {
-        return true;
-    }
-
-    int oldSize = pAppIdVec->m_Size;
-    uint32_t numToAdd = static_cast<uint32_t>(newApps.size());
-    PackageId_t targetId = (pkgId != 0) ? pkgId : g_activePackageId;
-    spdlog::info("Hooks_Package: Injecting {} new apps/DLCs into Package {} (oldSize: {}, total now: {})", numToAdd,
-                 targetId, oldSize, oldSize + numToAdd);
-
-    if (oCUtlMemoryGrow) {
-        oCUtlMemoryGrow(pAppIdVec, static_cast<int>(numToAdd));
-    }
-
-    if (pAppIdVec->m_Memory.m_pMemory) {
-        uint32_t idx = 0;
-        for (uint32_t appId : newApps) {
-            pAppIdVec->m_Memory.m_pMemory[oldSize + idx] = appId;
-            idx++;
-        }
-        pAppIdVec->m_Size = static_cast<int>(oldSize + numToAdd);
-    }
-
-    g_licenseRefreshPending = true;
-    if (MarkLicenseAsChangedAndProcessUpdates()) {
-        g_licenseRefreshPending = false;
-    }
-    return true;
-}
-
-bool TryInitFakeLicenseOnce() {
-    if (g_pInjectedPackageInfo) {
-        return SyncInjectedLicenses(g_pInjectedPackageInfo, g_activePackageId);
-    }
-    return false;
-}
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, AppOwnership* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
-        if (g_licenseRefreshPending) {
-            if (MarkLicenseAsChangedAndProcessUpdates()) {
-                g_licenseRefreshPending = false;
-            }
-        }
     }
 
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     TryInitFakeLicenseOnce();
+
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             pOwn->bOwnsLicense = true;
-            pOwn->ReleaseState = EAppReleaseState::Released; // 4: Released / Launchable
-            pOwn->ExistInPackageNums = 1;                    // 1: Direct Owner in active package
             pOwn->bFreeLicense = false;
-            pOwn->PackageId = (g_activePackageId != 0) ? g_activePackageId : 21458;
         }
         return true;
     }
     return result;
 }
+
 } // namespace
 
 namespace Hooks_Package {
