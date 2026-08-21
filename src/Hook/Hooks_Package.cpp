@@ -45,15 +45,26 @@ void UpdateFakePackage0() {
     *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x00) = kInjectedPackageId;
     *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x18) = 0; // EPackageStatus::Available = 0
 
-    // AppIdVec (64-bit ABI offsets verified from steamclient64.dll disassembly)
-    *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x40) =
-        reinterpret_cast<uintptr_t>(g_injectedAppIds.data());                                           // m_pElements
-    *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x50) = static_cast<int32_t>(g_injectedAppIds.size()); // m_Size
+    if constexpr (sizeof(void*) == 8) {
+        // 64-bit ABI (Windows x64, Linux x86_64, macOS arm64/x86_64)
+        *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x40) =
+            reinterpret_cast<uintptr_t>(g_injectedAppIds.data()); // m_pElements
+        *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x50) = static_cast<int32_t>(g_injectedAppIds.size()); // m_Size
 
-    // DepotIdVec
-    *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x60) =
-        reinterpret_cast<uintptr_t>(g_injectedDepotIds.data());                                           // m_pElements
-    *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x70) = static_cast<int32_t>(g_injectedDepotIds.size()); // m_Size
+        *reinterpret_cast<uintptr_t*>(g_fakePackage0 + 0x60) =
+            reinterpret_cast<uintptr_t>(g_injectedDepotIds.data()); // m_pElements
+        *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x70) = static_cast<int32_t>(g_injectedDepotIds.size()); // m_Size
+    } else {
+        // 32-bit ABI (Linux i386 / ubuntu12_32)
+        *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x04) = 0; // Status
+        *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x20) =
+            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedAppIds.data())); // m_pElements
+        *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x1C) = static_cast<int32_t>(g_injectedAppIds.size()); // m_Size
+
+        *reinterpret_cast<uint32_t*>(g_fakePackage0 + 0x34) =
+            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedDepotIds.data())); // m_pElements
+        *reinterpret_cast<int32_t*>(g_fakePackage0 + 0x30) = static_cast<int32_t>(g_injectedDepotIds.size()); // m_Size
+    }
 
     spdlog::info("Hooks_Package: Synthesized Package 0 with {} apps and {} depots", g_injectedAppIds.size(),
                  g_injectedDepotIds.size());
@@ -96,15 +107,24 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
-            // 64-bit SteamClient verified memory offsets
-            *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId; // PackageId = 0
-            *reinterpret_cast<uint32_t*>(raw + 0x1C) =
-                static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
-            *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums = 1
-            raw[0x28] = 1;                                         // bOwnsLicense = true
-            raw[0x30] = 1;                                         // bIsSubscribed = true
-            raw[0x33] = 1;
-            raw[0x34] = 1;
+            if constexpr (sizeof(void*) == 8) {
+                // 64-bit SteamClient verified memory offsets (Windows x64, Linux x86_64, macOS)
+                *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId; // PackageId = 0
+                *reinterpret_cast<uint32_t*>(raw + 0x1C) =
+                    static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
+                *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums = 1
+                raw[0x28] = 1;                                         // bOwnsLicense = true
+                raw[0x30] = 1;                                         // bIsSubscribed = true
+                raw[0x33] = 1;
+                raw[0x34] = 1;
+            } else {
+                // 32-bit SteamClient verified memory offsets (Linux i386)
+                *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId;
+                *reinterpret_cast<uint32_t*>(raw + 0x04) = static_cast<uint32_t>(EAppReleaseState::Released);
+                *reinterpret_cast<uint32_t*>(raw + 0x08) = 1;
+                raw[0x0C] = 1; // bOwnsLicense
+                raw[0x0D] = 0; // bFreeLicense
+            }
         }
         return true;
     }
