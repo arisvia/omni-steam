@@ -4,6 +4,7 @@
 #include <string>
 #include <unistd.h>
 
+#include "OmniPlatform/OmniPlatform.h"
 namespace OmniPlatform {
 
 DynamicLibrary::ModuleHandle DynamicLibrary::Load(const std::string& path) {

@@ -6,6 +6,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "OmniPlatform/OmniPlatform.h"
 namespace OmniPlatform {
 
 uint32_t Process::GetCurrentProcessId() {
