@@ -5,6 +5,7 @@
 #include "CoreInstaller.h"
 #include "DenuvoImporter.h"
 #include "DepotKeyStore.h"
+#include "Doctor.h"
 #include "ScriptManager.h"
 #include "StaticAssets.h"
 #include "SteamApi.h"
@@ -440,6 +441,39 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
         std::ostringstream json;
         json << "{\"success\":" << (success ? "true" : "false") << ",\"message\":\""
              << (success ? "Restore completed" : "No remote backups found or WebDAV connection failed") << "\"}";
+        return MakeHttpResponse(200, "application/json", json.str());
+    }
+    // 16. /api/doctor - System Diagnostics
+    if (request.rfind("GET /api/doctor", 0) == 0) {
+        auto report = Doctor::RunDiagnostics();
+        std::ostringstream json;
+        json << "{"
+             << "\"overallHealthy\":" << (report.overallHealthy ? "true" : "false") << ","
+             << "\"passCount\":" << report.passCount << ","
+             << "\"warningCount\":" << report.warningCount << ","
+             << "\"errorCount\":" << report.errorCount << ","
+             << "\"items\":[";
+        for (size_t i = 0; i < report.items.size(); ++i) {
+            const auto& item = report.items[i];
+            std::string lvl = "pass";
+            if (item.level == DiagnosticLevel::Warning)
+                lvl = "warning";
+            else if (item.level == DiagnosticLevel::Error)
+                lvl = "error";
+            else if (item.level == DiagnosticLevel::Info)
+                lvl = "info";
+
+            json << "{"
+                 << "\"category\":\"" << OmniPlatform::Encoding::EscapeJson(item.category) << "\","
+                 << "\"name\":\"" << OmniPlatform::Encoding::EscapeJson(item.name) << "\","
+                 << "\"level\":\"" << lvl << "\","
+                 << "\"message\":\"" << OmniPlatform::Encoding::EscapeJson(item.message) << "\","
+                 << "\"recommendation\":\"" << OmniPlatform::Encoding::EscapeJson(item.recommendation) << "\""
+                 << "}";
+            if (i + 1 < report.items.size())
+                json << ",";
+        }
+        json << "]}";
         return MakeHttpResponse(200, "application/json", json.str());
     }
 

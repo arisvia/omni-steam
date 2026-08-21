@@ -297,6 +297,7 @@ set(MANAGER_SOURCES
     apps/manager/src/DepotKeyStore.cpp
     apps/manager/src/CoreInstaller.cpp
     apps/manager/src/DenuvoImporter.cpp
+    apps/manager/src/Doctor.cpp
 )
 
 add_executable(omnisteam_cli ${MANAGER_SOURCES})
