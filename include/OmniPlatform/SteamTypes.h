@@ -28,6 +28,42 @@ inline constexpr uint32_t kSteamDlcCacheVersion = 1;
 // Steam Client Internal Callback IDs
 inline constexpr int32_t k_iCallback_LicensesUpdated = 125;
 // ==============================================================================
+// Competitive Anti-Cheat (VAC / EAC / BattlEye / ACE / Ricochet) Protected AppIDs
+// ==============================================================================
+namespace AntiCheat {
+inline constexpr uint32_t kCounterStrike2 = 730;
+inline constexpr uint32_t kCounterStrikeSource = 240;
+inline constexpr uint32_t kDota2 = 570;
+inline constexpr uint32_t kTeamFortress2 = 440;
+inline constexpr uint32_t kApexLegends = 1172470;
+inline constexpr uint32_t kPUBG = 578080;
+inline constexpr uint32_t kRust = 252490;
+inline constexpr uint32_t kRainbowSixSiege = 359550;
+inline constexpr uint32_t kDeadByDaylight = 381210;
+inline constexpr uint32_t kWarframe = 230410;
+inline constexpr uint32_t kTheFinals = 2073850;
+inline constexpr uint32_t kCallOfDutyHQ = 1938090;
+inline constexpr uint32_t kCallOfDutyWarzone = 1962663;
+inline constexpr uint32_t kNarakaBladepoint = 1203220;
+inline constexpr uint32_t kDestiny2 = 1085660;
+inline constexpr uint32_t kHuntShowdown = 594650;
+inline constexpr uint32_t kEldenRing = 1245620;
+inline constexpr uint32_t kArmoredCoreVI = 1888160;
+inline constexpr uint32_t kHelldivers2 = 553850;
+inline constexpr uint32_t kPalworld = 1623730;
+inline constexpr uint32_t kDayZ = 221100;
+inline constexpr uint32_t kSquad = 393380;
+inline constexpr uint32_t kWarThunder = 236390;
+inline constexpr uint32_t kUnturned = 304930;
+inline constexpr uint32_t kPayday3 = 1272080;
+inline constexpr uint32_t kFC24 = 2195250;
+inline constexpr uint32_t kFC25 = 2669320;
+inline constexpr uint32_t kSmite = 386360;
+inline constexpr uint32_t kBrawlhalla = 291550;
+inline constexpr uint32_t kLeft4Dead2 = 550;
+} // namespace AntiCheat
+
+// ==============================================================================
 // Valve Tier1 Containers (CUtlMemory / CUtlVector)
 // ==============================================================================
 template <typename T> struct CUtlMemory {

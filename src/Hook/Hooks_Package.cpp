@@ -11,6 +11,7 @@
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/DlcStore.h"
 #include "Utils/Metadata/PatternLoader.h"
+#include "Utils/Security/AntiCheatGuard.h"
 
 #include "Hook/HookMacros.h"
 
@@ -46,6 +47,7 @@ void NotifyLicensesChanged() {
     spdlog::info("Hooks_Package: Injected licenses synchronized ({} apps, {} depots)", g_injectedAppIds.size(),
                  g_injectedDepotIds.size());
 }
+
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -53,6 +55,13 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         NotifyLicensesChanged();
     }
 
+    // 1. Anti-Cheat Protected Game Check -> Silent bypass to native logic to guarantee account safety
+    if (Security::AntiCheatGuard::IsProtectedApp(appId)) {
+        spdlog::debug("Hooks_Package: AppID {} is protected by anti-cheat whitelist; executing native check", appId);
+        return oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+    }
+
+    bool originalResult = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     if (originalResult) {
         // App is natively owned on Steam account; trigger async DLC discovery for base game
         if (Config::IsAutoUnlockDlcEnabled()) {
@@ -60,7 +69,6 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         }
         return true;
     }
-
     bool isUnlocked = LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId) ||
                       (Config::IsAutoUnlockDlcEnabled() && Metadata::DlcStore::IsKnownDlc(appId));
 

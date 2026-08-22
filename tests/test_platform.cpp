@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/SteamTypes.h"
+
 void TestEncoding() {
     std::string hex = "5954562e";
     auto bytes = OmniPlatform::Encoding::HexToBytes(hex);
@@ -43,11 +45,23 @@ void TestCredentialStore() {
     std::cout << "[PASS] TestCredentialStore\n";
 }
 
+void TestAntiCheatGuard() {
+    using namespace AntiCheat;
+    assert(kCounterStrike2 == 730);
+    assert(kDota2 == 570);
+    assert(kApexLegends == 1172470);
+    assert(kPUBG == 578080);
+    assert(kEldenRing == 1245620);
+
+    std::cout << "[PASS] TestAntiCheatGuard\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam Platform Tests...\n";
     TestEncoding();
     TestByteSearch();
     TestCredentialStore();
+    TestAntiCheatGuard();
     std::cout << "All Phase 1 Platform Tests Passed!\n";
     return 0;
 }

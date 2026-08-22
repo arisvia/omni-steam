@@ -248,6 +248,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Metadata/DlcStore.cpp
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
+    src/Utils/Security/AntiCheatGuard.cpp
     src/Hook/HookManager.cpp
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp

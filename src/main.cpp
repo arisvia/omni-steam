@@ -12,6 +12,7 @@
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/DlcStore.h"
 #include "Utils/Metadata/PatternLoader.h"
+#include "Utils/Security/AntiCheatGuard.h"
 
 #include "Hook/HookManager.h"
 
@@ -105,11 +106,11 @@ static void InitializeOmniSteam() {
         }
         spdlog::info("Target module {} ready (waited {}ms)", targetModule, waitAttempts * 100);
 
-        // 2. Load Configuration, DLC Metadata Cache, and Pattern Signatures
+        // 2. Load Configuration, Security Guard, DLC Metadata Cache, and Pattern Signatures
         Config::Load(OmniPlatform::Paths::GetConfigPath());
+        Security::AntiCheatGuard::Initialize();
         Metadata::DlcStore::Initialize();
         PatternLoader::Initialize();
-        // 3. Parse and monitor existing Lua script directories (read-only scan)
         auto luaDirs = OmniPlatform::Paths::GetCandidateLuaDirectories();
         std::vector<std::string> watchDirs;
         for (const auto& dir : luaDirs) {
