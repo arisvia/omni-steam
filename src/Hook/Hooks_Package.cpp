@@ -14,16 +14,11 @@
 
 namespace {
 
-void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
-bool g_userNotified = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 
 std::vector<AppId_t> g_injectedAppIds;
 std::vector<DepotId_t> g_injectedDepotIds;
-RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
-RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
-
 void UpdateInjectedPackages() {
     auto unlockedApps = LuaConfig::GetUnlockedApps();
     std::set<AppId_t> allApps;
@@ -44,13 +39,9 @@ void UpdateInjectedPackages() {
 }
 
 void NotifyLicensesChanged() {
-    if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates) {
-        UpdateInjectedPackages();
-        oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
-        oProcessPendingLicenseUpdates(g_pCUser);
-        spdlog::info("Hooks_Package: Successfully notified Steam CUser {:p} of Package {} license update", g_pCUser,
-                     kInjectedPackageId);
-    }
+    UpdateInjectedPackages();
+    spdlog::info("Hooks_Package: Injected licenses synchronized ({} apps, {} depots)", g_injectedAppIds.size(),
+                 g_injectedDepotIds.size());
 }
 HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
     if (!g_pCPackageInfo) {
@@ -128,16 +119,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 } // namespace
 namespace Hooks_Package {
 void Install() {
-    // 1. Resolve license management function pointers
-    uintptr_t fnMark = PatternLoader::GetFunctionAddress("MarkLicenseAsChanged");
-    if (fnMark)
-        oMarkLicenseAsChanged = reinterpret_cast<MarkLicenseAsChanged_t>(fnMark);
-
-    uintptr_t fnProc = PatternLoader::GetFunctionAddress("ProcessPendingLicenseUpdates");
-    if (fnProc)
-        oProcessPendingLicenseUpdates = reinterpret_cast<ProcessPendingLicenseUpdates_t>(fnProc);
-
-    // 2. Attach hooks
+    // Attach hooks
     uintptr_t fnGetPkg = PatternLoader::GetFunctionAddress("GetPackageInfo");
     if (fnGetPkg) {
         ATTACH_HOOK(fnGetPkg, GetPackageInfo);
@@ -158,8 +140,6 @@ void Install() {
 void Uninstall() {}
 
 void SyncInjectedLicenses() {
-    UpdateInjectedPackages();
-    g_userNotified = false;
     NotifyLicensesChanged();
 }
 } // namespace Hooks_Package
