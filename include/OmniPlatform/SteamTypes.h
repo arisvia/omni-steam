@@ -8,9 +8,9 @@ using AppId_t = uint32_t;
 using DepotId_t = uint32_t;
 using PackageId_t = uint32_t;
 using ManifestId_t = uint64_t;
+using AccountID_t = uint32_t;
 using HSteamPipe = int32_t;
 using HSteamUser = int32_t;
-
 // Universal Base Package (Package 0) and Steam client internal access token
 inline constexpr PackageId_t kSteamDefaultBasePackageId = 0;
 inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 10660652434190618804ull;
