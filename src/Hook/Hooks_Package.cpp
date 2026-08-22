@@ -237,8 +237,22 @@ void Install() {
         spdlog::warn("Hooks_Package: GetPackageInfo signature not resolved");
     }
 
-    RESOLVE_HOOK(MarkLicenseAsChanged);
-    RESOLVE_HOOK(ProcessPendingLicenseUpdates);
+    uintptr_t fnMark = PatternLoader::GetFunctionAddress("MarkLicenseAsChanged");
+    if (fnMark) {
+        oMarkLicenseAsChanged = reinterpret_cast<MarkLicenseAsChanged_t>(fnMark);
+        spdlog::info("Hooks_Package: Resolved MarkLicenseAsChanged at {:p}", reinterpret_cast<void*>(fnMark));
+    } else {
+        spdlog::warn("Hooks_Package: MarkLicenseAsChanged signature not resolved");
+    }
+
+    uintptr_t fnProcess = PatternLoader::GetFunctionAddress("ProcessPendingLicenseUpdates");
+    if (fnProcess) {
+        oProcessPendingLicenseUpdates = reinterpret_cast<ProcessPendingLicenseUpdates_t>(fnProcess);
+        spdlog::info("Hooks_Package: Resolved ProcessPendingLicenseUpdates at {:p}",
+                     reinterpret_cast<void*>(fnProcess));
+    } else {
+        spdlog::warn("Hooks_Package: ProcessPendingLicenseUpdates signature not resolved");
+    }
 }
 
 void Uninstall() {}
