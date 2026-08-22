@@ -20,10 +20,12 @@ void* g_pInjectedPackage = nullptr;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
 
+RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
+RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
+
 std::vector<AppId_t> g_injectedAppIds;
 std::vector<DepotId_t> g_injectedDepotIds;
 static std::vector<AppId_t> g_staticAppBuffer;
-
 CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
     if (!pPkg)
         return nullptr;
@@ -70,11 +72,18 @@ bool InjectPackage0Apps(void* pPkg) {
     pAppIdVec->m_Memory.m_nGrowSize = 0;
     pAppIdVec->m_Size = static_cast<int>(g_staticAppBuffer.size());
     pAppIdVec->m_pElements = g_staticAppBuffer.data();
-
     g_pInjectedPackage = pPkg;
     spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 memory structure",
                  g_staticAppBuffer.size());
     return true;
+}
+
+void BroadcastLicenseUpdates() {
+    if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates) {
+        oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
+        oProcessPendingLicenseUpdates(g_pCUser);
+        spdlog::info("Hooks_Package: Dispatched AppLicensesChanged notification to Steam UI");
+    }
 }
 
 HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
@@ -86,6 +95,7 @@ HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t acces
     void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
     if (packageId == kInjectedPackageId && pPkg) {
         InjectPackage0Apps(pPkg);
+        BroadcastLicenseUpdates();
     }
     return pPkg;
 }
@@ -114,6 +124,8 @@ void UpdateInjectedPackages() {
     } else if (g_pCPackageInfo && oGetPackageInfo) {
         oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
     }
+
+    BroadcastLicenseUpdates();
 }
 
 void NotifyLicensesChanged() {
@@ -172,6 +184,18 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 
 namespace Hooks_Package {
 void Install() {
+    uintptr_t fnMark = PatternLoader::GetFunctionAddress("MarkLicenseAsChanged");
+    if (fnMark) {
+        oMarkLicenseAsChanged = reinterpret_cast<MarkLicenseAsChanged_t>(fnMark);
+        spdlog::info("Hooks_Package: Resolved MarkLicenseAsChanged at {:p}", reinterpret_cast<void*>(fnMark));
+    }
+
+    uintptr_t fnProc = PatternLoader::GetFunctionAddress("ProcessPendingLicenseUpdates");
+    if (fnProc) {
+        oProcessPendingLicenseUpdates = reinterpret_cast<ProcessPendingLicenseUpdates_t>(fnProc);
+        spdlog::info("Hooks_Package: Resolved ProcessPendingLicenseUpdates at {:p}", reinterpret_cast<void*>(fnProc));
+    }
+
     uintptr_t fnGetPkg = PatternLoader::GetFunctionAddress("GetPackageInfo");
     if (fnGetPkg) {
         ATTACH_HOOK(fnGetPkg, GetPackageInfo);
