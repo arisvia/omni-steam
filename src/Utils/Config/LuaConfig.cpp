@@ -23,7 +23,7 @@ std::unordered_set<uint32_t> g_unlockedApps;
 std::unordered_map<uint32_t, std::vector<uint8_t>> g_depotKeys;
 std::unordered_map<uint32_t, std::string> g_manifestIds;
 std::unordered_map<uint32_t, std::string> g_accessTokens;
-
+std::unordered_map<uint32_t, std::vector<std::string>> g_injectModules;
 static int Lua_AddAppId(lua_State* L) {
     int n = lua_gettop(L);
     if (n < 1)
@@ -99,6 +99,26 @@ static int Lua_SetETicket(lua_State* L) {
     }
     return 0;
 }
+
+static int Lua_AddInject(lua_State* L) {
+    int n = lua_gettop(L);
+    if (n < 1)
+        return 0;
+    uint32_t appId = 0;
+    const char* path = nullptr;
+    if (n >= 2 && lua_isnumber(L, 1) && lua_isstring(L, 2)) {
+        appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+        path = lua_tostring(L, 2);
+    } else if (n == 1 && lua_isstring(L, 1)) {
+        path = lua_tostring(L, 1);
+    }
+    if (path) {
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        g_injectModules[appId].emplace_back(path);
+        spdlog::info("Lua: addinject for app {} = {}", appId, path);
+    }
+    return 0;
+}
 } // namespace
 
 namespace LuaConfig {
@@ -145,7 +165,9 @@ void ParseFile(const std::string& filePath) {
     lua_register(L, "setappticket", Lua_SetAppTicket);
     lua_register(L, "setETicket", Lua_SetETicket);
     lua_register(L, "seteticket", Lua_SetETicket);
-
+    lua_register(L, "addinject", Lua_AddInject);
+    lua_register(L, "addInject", Lua_AddInject);
+    lua_register(L, "inject", Lua_AddInject);
     if (luaL_dofile(L, filePath.c_str()) != LUA_OK) {
         spdlog::error("Lua parse error {}: {}", filePath, lua_tostring(L, -1));
     }
@@ -203,6 +225,19 @@ std::string GetAccessToken(uint32_t appId) {
 std::unordered_set<uint32_t> GetUnlockedApps() {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     return g_unlockedApps;
+}
+
+std::vector<std::string> GetInjectModules(uint32_t appId) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    auto it = g_injectModules.find(appId);
+    if (it != g_injectModules.end()) {
+        return it->second;
+    }
+    auto itGlobal = g_injectModules.find(0);
+    if (itGlobal != g_injectModules.end()) {
+        return itGlobal->second;
+    }
+    return {};
 }
 
 } // namespace LuaConfig

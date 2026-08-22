@@ -51,14 +51,26 @@ void RegisterCoreSignatures() {
     // 64-bit Windows Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient64.dll", "48 8B C4 89 50 10 48 89 48 08 55 53", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "40 53 55 56 57 48 83 EC 38 48 63 FA 49 8B E9", 0);
+    RegisterPattern("GetPackageInfo", "steamclient64.dll",
+                    "48 89 5C 24 08 57 48 83 EC 20 49 8B F8 48 8B D9 8B CA 48 89 5C 24 30", 0);
+    RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
+    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 98 24 00 00 00",
+                    0);
 #elif defined(OMNI_PLATFORM_LINUX)
     // Linux ELF Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
+    RegisterPattern("GetPackageInfo", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
+    RegisterPattern("MarkLicenseAsChanged", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
+    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC",
+                    0);
 #elif defined(OMNI_PLATFORM_MACOS)
     // macOS Mach-O Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    RegisterPattern("GetPackageInfo", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    RegisterPattern("MarkLicenseAsChanged", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
 #endif
 }
 std::string GetCacheDirectory() {

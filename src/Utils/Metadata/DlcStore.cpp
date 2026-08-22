@@ -103,6 +103,11 @@ bool DlcStore::IsKnownDlc(uint32_t appId) {
     return g_knownDlcs.contains(appId);
 }
 
+std::vector<uint32_t> DlcStore::GetAllKnownDlcs() {
+    std::lock_guard<std::mutex> lock(g_dlcMutex);
+    return std::vector<uint32_t>(g_knownDlcs.begin(), g_knownDlcs.end());
+}
+
 void DlcStore::RegisterDlcs(uint32_t baseAppId, const std::vector<uint32_t>& dlcIds) {
     if (baseAppId == 0 || dlcIds.empty())
         return;
