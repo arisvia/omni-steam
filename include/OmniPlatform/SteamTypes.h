@@ -195,9 +195,9 @@ struct AppOwnership {
     AppId_t MasterSubscriptionAppID; // 0x0C
     uint32_t TrialSeconds;           // 0x10
     uint32_t ExistInPackageNums;     // 0x14
-    char PurchaseCountryCode[4];     // 0x18
-    uint32_t TimeStamp;              // 0x1C
-    uint32_t TimeExpire;             // 0x20
+    uint32_t TimeStamp;              // 0x18
+    uint32_t TimeExpire;             // 0x1C
+    uint32_t Unknown20;              // 0x20
     bool bOwnsLicense;               // 0x24
     bool bLicenseExpired;            // 0x25
     bool bIsPermanent;               // 0x26

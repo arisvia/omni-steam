@@ -232,6 +232,11 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             auto* pOwnership = reinterpret_cast<AppOwnership*>(pOwn);
             pOwnership->PackageId = kInjectedPackageId;
             pOwnership->ReleaseState = EAppReleaseState::Released;
+            if (g_pCUser) {
+                // Steam CUser has AccountID at offset 0x1E4
+                pOwnership->SteamId32 =
+                    *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_pCUser) + 0x1E4);
+            }
             pOwnership->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
             pOwnership->bOwnsLicense = true;
             pOwnership->bFreeLicense = false;

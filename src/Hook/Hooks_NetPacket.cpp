@@ -38,13 +38,13 @@ struct MsgHdr {
     uint32_t eMsg;
     uint32_t headerLength;
 };
+#pragma pack(pop)
 
 struct CNetPacket {
-    uint32_t m_hConnection;
+    void* m_pVTable;
     uint8_t* m_pubData;
     uint32_t m_cubData;
 };
-#pragma pack(pop)
 
 uint8_t g_RecvPacketPool[kPacketPoolSize][kMaxPacketSize];
 int g_RecvPacketPoolIdx = 0;
