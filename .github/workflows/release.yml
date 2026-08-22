@@ -2,11 +2,16 @@ name: Release OmniSteam
 
 on:
   push:
+    branches: [ main ]
     tags:
       - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build-release:
+  build-binaries:
     name: Build Release on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     defaults:
@@ -47,6 +52,7 @@ jobs:
           else
             sudo apt-get install -y libssl-dev libcurl4-openssl-dev
           fi
+
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -64,32 +70,77 @@ jobs:
 
           # Windows packaging
           if [ "${{ runner.os }}" = "Windows" ]; then
-            # Core Asset
             cp build/bin/Release/*dwmapi* dist/core/ 2>/dev/null || true
             cp build/bin/Release/*omnisteam.dll dist/core/ 2>/dev/null || true
             cp build/lib/*omnisteam.dll dist/core/ 2>/dev/null || true
             7z a "packages/omnisteam-core-${{ matrix.platform_id }}.zip" ./dist/core/*
 
-            # CLI Asset
             cp build/bin/Release/omnisteam.exe dist/cli/ 2>/dev/null || true
             cp build/bin/omnisteam.exe dist/cli/ 2>/dev/null || true
             7z a "packages/omnisteam-cli-${{ matrix.platform_id }}.zip" ./dist/cli/*
           else
             # Linux & macOS packaging
-            # Core Asset
             cp build/lib/*omnisteam* dist/core/ 2>/dev/null || true
             tar -czf "packages/omnisteam-core-${{ matrix.platform_id }}.tar.gz" -C dist/core .
 
-            # CLI Asset
             cp build/bin/omnisteam dist/cli/ 2>/dev/null || true
             tar -czf "packages/omnisteam-cli-${{ matrix.platform_id }}.tar.gz" -C dist/cli .
           fi
 
-      - name: Release Artifacts
-        uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload Binary Packages
+        uses: actions/upload-artifact@v7
         with:
-          files: |
-            packages/*
+          name: packages-${{ matrix.platform_id }}
+          path: packages/*
+
+  build-decky-plugin:
+    name: Package Decky Loader Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Package Decky Plugin
+        run: |
+          mkdir -p packages
+          if [ -d "plugins/decky-omnisteam" ]; then
+            (cd plugins/decky-omnisteam && zip -r "../../packages/decky-omnisteam.zip" . -x "*.git*" -x "node_modules/*")
+          fi
+      - name: Upload Decky Package
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-decky
+          path: packages/*
+
+  publish-release:
+    name: Publish Release Assets
+    needs: [build-binaries, build-decky-plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download all packages
+        uses: actions/download-artifact@v7
+        with:
+          path: all-packages
+          merge-multiple: true
+
+      - name: Determine Release Tag
+        id: release_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "release_name=Release ${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=latest" >> $GITHUB_OUTPUT
+            echo "release_name=OmniSteam Rolling Release" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag_name }}
+          name: ${{ steps.release_tag.outputs.release_name }}
+          prerelease: ${{ steps.release_tag.outputs.prerelease == 'true' }}
+          files: all-packages/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
