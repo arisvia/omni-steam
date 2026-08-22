@@ -8,10 +8,10 @@ class Paths {
 public:
     // 1. Steam Installation & Subdirectories
     static std::string GetSteamInstallPath();
+    static std::string GetSteamAppsPath();
     static std::string GetSteamLogsPath();
     static std::vector<std::string> GetCandidateLuaDirectories();
     static std::string GetDefaultLuaDirectory();
-
     // 2. OmniSteam Configuration, Cache, and Credentials
     static std::string GetConfigPath();
     static std::string GetConfigDirectory();

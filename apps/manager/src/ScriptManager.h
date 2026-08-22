@@ -33,6 +33,7 @@ public:
     static std::string GetDefaultLuaDirectory();
     static std::string GenerateLuaScript(const UnlockGameSpec& spec);
     static bool SaveGameUnlock(const UnlockGameSpec& spec, const std::string& targetDir = "");
+    static bool EnsureAppManifest(uint32_t appId, const std::string& appName = "");
     static std::vector<ScriptFileInfo> ListScripts(const std::string& targetDir = "");
     static bool ToggleScript(const std::string& filePath, bool enable);
     static bool DeleteScript(const std::string& filePath);

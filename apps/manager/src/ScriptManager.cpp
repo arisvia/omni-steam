@@ -107,6 +107,71 @@ std::string ScriptManager::GenerateLuaScript(const UnlockGameSpec& spec) {
     return oss.str();
 }
 
+bool ScriptManager::EnsureAppManifest(uint32_t appId, const std::string& appName) {
+    if (appId == 0)
+        return false;
+
+    std::string steamAppsDir = OmniPlatform::Paths::GetSteamAppsPath();
+    if (steamAppsDir.empty())
+        return false;
+
+    std::string manifestPath = steamAppsDir + "/appmanifest_" + std::to_string(appId) + ".acf";
+    if (fs::exists(manifestPath)) {
+        return true; // Already exists, do not overwrite user's install state
+    }
+
+    std::string name = appName.empty() ? ("App " + std::to_string(appId)) : appName;
+    std::string installDir = name;
+    // Sanitize installDir for directory name
+    std::replace_if(
+        installDir.begin(), installDir.end(),
+        [](char c) {
+            return c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' || c == '/' ||
+                   c == '\\';
+        },
+        '_');
+
+    std::ostringstream oss;
+    oss << "\"AppState\"\n"
+        << "{\n"
+        << "\t\"appid\"\t\t\"" << appId << "\"\n"
+        << "\t\"Universe\"\t\t\"1\"\n"
+        << "\t\"name\"\t\t\"" << name << "\"\n"
+        << "\t\"StateFlags\"\t\t\"1026\"\n"
+        << "\t\"installdir\"\t\t\"" << installDir << "\"\n"
+        << "\t\"LastUpdated\"\t\t\"0\"\n"
+        << "\t\"UpdateResult\"\t\t\"0\"\n"
+        << "\t\"SizeOnDisk\"\t\t\"0\"\n"
+        << "\t\"buildid\"\t\t\"0\"\n"
+        << "\t\"LastOwner\"\t\t\"0\"\n"
+        << "\t\"BytesToDownload\"\t\t\"0\"\n"
+        << "\t\"BytesDownloaded\"\t\t\"0\"\n"
+        << "\t\"AutoUpdateBehavior\"\t\t\"0\"\n"
+        << "\t\"AllowOtherDownloadsWhileRunning\"\t\t\"0\"\n"
+        << "\t\"ScheduledAutoUpdate\"\t\t\"0\"\n"
+        << "\t\"InstalledDepots\"\n"
+        << "\t{\n"
+        << "\t}\n"
+        << "\t\"UserConfig\"\n"
+        << "\t{\n"
+        << "\t\t\"language\"\t\t\"schinese\"\n"
+        << "\t}\n"
+        << "}\n";
+
+    try {
+        fs::create_directories(steamAppsDir);
+        std::ofstream out(manifestPath, std::ios::trunc);
+        if (out) {
+            out << oss.str();
+            spdlog::info("ScriptManager: Generated library manifest for AppID {} at {}", appId, manifestPath);
+            return true;
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("ScriptManager: Failed to write appmanifest for {}: {}", appId, e.what());
+    }
+    return false;
+}
+
 bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string& targetDir) {
     std::string dir = targetDir.empty() ? GetDefaultLuaDirectory() : targetDir;
     try {
@@ -123,6 +188,10 @@ bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string
 
         out << content;
         spdlog::info("ScriptManager: Successfully saved unlock script for {} to {}", spec.appId, fullPath);
+
+        // Pre-create appmanifest in steamapps so Steam UI immediately displays the game in Library
+        EnsureAppManifest(spec.appId, spec.gameName);
+
         return true;
     } catch (const std::exception& e) {
         spdlog::error("ScriptManager: Exception while saving script: {}", e.what());

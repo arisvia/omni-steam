@@ -71,6 +71,18 @@ std::string Paths::GetSteamInstallPath() {
 #endif
 }
 
+std::string Paths::GetSteamAppsPath() {
+    std::string steamBase = GetSteamInstallPath();
+    std::string steamAppsDir = (fs::path(steamBase) / "steamapps").generic_string();
+    try {
+        if (!fs::exists(steamAppsDir)) {
+            fs::create_directories(steamAppsDir);
+        }
+    } catch (...) {
+    }
+    return steamAppsDir;
+}
+
 std::string Paths::GetSteamLogsPath() {
     std::string steamBase = GetSteamInstallPath();
     std::string logsDir = (fs::path(steamBase) / "logs").generic_string();
