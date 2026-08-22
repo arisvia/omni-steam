@@ -80,7 +80,6 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
 
     return pPkg;
 }
-
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -88,14 +87,17 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         NotifyLicensesChanged();
     }
 
-    bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+    bool originalResult = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+    if (originalResult) {
+        // App is natively owned on Steam account; preserve legitimate package ID and license state
+        return true;
+    }
 
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
             if constexpr (sizeof(void*) == 8) {
                 // 64-bit SteamClient verified memory offsets (Windows x64, Linux x86_64, macOS)
-                *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId; // PackageId = 0
                 *reinterpret_cast<uint32_t*>(raw + 0x1C) =
                     static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
                 *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums = 1
@@ -105,17 +107,17 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
                 raw[0x34] = 1;
             } else {
                 // 32-bit SteamClient verified memory offsets (Linux i386)
-                *reinterpret_cast<uint32_t*>(raw + 0x00) = kInjectedPackageId;
                 *reinterpret_cast<uint32_t*>(raw + 0x04) = static_cast<uint32_t>(EAppReleaseState::Released);
                 *reinterpret_cast<uint32_t*>(raw + 0x08) = 1;
                 raw[0x0C] = 1; // bOwnsLicense
                 raw[0x0D] = 0; // bFreeLicense
             }
         }
-        spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> intercepted as OWNED", appId);
+        spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> unlocked via OmniSteam", appId);
         return true;
     }
-    return result;
+
+    return false;
 }
 } // namespace
 namespace Hooks_Package {
