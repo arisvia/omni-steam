@@ -3,8 +3,22 @@ name: OmniSteam CI
 on:
   push:
     branches: [ dev ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'assets/**'
+      - 'depotkeys.bin'
   pull_request:
     branches: [ main, dev ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'assets/**'
+      - 'depotkeys.bin'
   workflow_dispatch:
 jobs:
   build:

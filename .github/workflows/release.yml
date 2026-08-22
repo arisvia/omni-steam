@@ -3,6 +3,13 @@ name: Release OmniSteam
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'assets/**'
+      - 'depotkeys.bin'
     tags:
       - "v*"
   workflow_dispatch:
