@@ -186,7 +186,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             const auto* reqBody = reinterpret_cast<const MsgClientGetLegacyGameKey*>(pubData + sizeof(ExtendedMsgHdr));
             AppId_t appId = reqBody->m_unAppId;
 
-            if (LuaConfig::HasDepot(appId, false) || LuaConfig::GetAppOwnershipOverride(appId)) {
+            if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
                 std::string syntheticKey = "OMNI-STEAM-FREE-PLAY-KEY";
                 uint32_t cchKey = static_cast<uint32_t>(syntheticKey.size() + 1);
                 uint32_t totalSize = sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse) + cchKey;
