@@ -106,6 +106,19 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     return true;
 }
 
+HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
+    if (!g_pCPackageInfo) {
+        g_pCPackageInfo = pThis;
+        spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
+    }
+
+    void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
+    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
+        InitFakeLicenseOnce(reinterpret_cast<PackageInfo*>(pPkg));
+    }
+    return pPkg;
+}
+
 bool TryInitFakeLicenseOnce() {
     if (g_licenseInitialized)
         return true;
@@ -121,19 +134,6 @@ bool TryInitFakeLicenseOnce() {
         return InitFakeLicenseOnce(pPkg);
     }
     return false;
-}
-
-HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
-    if (!g_pCPackageInfo) {
-        g_pCPackageInfo = pThis;
-        spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
-    }
-
-    void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
-        InitFakeLicenseOnce(reinterpret_cast<PackageInfo*>(pPkg));
-    }
-    return pPkg;
 }
 
 void UpdateInjectedPackages() {
