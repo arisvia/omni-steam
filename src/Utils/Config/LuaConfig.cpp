@@ -199,6 +199,11 @@ bool HasApp(uint32_t appId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     return g_unlockedApps.find(appId) != g_unlockedApps.end() || g_depotKeys.find(appId) != g_depotKeys.end();
 }
+std::vector<uint8_t> GetDecryptionKey(uint32_t depotId) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    auto it = g_depotKeys.find(depotId);
+    return it != g_depotKeys.end() ? it->second : std::vector<uint8_t>{};
+}
 std::unordered_map<uint32_t, std::vector<uint8_t>> GetDepotKeys() {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     return g_depotKeys;
