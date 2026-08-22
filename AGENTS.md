@@ -20,7 +20,13 @@
 - **Rule**: Never rely on transitive includes. If a file uses any symbol from `<cstdint>`, `<vector>`, `<string>`, `<fstream>`, `<memory>`, `<mutex>`, `<algorithm>`, `<chrono>`, `<future>`, `<cstring>`, `<unordered_map>`, `<unordered_set>`, `<set>`, or `<regex>`, it MUST explicitly `#include` that header.
 - **Verification**: Run `python tools/check_code.py` before committing.
 
-### C. Preprocessor Directives & Platform Guards
+### C. Strict Type Safety & Cross-Compiler Arithmetic Discipline
+- **Rule**: 
+  1. **Pointer/Literal Concatenation**: NEVER use binary `+` directly between two raw pointer types (`const char* + const char[]`). When concatenating string literals or `constexpr` URL constants, at least the LHS MUST be explicitly typed as `std::string` or `std::string_view` (e.g. `std::string(kUrl) + "/" + id`).
+  2. **Type Conversions**: Avoid implicit narrowing or sign conversions in network/size computations; use explicit `static_cast` across `uint32_t`, `size_t`, and `int32_t`.
+  3. **Strict Clang/GCC Diagnostics**: Clang treats `-Wpointer-arith`, `-Winvalid-operands`, and `-Wreturn-type` as immediate build-breaking fatal errors.
+
+### D. Preprocessor Directives & Platform Guards
 - **Rule**: Every `#if`, `#ifdef`, and `#ifndef` MUST match exactly one `#endif`.
 - **Convention**: Always use the canonical platform macros:
   - `OMNI_PLATFORM_WINDOWS`
@@ -28,25 +34,25 @@
   - `OMNI_PLATFORM_MACOS`
   - `OMNI_ARCH_X64`, `OMNI_ARCH_X86`, `OMNI_ARCH_ARM64`
 
-### D. Return Paths in Non-Void Functions
+### E. Return Paths in Non-Void Functions
 - **Rule**: Every non-void function MUST guarantee a return value on all execution paths.
 - **Reason**: Clang `-Wreturn-type` is treated as a fatal compilation error.
 
-### E. JSON & Protobuf Parsing Robustness
+### F. JSON & Protobuf Parsing Robustness
 - **Rule**: When parsing external JSON APIs (e.g. Steam Store API) or Steam Protobuf network packets, NEVER assume fixed field order or rigid schemas. Match fields independently, parse Varint/Tags safely, and handle buffer boundary checks gracefully.
 
-### F. Centralized Endpoints & Steam Magic Constants
+### G. Centralized Endpoints & Steam Magic Constants
 - **Rule**: NEVER hardcode raw URL literals or Valve magic protocol tokens across implementation files.
 - **Convention**:
   - All external network URLs, GitHub asset paths, CDN mirrors, and WebAPI endpoints MUST reside in `include/OmniPlatform/OmniEndpoints.h` under their respective namespaces (`GitHub`, `Manifest`, `Stats`, `Steam`).
   - All Steam protocol magic tokens, package IDs, callback numbers, and internal structures MUST reside in `include/OmniPlatform/SteamTypes.h`.
 
-### G. Manager Architecture & Decoupling
+### H. Manager Architecture & Decoupling
 - **Rule**: 
   - The Manager dashboard MUST adhere to the 3-layer architecture (`StaticAssets`, `ApiRouter`, `WebServer`).
   - `DepotKeyStore` (230,000+ binary depot keys database & CDN sync) MUST remain strictly in Manager/CLI (business layer). Core Hook DLL (`libomnisteam`) MUST remain lightweight, loading keys and configurations solely from the Lua runtime.
 
-### H. Core Hook Architecture & Specifications
+### I. Core Hook Architecture & Specifications
 - **Package 0 Dynamic Memory Expansion (`Hooks_Package`)**:
   - Unlocked AppIDs (Games & DLCs) and DepotIDs MUST be injected into Package 0 using Valve's exported `CUtlMemoryGrow` memory expansion routine to prevent memory corruption of `DepotIdVec`.
   - AppIDs and DepotIDs MUST be strictly separated: AppIDs in `AppIdVec` (for PICS metadata), DepotIDs in `DepotIdVec`.
@@ -59,6 +65,9 @@
 - **Network Packet Interception (`Hooks_NetPacket`)**:
   - Intercept `BBuildAndAsyncSendFrame` (eMsg 151) and `RecvPkt` (eMsg 147) for `ContentServerDirectory.GetManifestRequestCode#1`.
   - Asynchronously fetch 64-bit manifest request codes from `OmniEndpoints::Manifest` and inject `eresult = k_EResultOK` (1) with the request code to enable seamless CDN downloads without "No Internet Connection" failures.
+  - Intercept Legacy CD-Key requests (eMsg 730) and synthesize eMsg 785 locally to bypass third-party launcher CD-Key modal locks.
+- **OnlineFix & P2P Matchmaking (`Hooks_Misc`)**:
+  - Intercept `SpawnProcess` to detect `-onlinefix`, spoofing AppID to 480 (Spacewar) while routing `OptedInMask` back to the real AppID for full controller/overlay functionality.
 - **Anti-Cheat Stealth Whitelist (`AntiCheatGuard`)**:
   - Competitive multiplayer games (CS2, Dota 2, TF2, Apex, etc.) MUST be recognized and transparently passed through to native Steam routines to prevent anti-cheat triggers.
 
