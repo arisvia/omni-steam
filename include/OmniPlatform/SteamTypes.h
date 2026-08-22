@@ -15,6 +15,9 @@ using HSteamUser = int32_t;
 inline constexpr PackageId_t kSteamDefaultBasePackageId = 0;
 inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 10660652434190618804ull;
 
+// OnlineFix Spacewar P2P AppID
+inline constexpr AppId_t kOnlineFixAppId = 480;
+
 // Default synthesized license count for unowned standalone apps & DLCs
 inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
 // Steam AppState Manifest Magic Flags
