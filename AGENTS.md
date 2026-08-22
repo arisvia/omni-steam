@@ -47,6 +47,11 @@
   - `ApiRouter.h/.cpp`: `/api/*` REST routing, request payload parsing, and response serialization.
   - `WebServer.h/.cpp`: Pure TCP socket lifecycle, listening loop, and connection management.
 
+### H. Steam Hook Architecture & Minimal Intrusiveness
+- **Rule**: OmniSteam operates strictly on terminal decision-point hooks (`CheckAppOwnership` for app/DLC entitlement and `ConfigStore_GetBinary` for depot decryption keys). NEVER hook or tamper with Steam internal PICS package metadata pipelines (e.g. `GetPackageInfo`, `PackageInfoMgr`, or broadcasting `MarkLicenseAsChanged` for synthetic Package 0).
+- **Reason**: 64-bit SteamClient enforces asynchronous PICS cloud metadata synchronization. Faking or altering packages forces Steam to query Valve servers for nonexistent packages, causing indefinite "Loading user data..." network hangs and CPackageInfo hash-table memory corruption.
+- **Convention**: All entitlement overrides MUST occur cleanly within `CheckAppOwnership` using canonical `SteamOffsets::Ownership64` and `SteamOffsets::Ownership32` constants (`ExistInPackageNums`, `ReleaseState = Released`, `bOwnsLicense = true`, `bIsSubscribed = true`), strictly preserving native positive responses.
+
 ---
 
 ## 3. Pre-Commit Quality Checks
@@ -57,4 +62,4 @@ python tools/check_code.py --fix
 This script automatically:
 1. Validates standard include headers.
 2. Checks delimiter and preprocessor balance.
-3. Formats all 78+ C++ files with `clang-format`.
+3. Formats all 84+ C++ files with `clang-format`.
