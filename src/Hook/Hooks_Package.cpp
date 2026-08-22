@@ -98,19 +98,22 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
             if constexpr (sizeof(void*) == 8) {
                 // 64-bit SteamClient verified memory offsets (Windows x64, Linux x86_64, macOS)
+                *reinterpret_cast<uint32_t*>(raw + 0x14) = 1; // ExistInPackageNums = 1 (CRITICAL)
                 *reinterpret_cast<uint32_t*>(raw + 0x1C) =
                     static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
-                *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums = 1
+                *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums fallback
                 raw[0x28] = 1;                                         // bOwnsLicense = true
                 raw[0x30] = 1;                                         // bIsSubscribed = true
+                raw[0x32] = 1;
                 raw[0x33] = 1;
                 raw[0x34] = 1;
             } else {
                 // 32-bit SteamClient verified memory offsets (Linux i386)
                 *reinterpret_cast<uint32_t*>(raw + 0x04) = static_cast<uint32_t>(EAppReleaseState::Released);
-                *reinterpret_cast<uint32_t*>(raw + 0x08) = 1;
-                raw[0x0C] = 1; // bOwnsLicense
-                raw[0x0D] = 0; // bFreeLicense
+                *reinterpret_cast<uint32_t*>(raw + 0x08) = 1; // ExistInPackageNums = 1
+                raw[0x0C] = 1;                                // bOwnsLicense
+                raw[0x0D] = 0;                                // bFreeLicense
+                raw[0x10] = 1;                                // bIsSubscribed
             }
         }
         spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> unlocked via OmniSteam", appId);
