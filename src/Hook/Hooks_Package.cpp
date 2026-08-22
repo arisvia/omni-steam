@@ -14,6 +14,7 @@
 
 namespace {
 
+void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 
