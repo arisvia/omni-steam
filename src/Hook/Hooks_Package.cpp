@@ -21,10 +21,10 @@ void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 void* g_pInjectedPackage = nullptr;
 bool g_licenseInitialized = false;
+bool g_licenseRefreshPending = false;
 bool g_inBroadcast = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
-
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
@@ -50,6 +50,26 @@ CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
         }
     }
     return nullptr;
+}
+
+bool MarkLicenseAsChangedAndProcessUpdates() {
+    if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates || g_inBroadcast) {
+        return false;
+    }
+    g_inBroadcast = true;
+    oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
+    oProcessPendingLicenseUpdates(g_pCUser);
+    g_inBroadcast = false;
+    spdlog::info("Hooks_Package: Dispatched AppLicensesChanged notification to Steam UI");
+    return true;
+}
+
+void TryProcessPendingLicenseRefresh() {
+    if (!g_licenseRefreshPending)
+        return;
+    if (MarkLicenseAsChangedAndProcessUpdates()) {
+        g_licenseRefreshPending = false;
+    }
 }
 
 bool InjectPackage0Apps(void* pPkg) {
@@ -86,22 +106,16 @@ bool InjectPackage0Apps(void* pPkg) {
 
     g_pInjectedPackage = pPkg;
     g_licenseInitialized = true;
+    g_licenseRefreshPending = true;
     spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 memory structure",
                  g_staticAppBuffer.size());
+    TryProcessPendingLicenseRefresh();
     return true;
 }
 
 void BroadcastLicenseUpdates() {
-    if (g_inBroadcast)
-        return;
-
-    if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates) {
-        g_inBroadcast = true;
-        oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
-        oProcessPendingLicenseUpdates(g_pCUser);
-        g_inBroadcast = false;
-        spdlog::info("Hooks_Package: Dispatched AppLicensesChanged notification to Steam UI");
-    }
+    g_licenseRefreshPending = true;
+    TryProcessPendingLicenseRefresh();
 }
 
 HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
@@ -156,13 +170,13 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
-        if (g_licenseInitialized) {
-            BroadcastLicenseUpdates();
-        } else if (g_pCPackageInfo && oGetPackageInfo) {
-            oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
-            BroadcastLicenseUpdates();
-        }
     }
+
+    if (!g_licenseInitialized && g_pCPackageInfo && oGetPackageInfo) {
+        oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
+    }
+
+    TryProcessPendingLicenseRefresh();
 
     // 1. Anti-Cheat Protected Game Check -> Silent bypass to native logic to guarantee account safety
     if (Security::AntiCheatGuard::IsProtectedApp(appId)) {
@@ -184,30 +198,14 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 
     if (isUnlocked) {
         if (pOwn) {
-            uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
-            if constexpr (sizeof(void*) == 8) {
-                // 64-bit SteamClient verified memory offsets (Windows x64, Linux x86_64, macOS)
-                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kExistInPackageNums) =
-                    kSteamDefaultInjectedPackageCount;
-                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kReleaseState) =
-                    static_cast<uint32_t>(EAppReleaseState::Released);
-                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kExistInPackageNumsFallback) =
-                    kSteamDefaultInjectedPackageCount;
-                raw[SteamOffsets::Ownership64::kOwnsLicense] = 1;
-                raw[SteamOffsets::Ownership64::kIsSubscribed] = 1;
-                raw[SteamOffsets::Ownership64::kActiveFlag1] = 1;
-                raw[SteamOffsets::Ownership64::kActiveFlag2] = 1;
-                raw[SteamOffsets::Ownership64::kActiveFlag3] = 1;
-            } else {
-                // 32-bit SteamClient verified memory offsets (Linux i386)
-                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership32::kReleaseState) =
-                    static_cast<uint32_t>(EAppReleaseState::Released);
-                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership32::kExistInPackageNums) =
-                    kSteamDefaultInjectedPackageCount;
-                raw[SteamOffsets::Ownership32::kOwnsLicense] = 1;
-                raw[SteamOffsets::Ownership32::kFreeLicense] = 0;
-                raw[SteamOffsets::Ownership32::kIsSubscribed] = 1;
-            }
+            auto* pOwnership = reinterpret_cast<AppOwnership*>(pOwn);
+            pOwnership->PackageId = kInjectedPackageId;
+            pOwnership->ReleaseState = EAppReleaseState::Released;
+            pOwnership->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
+            pOwnership->bOwnsLicense = true;
+            pOwnership->bFreeLicense = false;
+            pOwnership->bBorrowed = false;
+            pOwnership->bFamilyShared = false;
         }
         spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> unlocked via OmniSteam", appId);
         return true;

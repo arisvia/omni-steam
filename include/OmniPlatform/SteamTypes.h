@@ -145,14 +145,36 @@ inline constexpr size_t kDepotIdVecSize = 0x30;
 } // namespace SteamOffsets
 
 // ==============================================================================
-// Steam Client Ownership & License Structures (Legacy References)
+// Steam Client Ownership & License Structures
 // ==============================================================================
 struct AppOwnership {
-    uint32_t PackageId;
-    EAppReleaseState ReleaseState;
-    uint32_t ExistInPackageNums;
-    bool bOwnsLicense;
-    bool bFreeLicense;
+    PackageId_t PackageId;           // 0x00
+    EAppReleaseState ReleaseState;   // 0x04
+    AccountID_t SteamId32;           // 0x08
+    AppId_t MasterSubscriptionAppID; // 0x0C
+    uint32_t TrialSeconds;           // 0x10
+    uint32_t ExistInPackageNums;     // 0x14
+    char PurchaseCountryCode[4];     // 0x18
+    uint32_t TimeStamp;              // 0x1C
+    uint32_t TimeExpire;             // 0x20
+    bool bOwnsLicense;               // 0x24
+    bool bLicenseExpired;            // 0x25
+    bool bIsPermanent;               // 0x26
+    bool bLowViolence;               // 0x27
+    bool bFreeLicense;               // 0x28
+    bool bRegionRestricted;          // 0x29
+    bool bFromFreeWeekend;           // 0x2A
+    bool bLicenseLocked;             // 0x2B
+    bool bLicensePending;            // 0x2C
+    bool bRetailLicense;             // 0x2D
+    bool bAutoGrant;                 // 0x2E
+    bool bLicensePermanent;          // 0x2F
+    bool bGuestPass;                 // 0x30
+    bool bBorrowed;                  // 0x31
+    bool bAnySiteLicense;            // 0x32
+    bool bAllSiteLicenses;           // 0x33
+    bool bAllActivationRequired;     // 0x34
+    bool bFamilyShared;              // 0x35
 };
 
 struct PackageInfo {
