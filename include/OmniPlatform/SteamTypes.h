@@ -75,7 +75,6 @@ template <typename T> struct CUtlMemory {
 template <typename T> struct CUtlVector {
     CUtlMemory<T> m_Memory;
     int m_Size;
-    T* m_pElements;
 };
 
 // ==============================================================================
@@ -96,8 +95,8 @@ enum class EAppReleaseState : uint32_t {
     Released = 4,
     Disabled = 5
 };
-enum class EPackageStatus : uint32_t { Invalid = 0, Unknown = 1, Preorder = 2, Available = 3 };
 
+enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable = 2, Invalid = 3 };
 // ==============================================================================
 // Steam Client Verified Structure Offsets (Windows x64 / Linux / macOS vs 32-bit)
 // ==============================================================================
@@ -178,12 +177,15 @@ struct AppOwnership {
 };
 
 struct PackageInfo {
-    uint32_t PackageId;
-    EPackageStatus Status;
-    uint32_t BillingType;
-    uint32_t LicenseFlags;
-    CUtlVector<AppId_t> AppIdVec;
-    CUtlVector<DepotId_t> DepotIdVec;
-    uint32_t PackageFlags;
-    uint32_t AccountId;
+    PackageId_t PackageId;            // 0x00
+    int32_t ChangeNumber;             // 0x04
+    uint64_t PICS_token;              // 0x08
+    uint32_t BillingType;             // 0x10
+    uint32_t LicenseType;             // 0x14
+    EPackageStatus Status;            // 0x18
+    uint8_t SHA_1_Hash[20];           // 0x1C
+    void* pPackageInfoNodeBegin;      // 0x30
+    void* pExtendNodeBegin;           // 0x38
+    CUtlVector<AppId_t> AppIdVec;     // 0x40
+    CUtlVector<DepotId_t> DepotIdVec; // 0x58
 };

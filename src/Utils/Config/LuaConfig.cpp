@@ -227,6 +227,14 @@ std::unordered_set<uint32_t> GetUnlockedApps() {
     return g_unlockedApps;
 }
 
+std::vector<uint32_t> GetAllDepotIds() {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    std::unordered_set<uint32_t> unique(g_unlockedApps.begin(), g_unlockedApps.end());
+    for (const auto& [depotId, _] : g_depotKeys) {
+        unique.insert(depotId);
+    }
+    return std::vector<uint32_t>(unique.begin(), unique.end());
+}
 std::vector<std::string> GetInjectModules(uint32_t appId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     auto it = g_injectModules.find(appId);

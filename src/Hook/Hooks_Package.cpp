@@ -3,6 +3,7 @@
 #include <set>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -19,37 +20,26 @@ namespace {
 
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
-void* g_pInjectedPackage = nullptr;
+PackageInfo* g_pInjectedPackage = nullptr;
 bool g_licenseInitialized = false;
 bool g_licenseRefreshPending = false;
 bool g_inBroadcast = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
+
+RESOLVE_FUNC(CUtlMemoryGrow, void*, void*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
 std::vector<AppId_t> g_injectedAppIds;
 std::vector<DepotId_t> g_injectedDepotIds;
-static std::vector<AppId_t> g_staticAppBuffer;
 
-CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
-    if (!pPkg)
-        return nullptr;
-    auto* base = reinterpret_cast<uint8_t*>(pPkg);
-
-    // Check known candidate offsets for AppIdVec in 64-bit/32-bit Steamclient PackageInfo
-    for (size_t offset : {0x10, 0x40, 0x20, 0x18, 0x38, 0x28, 0x30, 0x08}) {
-        auto* vec = reinterpret_cast<CUtlVector<AppId_t>*>(base + offset);
-        if (vec->m_Size >= 0 && vec->m_Size < 100000 && vec->m_Memory.m_nAllocationCount >= 0 &&
-            vec->m_Memory.m_nAllocationCount < 100000 && vec->m_Size <= vec->m_Memory.m_nAllocationCount) {
-            if (vec->m_Size > 0 && vec->m_Memory.m_pMemory == nullptr)
-                continue;
-            spdlog::info("Hooks_Package: Resolved AppIdVec at offset 0x{:X} (Size: {}, Capacity: {})", offset,
-                         vec->m_Size, vec->m_Memory.m_nAllocationCount);
-            return vec;
-        }
+bool CUtlMemoryGrowWrap(CUtlVector<AppId_t>* pVec, int grow_size) {
+    if (!oCUtlMemoryGrow) {
+        spdlog::warn("Hooks_Package: oCUtlMemoryGrow not ready, cannot grow");
+        return false;
     }
-    return nullptr;
+    return oCUtlMemoryGrow(pVec, grow_size) != nullptr;
 }
 
 bool MarkLicenseAsChangedAndProcessUpdates() {
@@ -72,50 +62,65 @@ void TryProcessPendingLicenseRefresh() {
     }
 }
 
-bool InjectPackage0Apps(void* pPkg) {
+bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     if (!pPkg)
         return false;
 
-    auto* pAppIdVec = FindAppIdVector(pPkg);
-    if (!pAppIdVec) {
-        spdlog::warn("Hooks_Package: Could not resolve AppIdVec in Package 0");
+    // Check package status
+    if (pPkg->Status != EPackageStatus::Available) {
+        spdlog::warn("Hooks_Package: Package 0 status is not Available ({}), skipping injection",
+                     static_cast<int>(pPkg->Status));
         return false;
     }
 
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::set<AppId_t> allApps(unlockedApps.begin(), unlockedApps.end());
-
+    std::vector<AppId_t> appIds = LuaConfig::GetAllDepotIds();
     if (Config::IsAutoUnlockDlcEnabled()) {
         auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
-        allApps.insert(autoDlcs.begin(), autoDlcs.end());
+        appIds.insert(appIds.end(), autoDlcs.begin(), autoDlcs.end());
+        std::unordered_set<AppId_t> dedup(appIds.begin(), appIds.end());
+        appIds.assign(dedup.begin(), dedup.end());
     }
 
-    // Preserve existing AppIDs in Package 0
-    if (pAppIdVec->m_Memory.m_pMemory && pAppIdVec->m_Size > 0) {
-        for (int i = 0; i < pAppIdVec->m_Size; ++i) {
-            allApps.insert(pAppIdVec->m_Memory.m_pMemory[i]);
+    if (!appIds.empty()) {
+        uint32_t oldSize = static_cast<uint32_t>(pPkg->AppIdVec.m_Size);
+        uint32_t numToAdd = static_cast<uint32_t>(appIds.size());
+        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): adding {} apps, oldSize={}", numToAdd, oldSize);
+
+        if (!CUtlMemoryGrowWrap(&pPkg->AppIdVec, static_cast<int>(numToAdd))) {
+            spdlog::warn("Hooks_Package: Failed to grow Package 0 AppId vector via CUtlMemoryGrow");
+            return false;
         }
-    }
 
-    g_staticAppBuffer.assign(allApps.begin(), allApps.end());
-    pAppIdVec->m_Memory.m_pMemory = g_staticAppBuffer.data();
-    pAppIdVec->m_Memory.m_nAllocationCount = static_cast<int>(g_staticAppBuffer.size());
-    pAppIdVec->m_Memory.m_nGrowSize = 0;
-    pAppIdVec->m_Size = static_cast<int>(g_staticAppBuffer.size());
-    pAppIdVec->m_pElements = g_staticAppBuffer.data();
+        for (uint32_t i = 0; i < numToAdd; ++i) {
+            pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
+        }
+        pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
+    }
 
     g_pInjectedPackage = pPkg;
     g_licenseInitialized = true;
     g_licenseRefreshPending = true;
-    spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 memory structure",
-                 g_staticAppBuffer.size());
+    spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 (Total Size: {})", appIds.size(),
+                 pPkg->AppIdVec.m_Size);
     TryProcessPendingLicenseRefresh();
     return true;
 }
 
-void BroadcastLicenseUpdates() {
-    g_licenseRefreshPending = true;
-    TryProcessPendingLicenseRefresh();
+bool TryInitFakeLicenseOnce() {
+    if (g_licenseInitialized)
+        return true;
+    if (g_pCPackageInfo && oGetPackageInfo) {
+        PackageInfo* pPkg = reinterpret_cast<PackageInfo*>(
+            oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken));
+        if (!pPkg) {
+            spdlog::warn("Hooks_Package: GetPackageInfo returned null for injected package");
+            return false;
+        }
+        if (!g_pInjectedPackage)
+            g_pInjectedPackage = pPkg;
+        return InitFakeLicenseOnce(pPkg);
+    }
+    return false;
 }
 
 HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
@@ -126,7 +131,7 @@ HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t acces
 
     void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
     if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
-        InjectPackage0Apps(pPkg);
+        InitFakeLicenseOnce(reinterpret_cast<PackageInfo*>(pPkg));
     }
     return pPkg;
 }
@@ -152,12 +157,13 @@ void UpdateInjectedPackages() {
 
     // If Package 0 is already captured, trigger hot re-injection
     if (g_pInjectedPackage) {
-        InjectPackage0Apps(g_pInjectedPackage);
+        InitFakeLicenseOnce(g_pInjectedPackage);
     } else if (g_pCPackageInfo && oGetPackageInfo) {
         oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
     }
 
-    BroadcastLicenseUpdates();
+    g_licenseRefreshPending = true;
+    TryProcessPendingLicenseRefresh();
 }
 
 void NotifyLicensesChanged() {
@@ -172,20 +178,17 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
     }
 
-    if (!g_licenseInitialized && g_pCPackageInfo && oGetPackageInfo) {
-        oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
-    }
-
+    bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+    TryInitFakeLicenseOnce();
     TryProcessPendingLicenseRefresh();
 
     // 1. Anti-Cheat Protected Game Check -> Silent bypass to native logic to guarantee account safety
     if (Security::AntiCheatGuard::IsProtectedApp(appId)) {
         spdlog::debug("Hooks_Package: AppID {} is protected by anti-cheat whitelist; executing native check", appId);
-        return oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+        return result;
     }
 
-    bool originalResult = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
-    if (originalResult) {
+    if (result) {
         // App is natively owned on Steam account; trigger async DLC discovery for base game
         if (Config::IsAutoUnlockDlcEnabled()) {
             Metadata::DlcStore::AsyncFetchAppDlcs(appId);
@@ -217,6 +220,14 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 
 namespace Hooks_Package {
 void Install() {
+    uintptr_t fnGrow = PatternLoader::GetFunctionAddress("CUtlMemoryGrow");
+    if (fnGrow) {
+        oCUtlMemoryGrow = reinterpret_cast<CUtlMemoryGrow_t>(fnGrow);
+        spdlog::info("Hooks_Package: Resolved CUtlMemoryGrow at {:p}", reinterpret_cast<void*>(fnGrow));
+    } else {
+        spdlog::warn("Hooks_Package: CUtlMemoryGrow signature not resolved");
+    }
+
     uintptr_t fnCheck = PatternLoader::GetFunctionAddress("CheckAppOwnership");
     if (fnCheck) {
         ATTACH_HOOK(fnCheck, CheckAppOwnership);

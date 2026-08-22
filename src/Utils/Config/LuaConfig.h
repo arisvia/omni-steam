@@ -16,5 +16,6 @@ std::unordered_map<uint32_t, std::vector<uint8_t>> GetDepotKeys();
 std::string GetManifestId(uint32_t depotId);
 std::string GetAccessToken(uint32_t appId);
 std::unordered_set<uint32_t> GetUnlockedApps();
+std::vector<uint32_t> GetAllDepotIds();
 std::vector<std::string> GetInjectModules(uint32_t appId);
 } // namespace LuaConfig
