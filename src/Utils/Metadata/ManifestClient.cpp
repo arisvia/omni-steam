@@ -67,5 +67,68 @@ std::string QueryManifestIdByDepot(uint32_t depotId) {
     }
     return "";
 }
+bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
+    if (!outCode || manifestGid == 0)
+        return false;
+
+    *outCode = 0;
+    std::string gidStr = std::to_string(manifestGid);
+
+    // 1. Try primary OpenSteamTool manifest endpoint
+    std::string url1 = OmniEndpoints::Manifest::kOpenSteamToolUrl + "/" + gidStr;
+    auto resp1 = OmniPlatform::Http::Get(url1, 6000);
+    if (resp1.statusCode == 200 && !resp1.body.empty()) {
+        try {
+            *outCode = std::stoull(resp1.body);
+            if (*outCode != 0) {
+                spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via OpenSteamTool", *outCode,
+                             manifestGid);
+                return true;
+            }
+        } catch (...) {
+        }
+    }
+
+    // 2. Try WuDrm endpoint
+    std::string url2 = OmniEndpoints::Manifest::kWuDrmUrl + "/" + gidStr;
+    auto resp2 = OmniPlatform::Http::Get(url2, 6000);
+    if (resp2.statusCode == 200 && !resp2.body.empty()) {
+        try {
+            *outCode = std::stoull(resp2.body);
+            if (*outCode != 0) {
+                spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via WuDrm", *outCode,
+                             manifestGid);
+                return true;
+            }
+        } catch (...) {
+        }
+    }
+
+    // 3. Try SteamRun endpoint (JSON format: {"content":"..."})
+    std::string url3 = OmniEndpoints::Manifest::kSteamRunUrl + "/" + gidStr;
+    auto resp3 = OmniPlatform::Http::Get(url3, 6000);
+    if (resp3.statusCode == 200 && !resp3.body.empty()) {
+        size_t pos = resp3.body.find("\"content\"");
+        if (pos != std::string::npos) {
+            size_t q1 = resp3.body.find('"', pos + 9);
+            size_t q2 = (q1 != std::string::npos) ? resp3.body.find('"', q1 + 1) : std::string::npos;
+            if (q1 != std::string::npos && q2 != std::string::npos) {
+                try {
+                    *outCode = std::stoull(resp3.body.substr(q1 + 1, q2 - q1 - 1));
+                    if (*outCode != 0) {
+                        spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via SteamRun",
+                                     *outCode, manifestGid);
+                        return true;
+                    }
+                } catch (...) {
+                }
+            }
+        }
+    }
+
+    spdlog::warn("ManifestClient: Failed to resolve manifest request code for GID {} across all upstreams",
+                 manifestGid);
+    return false;
+}
 
 } // namespace ManifestClient

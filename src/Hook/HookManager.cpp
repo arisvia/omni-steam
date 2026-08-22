@@ -16,11 +16,18 @@ namespace Hooks_Manifest {
 void Install();
 void Uninstall();
 } // namespace Hooks_Manifest
+namespace Hooks_NetPacket {
+void Install();
+void Uninstall();
+} // namespace Hooks_NetPacket
 namespace Hooks_Package {
 void Install();
 void Uninstall();
 } // namespace Hooks_Package
-
+namespace Hooks_SteamUI {
+void Install();
+void Uninstall();
+} // namespace Hooks_SteamUI
 namespace HookManager {
 
 void InstallHooks() {
@@ -29,8 +36,9 @@ void InstallHooks() {
     Hooks_Decryption::Install();
     Hooks_IPC::Install();
     Hooks_Manifest::Install();
+    Hooks_NetPacket::Install();
     Hooks_Package::Install();
-
+    Hooks_SteamUI::Install();
     if (OmniPlatform::Detour::CommitTransaction()) {
         spdlog::info("OmniSteam hooks installed successfully across current platform");
     } else {
@@ -42,8 +50,9 @@ void UninstallHooks() {
     Hooks_Decryption::Uninstall();
     Hooks_IPC::Uninstall();
     Hooks_Manifest::Uninstall();
+    Hooks_NetPacket::Uninstall();
     Hooks_Package::Uninstall();
-    spdlog::info("OmniSteam hooks uninstalled");
+    Hooks_SteamUI::Uninstall();
 }
 
 } // namespace HookManager

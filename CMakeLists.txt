@@ -254,7 +254,9 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
     src/Hook/Hooks_Manifest.cpp
+    src/Hook/Hooks_NetPacket.cpp
     src/Hook/Hooks_Package.cpp
+    src/Hook/Hooks_SteamUI.cpp
 )
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
 set_target_properties(omnisteam_core PROPERTIES

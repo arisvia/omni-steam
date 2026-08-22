@@ -16,5 +16,6 @@ struct ManifestDownloadResult {
 
 ManifestDownloadResult RequestManifest(uint32_t depotId, uint64_t manifestId, const std::string& upstreamEndpoint = "");
 std::string QueryManifestIdByDepot(uint32_t depotId);
+bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode);
 
 } // namespace ManifestClient

@@ -56,6 +56,11 @@ void RegisterCoreSignatures() {
     RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
     RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 98 24 00 00 00",
                     0);
+    RegisterPattern("BBuildAndAsyncSendFrame", "steamclient64.dll",
+                    "48 8B C4 55 48 8D 68 A1 48 81 EC C0 00 00 00 48 89 70 18", 0);
+    RegisterPattern("RecvPkt", "steamclient64.dll", "48 8B C4 55 48 8D A8 98 F6 FF FF", 0);
+    RegisterPattern("FillInAppOverview", "steamui.dll",
+                    "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
     // Linux ELF Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
