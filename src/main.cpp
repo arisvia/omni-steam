@@ -128,10 +128,12 @@ static void InitializeOmniSteam() {
         }
 
         if (!watchDirs.empty()) {
-            OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [](const std::string& path, bool isDir) {
+            OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [watchDirs](const std::string& path, bool isDir) {
                 if (!isDir && path.ends_with(".lua")) {
-                    spdlog::info("Hot reload Lua: {}", path);
-                    LuaConfig::ParseFile(path);
+                    spdlog::info("Hot reload: Lua configuration modified ({}), refreshing in-memory licenses...", path);
+                    for (const auto& d : watchDirs) {
+                        LuaConfig::ReloadDirectories(d);
+                    }
                     Hooks_Package::SyncInjectedLicenses();
                 }
             });

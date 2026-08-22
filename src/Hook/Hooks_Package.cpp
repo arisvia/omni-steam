@@ -1,3 +1,5 @@
+#include "Hooks_Package.h"
+
 #include <cstdint>
 #include <cstring>
 #include <set>
@@ -292,7 +294,11 @@ void Install() {
 
 void Uninstall() {}
 
+void NotifyLicenseChanged() {
+    MarkLicenseAsChangedAndProcessUpdates();
+}
+
 void SyncInjectedLicenses() {
-    NotifyLicensesChanged();
+    NotifyLicenseChanged();
 }
 } // namespace Hooks_Package

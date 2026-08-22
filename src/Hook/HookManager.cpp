@@ -16,6 +16,10 @@ namespace Hooks_Manifest {
 void Install();
 void Uninstall();
 } // namespace Hooks_Manifest
+namespace Hooks_Misc {
+void Install();
+void Uninstall();
+} // namespace Hooks_Misc
 namespace Hooks_NetPacket {
 void Install();
 void Uninstall();
@@ -36,6 +40,7 @@ void InstallHooks() {
     Hooks_Decryption::Install();
     Hooks_IPC::Install();
     Hooks_Manifest::Install();
+    Hooks_Misc::Install();
     Hooks_NetPacket::Install();
     Hooks_Package::Install();
     Hooks_SteamUI::Install();
@@ -50,6 +55,7 @@ void UninstallHooks() {
     Hooks_Decryption::Uninstall();
     Hooks_IPC::Uninstall();
     Hooks_Manifest::Uninstall();
+    Hooks_Misc::Uninstall();
     Hooks_NetPacket::Uninstall();
     Hooks_Package::Uninstall();
     Hooks_SteamUI::Uninstall();

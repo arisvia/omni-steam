@@ -190,6 +190,19 @@ void ParseDirectory(const std::string& dirPath) {
     }
 }
 
+void ReloadDirectories(const std::string& dirPath) {
+    {
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        g_unlockedApps.clear();
+        g_depotKeys.clear();
+        g_manifestIds.clear();
+        g_accessTokens.clear();
+        g_injectModules.clear();
+    }
+    spdlog::info("LuaConfig: Cleared in-memory cache, reloading from {}", dirPath);
+    ParseDirectory(dirPath);
+}
+
 bool HasDepot(uint32_t depotId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     return g_depotKeys.find(depotId) != g_depotKeys.end() || g_unlockedApps.find(depotId) != g_unlockedApps.end();

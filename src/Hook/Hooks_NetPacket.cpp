@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <future>
 #include <mutex>
 #include <spdlog/spdlog.h>
@@ -11,12 +12,14 @@
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/SteamTypes.h"
 
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/ManifestClient.h"
 #include "Utils/Metadata/PatternLoader.h"
 
 #include "Hook/HookMacros.h"
+#include "Hook/Hooks_Misc.h"
 
 namespace {
 
@@ -48,6 +51,9 @@ int g_RecvPacketPoolIdx = 0;
 
 std::unordered_map<uint64_t, std::shared_future<uint64_t>> g_ManifestFutures;
 std::mutex g_ManifestFuturesMutex;
+
+std::deque<std::vector<uint8_t>> g_LegacyKeyQueue;
+std::mutex g_LegacyKeyMutex;
 
 // Lightweight Protobuf varint helper
 inline uint64_t ReadVarint(const uint8_t*& ptr, const uint8_t* end) {
@@ -173,6 +179,48 @@ bool ParseManifestRequest(const uint8_t* pBody, uint32_t cbBody, uint32_t& appId
 }
 
 HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, uint8_t* pubData, uint32_t cubData) {
+    // 1. Intercept non-proto Legacy CD-Key Request (eMsg 730)
+    if (pubData && cubData >= sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKey)) {
+        const auto* reqHdr = reinterpret_cast<const ExtendedMsgHdr*>(pubData);
+        if (!(reqHdr->eMsg & kMsgHdrProtoFlag) && reqHdr->eMsg == k_EMsgClientGetLegacyGameKey) {
+            const auto* reqBody = reinterpret_cast<const MsgClientGetLegacyGameKey*>(pubData + sizeof(ExtendedMsgHdr));
+            AppId_t appId = reqBody->m_unAppId;
+
+            if (LuaConfig::HasDepot(appId, false) || LuaConfig::GetAppOwnershipOverride(appId)) {
+                std::string syntheticKey = "OMNI-STEAM-FREE-PLAY-KEY";
+                uint32_t cchKey = static_cast<uint32_t>(syntheticKey.size() + 1);
+                uint32_t totalSize = sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse) + cchKey;
+
+                if (totalSize <= kMaxPacketSize) {
+                    std::vector<uint8_t> respPkt(totalSize);
+                    auto* respHdr = reinterpret_cast<ExtendedMsgHdr*>(respPkt.data());
+                    *respHdr = *reqHdr;
+                    respHdr->eMsg = k_EMsgClientGetLegacyGameKeyResponse; // 785
+                    respHdr->targetJobID = reqHdr->sourceJobID;
+                    respHdr->sourceJobID = 0;
+
+                    auto* respBody =
+                        reinterpret_cast<MsgClientGetLegacyGameKeyResponse*>(respPkt.data() + sizeof(ExtendedMsgHdr));
+                    respBody->m_unAppId = appId;
+                    respBody->m_eResult = k_EResultOK;
+                    respBody->m_cchKey = cchKey;
+                    std::memcpy(respPkt.data() + sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse),
+                                syntheticKey.c_str(), cchKey);
+
+                    {
+                        std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
+                        g_LegacyKeyQueue.push_back(std::move(respPkt));
+                    }
+                    spdlog::info("Hooks_NetPacket: Intercepted LegacyKey request for AppID {}, synthesized CD-Key "
+                                 "response (suppressing real send)",
+                                 appId);
+                    return true; // Suppress outbound frame to Valve server
+                }
+            }
+        }
+    }
+
+    // 2. Intercept Protobuf Service Method calls (eMsg 151)
     uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
     const uint8_t *pHdr = nullptr, *pBody = nullptr;
 
@@ -206,6 +254,25 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
 }
 
 HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
+    // 1. Drain synthesized Legacy CD-Key responses first
+    if (pPacket) {
+        std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
+        if (!g_LegacyKeyQueue.empty()) {
+            auto respPkt = std::move(g_LegacyKeyQueue.front());
+            g_LegacyKeyQueue.pop_front();
+
+            uint8_t* poolBuf = g_RecvPacketPool[g_RecvPacketPoolIdx];
+            g_RecvPacketPoolIdx = (g_RecvPacketPoolIdx + 1) % kPacketPoolSize;
+            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
+
+            pPacket->m_pubData = poolBuf;
+            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
+            spdlog::debug("Hooks_NetPacket: Delivered synthesized LegacyKey response ({} bytes)", respPkt.size());
+            return pPacket;
+        }
+    }
+
+    // 2. Intercept native received packets
     if (pPacket && pPacket->m_pubData && pPacket->m_cubData >= sizeof(MsgHdr)) {
         uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
         const uint8_t *pHdr = nullptr, *pBody = nullptr;
@@ -238,8 +305,6 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
 
                         // 1. Build modified Header (set eresult = 1 / k_EResultOK)
                         std::vector<uint8_t> newHdr;
-                        // tag for eresult: (13 << 3) | 0 = 0x68
-                        // tag for jobid_target: (11 << 3) | 1 = 0x59
                         newHdr.push_back(0x59);
                         newHdr.resize(newHdr.size() + 8);
                         std::memcpy(&newHdr[newHdr.size() - 8], &jobid_target, 8);
@@ -281,7 +346,7 @@ namespace Hooks_NetPacket {
 
 void Install() {
     uintptr_t fnSend = PatternLoader::GetFunctionAddress("BBuildAndAsyncSendFrame");
-    if (fnSend != 0) {
+    if (fnSend) {
         ATTACH_HOOK(fnSend, BBuildAndAsyncSendFrame);
         spdlog::info("Hooks_NetPacket: Successfully installed BBuildAndAsyncSendFrame hook at {:p}",
                      reinterpret_cast<void*>(fnSend));
@@ -290,7 +355,7 @@ void Install() {
     }
 
     uintptr_t fnRecv = PatternLoader::GetFunctionAddress("RecvPkt");
-    if (fnRecv != 0) {
+    if (fnRecv) {
         ATTACH_HOOK(fnRecv, RecvPkt);
         spdlog::info("Hooks_NetPacket: Successfully installed RecvPkt hook at {:p}", reinterpret_cast<void*>(fnRecv));
     } else {

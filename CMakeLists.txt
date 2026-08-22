@@ -254,6 +254,7 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
     src/Hook/Hooks_Manifest.cpp
+    src/Hook/Hooks_Misc.cpp
     src/Hook/Hooks_NetPacket.cpp
     src/Hook/Hooks_Package.cpp
     src/Hook/Hooks_SteamUI.cpp

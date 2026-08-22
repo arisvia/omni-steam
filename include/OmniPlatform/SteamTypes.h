@@ -19,6 +19,45 @@ inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 1066065243419061
 inline constexpr AppId_t kOnlineFixAppId = 480;
 
 // Default synthesized license count for unowned standalone apps & DLCs
+// Steam Protocol Network eMsg Constants
+inline constexpr uint32_t k_EMsgClientGetLegacyGameKey = 730;
+inline constexpr uint32_t k_EMsgClientGetLegacyGameKeyResponse = 785;
+inline constexpr uint32_t k_EMsgClientGamesPlayed = 742;
+inline constexpr uint32_t k_EMsgClientGamesPlayedWithDataBlob = 5410;
+inline constexpr uint32_t k_EMsgClientRequestEncryptedAppTicketResponse = 5527;
+
+// Steam Client Game Identifier Structure
+struct CGameID {
+    uint64_t m_ulGameID;
+    AppId_t AppID(bool bAccountIDOnly = false) const {
+        (void)bAccountIDOnly;
+        return static_cast<AppId_t>(m_ulGameID & 0xFFFFFF);
+    }
+    void SetAppID(AppId_t appId) { m_ulGameID = (m_ulGameID & ~0xFFFFFFull) | (appId & 0xFFFFFFull); }
+};
+
+#pragma pack(push, 1)
+struct ExtendedMsgHdr {
+    uint32_t eMsg;
+    uint8_t cubHeader;
+    uint8_t protoVersion;
+    uint32_t sourceJobID;
+    uint32_t targetJobID;
+    uint8_t canary;
+    uint64_t steamID;
+    int32_t clientSessionID;
+};
+
+struct MsgClientGetLegacyGameKey {
+    uint32_t m_unAppId;
+};
+
+struct MsgClientGetLegacyGameKeyResponse {
+    uint32_t m_unAppId;
+    int32_t m_eResult;
+    uint32_t m_cchKey;
+};
+#pragma pack(pop)
 inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
 // Steam AppState Manifest Magic Flags
 inline constexpr uint32_t kSteamAppStateReadyToInstall =

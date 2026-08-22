@@ -7,8 +7,8 @@
 
 namespace LuaConfig {
 void ParseDirectory(const std::string& dirPath);
+void ReloadDirectories(const std::string& dirPath);
 void ParseFile(const std::string& filePath);
-
 bool HasDepot(uint32_t depotId);
 bool HasApp(uint32_t appId);
 std::vector<uint8_t> GetDecryptionKey(uint32_t depotId);
