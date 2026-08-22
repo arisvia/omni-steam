@@ -7,7 +7,9 @@
 
 #include "OmniPlatform/OmniPlatform.h"
 
+#include "Utils/Config/Config.h"
 #include "Utils/Config/LuaConfig.h"
+#include "Utils/Metadata/DlcStore.h"
 #include "Utils/Metadata/PatternLoader.h"
 
 #include "Hook/HookMacros.h"
@@ -51,13 +53,18 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         NotifyLicensesChanged();
     }
 
-    bool originalResult = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     if (originalResult) {
-        // App is natively owned on Steam account; preserve legitimate package ID and license state
+        // App is natively owned on Steam account; trigger async DLC discovery for base game
+        if (Config::IsAutoUnlockDlcEnabled()) {
+            Metadata::DlcStore::AsyncFetchAppDlcs(appId);
+        }
         return true;
     }
 
-    if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
+    bool isUnlocked = LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId) ||
+                      (Config::IsAutoUnlockDlcEnabled() && Metadata::DlcStore::IsKnownDlc(appId));
+
+    if (isUnlocked) {
         if (pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
             if constexpr (sizeof(void*) == 8) {

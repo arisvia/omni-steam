@@ -7,10 +7,10 @@
 #include "OmniPlatform/OmniPlatform.h"
 
 #include "Utils/Config/LuaConfig.h"
+#include "Utils/Metadata/DlcStore.h"
 #include "Utils/Metadata/ManifestClient.h"
 #include "Utils/Metadata/PatternLoader.h"
 #include "Utils/Metadata/SteamIPC.h"
-
 void TestPatternLoader() {
     PatternLoader::Initialize();
     PatternLoader::RegisterPattern("DummyFunc", "", "90 90 90", 0);
@@ -69,12 +69,28 @@ void TestSteamStructureInvariants() {
     std::cout << "[PASS] TestSteamStructureInvariants\n";
 }
 
+void TestDlcStoreInvariants() {
+    Metadata::DlcStore::Initialize();
+    uint32_t baseApp = 1958220; // WitchSpring R
+    std::vector<uint32_t> dlcs = {3899110, 3899120, 3899130};
+    Metadata::DlcStore::RegisterDlcs(baseApp, dlcs);
+
+    assert(Metadata::DlcStore::IsKnownDlc(3899110));
+    assert(Metadata::DlcStore::IsKnownDlc(3899120));
+    assert(Metadata::DlcStore::IsKnownDlc(3899130));
+    assert(!Metadata::DlcStore::IsKnownDlc(99999999));
+    assert(Metadata::DlcStore::Count() >= 3);
+
+    std::cout << "[PASS] TestDlcStoreInvariants\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
     TestSteamIPCBuffer();
     TestManifestClientResolution();
     TestSteamStructureInvariants();
+    TestDlcStoreInvariants();
     std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
 }

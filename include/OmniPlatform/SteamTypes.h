@@ -21,6 +21,10 @@ inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
 inline constexpr uint32_t kSteamAppStateReadyToInstall =
     1026; // k_EAppStateUpdateRequired (2) | k_EAppStateUpdateOptional (1024)
 
+// OmniSteam Binary DLC Cache Header
+inline constexpr uint32_t kSteamDlcCacheMagic = 0x4F4D4443; // 'OMDC' (OmniSteam DLC Cache)
+inline constexpr uint32_t kSteamDlcCacheVersion = 1;
+
 // Steam Client Internal Callback IDs
 inline constexpr int32_t k_iCallback_LicensesUpdated = 125;
 // ==============================================================================

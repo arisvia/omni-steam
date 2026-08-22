@@ -13,6 +13,7 @@ std::mutex g_configMutex;
 std::vector<std::string> g_luaPaths;
 std::string g_manifestUrl = OmniEndpoints::Manifest::kOpenSteamToolUrl;
 bool g_statsEnabled = true;
+bool g_autoUnlockDlc = true;
 } // namespace
 
 namespace Config {
@@ -34,11 +35,13 @@ void Load(const std::string& configPath) {
         if (auto manifestApi = tbl["manifest"]["url"].value<std::string>()) {
             g_manifestUrl = *manifestApi;
         }
-
         if (auto statsApi = tbl["stats"]["enable_api"].value<bool>()) {
             g_statsEnabled = *statsApi;
         }
 
+        if (auto dlcAuto = tbl["dlc"]["auto_unlock"].value<bool>()) {
+            g_autoUnlockDlc = *dlcAuto;
+        }
         spdlog::info("OmniSteam Config loaded from: {}", configPath);
     } catch (const std::exception& ex) {
         spdlog::warn("Using default OmniSteam config: {}", ex.what());
@@ -60,4 +63,8 @@ bool IsStatsApiEnabled() {
     return g_statsEnabled;
 }
 
+bool IsAutoUnlockDlcEnabled() {
+    std::lock_guard<std::mutex> lock(g_configMutex);
+    return g_autoUnlockDlc;
+}
 } // namespace Config

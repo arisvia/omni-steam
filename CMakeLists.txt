@@ -245,6 +245,7 @@ set(OMNISTEAM_SOURCES
     src/main.cpp
     src/Utils/Config/Config.cpp
     src/Utils/Config/LuaConfig.cpp
+    src/Utils/Metadata/DlcStore.cpp
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
     src/Hook/HookManager.cpp
@@ -325,10 +326,9 @@ if(BUILD_TESTS)
     add_test(NAME PlatformTests COMMAND test_platform)
 
     # 2. Steam IPC Protocol & Signature / Manifest Metadata Engine
-    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
+    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/DlcStore.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
     target_link_libraries(test_ipc_metadata PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
     add_test(NAME IpcMetadataTests COMMAND test_ipc_metadata)
-
     # 3. Lua Script Manager (Unlock Code Generation, Lifecycle & Hot-Reload)
     add_executable(test_script_manager tests/test_script_manager.cpp apps/manager/src/ScriptManager.cpp)
     target_include_directories(test_script_manager PRIVATE apps/manager/src)
