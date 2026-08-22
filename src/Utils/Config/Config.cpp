@@ -6,10 +6,12 @@
 #include <toml++/toml.hpp>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
+
 namespace {
 std::mutex g_configMutex;
 std::vector<std::string> g_luaPaths;
-std::string g_manifestUrl = "https://manifest.opensteamtool.com";
+std::string g_manifestUrl = OmniEndpoints::Manifest::kOpenSteamToolUrl;
 bool g_statsEnabled = true;
 } // namespace
 

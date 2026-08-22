@@ -59,20 +59,28 @@ HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_
         uint8_t* raw = reinterpret_cast<uint8_t*>(pPkg);
         if constexpr (sizeof(void*) == 8) {
             // 64-bit SteamClient verified offsets (Windows x64, Linux x86_64, macOS)
-            *reinterpret_cast<uint32_t*>(raw + 0x18) = 3; // Status = Available (3)
-            *reinterpret_cast<uintptr_t*>(raw + 0x40) = reinterpret_cast<uintptr_t>(g_injectedAppIds.data());
-            *reinterpret_cast<int32_t*>(raw + 0x50) = static_cast<int32_t>(g_injectedAppIds.size());
-            *reinterpret_cast<uintptr_t*>(raw + 0x60) = reinterpret_cast<uintptr_t>(g_injectedDepotIds.data());
-            *reinterpret_cast<int32_t*>(raw + 0x70) = static_cast<int32_t>(g_injectedDepotIds.size());
+            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo64::kStatus) =
+                static_cast<uint32_t>(EPackageStatus::Available);
+            *reinterpret_cast<uintptr_t*>(raw + SteamOffsets::PackageInfo64::kAppIdVecElements) =
+                reinterpret_cast<uintptr_t>(g_injectedAppIds.data());
+            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo64::kAppIdVecSize) =
+                static_cast<int32_t>(g_injectedAppIds.size());
+            *reinterpret_cast<uintptr_t*>(raw + SteamOffsets::PackageInfo64::kDepotIdVecElements) =
+                reinterpret_cast<uintptr_t>(g_injectedDepotIds.data());
+            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo64::kDepotIdVecSize) =
+                static_cast<int32_t>(g_injectedDepotIds.size());
         } else {
             // 32-bit SteamClient verified offsets (Linux i386)
-            *reinterpret_cast<uint32_t*>(raw + 0x0C) = 3; // Status = Available (3)
-            *reinterpret_cast<uint32_t*>(raw + 0x20) =
+            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kStatus) =
+                static_cast<uint32_t>(EPackageStatus::Available);
+            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kAppIdVecElements) =
                 static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedAppIds.data()));
-            *reinterpret_cast<int32_t*>(raw + 0x1C) = static_cast<int32_t>(g_injectedAppIds.size());
-            *reinterpret_cast<uint32_t*>(raw + 0x28) =
+            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo32::kAppIdVecSize) =
+                static_cast<int32_t>(g_injectedAppIds.size());
+            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kDepotIdVecElements) =
                 static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedDepotIds.data()));
-            *reinterpret_cast<int32_t*>(raw + 0x30) = static_cast<int32_t>(g_injectedDepotIds.size());
+            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo32::kDepotIdVecSize) =
+                static_cast<int32_t>(g_injectedDepotIds.size());
         }
         spdlog::info("Hooks_Package: Populated Package 0 with {} apps and {} depots at {:p}", g_injectedAppIds.size(),
                      g_injectedDepotIds.size(), reinterpret_cast<void*>(pPkg));
@@ -98,22 +106,26 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
             if constexpr (sizeof(void*) == 8) {
                 // 64-bit SteamClient verified memory offsets (Windows x64, Linux x86_64, macOS)
-                *reinterpret_cast<uint32_t*>(raw + 0x14) = 1; // ExistInPackageNums = 1 (CRITICAL)
-                *reinterpret_cast<uint32_t*>(raw + 0x1C) =
-                    static_cast<uint32_t>(EAppReleaseState::Released); // ReleaseState = Released (4)
-                *reinterpret_cast<uint32_t*>(raw + 0x20) = 1;          // ExistInPackageNums fallback
-                raw[0x28] = 1;                                         // bOwnsLicense = true
-                raw[0x30] = 1;                                         // bIsSubscribed = true
-                raw[0x32] = 1;
-                raw[0x33] = 1;
-                raw[0x34] = 1;
+                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kExistInPackageNums) =
+                    kSteamDefaultInjectedPackageCount;
+                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kReleaseState) =
+                    static_cast<uint32_t>(EAppReleaseState::Released);
+                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership64::kExistInPackageNumsFallback) =
+                    kSteamDefaultInjectedPackageCount;
+                raw[SteamOffsets::Ownership64::kOwnsLicense] = 1;
+                raw[SteamOffsets::Ownership64::kIsSubscribed] = 1;
+                raw[SteamOffsets::Ownership64::kActiveFlag1] = 1;
+                raw[SteamOffsets::Ownership64::kActiveFlag2] = 1;
+                raw[SteamOffsets::Ownership64::kActiveFlag3] = 1;
             } else {
                 // 32-bit SteamClient verified memory offsets (Linux i386)
-                *reinterpret_cast<uint32_t*>(raw + 0x04) = static_cast<uint32_t>(EAppReleaseState::Released);
-                *reinterpret_cast<uint32_t*>(raw + 0x08) = 1; // ExistInPackageNums = 1
-                raw[0x0C] = 1;                                // bOwnsLicense
-                raw[0x0D] = 0;                                // bFreeLicense
-                raw[0x10] = 1;                                // bIsSubscribed
+                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership32::kReleaseState) =
+                    static_cast<uint32_t>(EAppReleaseState::Released);
+                *reinterpret_cast<uint32_t*>(raw + SteamOffsets::Ownership32::kExistInPackageNums) =
+                    kSteamDefaultInjectedPackageCount;
+                raw[SteamOffsets::Ownership32::kOwnsLicense] = 1;
+                raw[SteamOffsets::Ownership32::kFreeLicense] = 0;
+                raw[SteamOffsets::Ownership32::kIsSubscribed] = 1;
             }
         }
         spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> unlocked via OmniSteam", appId);

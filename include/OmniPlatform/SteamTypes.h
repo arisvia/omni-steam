@@ -54,10 +54,56 @@ enum class EAppReleaseState : uint32_t {
     Released = 4,
     Disabled = 5
 };
+enum class EPackageStatus : uint32_t { Invalid = 0, Unknown = 1, Preorder = 2, Available = 3 };
 
-enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable = 2 };
 // ==============================================================================
-// Steam Client Ownership & License Structures
+// Steam Client Verified Structure Offsets (Windows x64 / Linux / macOS vs 32-bit)
+// ==============================================================================
+namespace SteamOffsets {
+
+namespace Ownership64 {
+inline constexpr size_t kPackageId = 0x00;
+inline constexpr size_t kExistInPackageNums = 0x14;
+inline constexpr size_t kReleaseState = 0x1C;
+inline constexpr size_t kExistInPackageNumsFallback = 0x20;
+inline constexpr size_t kOwnsLicense = 0x28;
+inline constexpr size_t kIsSubscribed = 0x30;
+inline constexpr size_t kActiveFlag1 = 0x32;
+inline constexpr size_t kActiveFlag2 = 0x33;
+inline constexpr size_t kActiveFlag3 = 0x34;
+} // namespace Ownership64
+
+namespace Ownership32 {
+inline constexpr size_t kPackageId = 0x00;
+inline constexpr size_t kReleaseState = 0x04;
+inline constexpr size_t kExistInPackageNums = 0x08;
+inline constexpr size_t kOwnsLicense = 0x0C;
+inline constexpr size_t kFreeLicense = 0x0D;
+inline constexpr size_t kIsSubscribed = 0x10;
+} // namespace Ownership32
+
+namespace PackageInfo64 {
+inline constexpr size_t kPackageId = 0x00;
+inline constexpr size_t kStatus = 0x18;
+inline constexpr size_t kAppIdVecElements = 0x40;
+inline constexpr size_t kAppIdVecSize = 0x50;
+inline constexpr size_t kDepotIdVecElements = 0x60;
+inline constexpr size_t kDepotIdVecSize = 0x70;
+} // namespace PackageInfo64
+
+namespace PackageInfo32 {
+inline constexpr size_t kPackageId = 0x00;
+inline constexpr size_t kStatus = 0x0C;
+inline constexpr size_t kAppIdVecSize = 0x1C;
+inline constexpr size_t kAppIdVecElements = 0x20;
+inline constexpr size_t kDepotIdVecElements = 0x28;
+inline constexpr size_t kDepotIdVecSize = 0x30;
+} // namespace PackageInfo32
+
+} // namespace SteamOffsets
+
+// ==============================================================================
+// Steam Client Ownership & License Structures (Legacy References)
 // ==============================================================================
 struct AppOwnership {
     uint32_t PackageId;
