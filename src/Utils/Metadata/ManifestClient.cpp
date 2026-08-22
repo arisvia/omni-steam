@@ -75,7 +75,7 @@ bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
     std::string gidStr = std::to_string(manifestGid);
 
     // 1. Try primary OpenSteamTool manifest endpoint
-    std::string url1 = OmniEndpoints::Manifest::kOpenSteamToolUrl + "/" + gidStr;
+    std::string url1 = std::string(OmniEndpoints::Manifest::kOpenSteamToolUrl) + "/" + gidStr;
     auto resp1 = OmniPlatform::Http::Get(url1, 6000);
     if (resp1.statusCode == 200 && !resp1.body.empty()) {
         try {
@@ -90,7 +90,7 @@ bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
     }
 
     // 2. Try WuDrm endpoint
-    std::string url2 = OmniEndpoints::Manifest::kWuDrmUrl + "/" + gidStr;
+    std::string url2 = std::string(OmniEndpoints::Manifest::kWuDrmUrl) + "/" + gidStr;
     auto resp2 = OmniPlatform::Http::Get(url2, 6000);
     if (resp2.statusCode == 200 && !resp2.body.empty()) {
         try {
@@ -105,7 +105,7 @@ bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
     }
 
     // 3. Try SteamRun endpoint (JSON format: {"content":"..."})
-    std::string url3 = OmniEndpoints::Manifest::kSteamRunUrl + "/" + gidStr;
+    std::string url3 = std::string(OmniEndpoints::Manifest::kSteamRunUrl) + "/" + gidStr;
     auto resp3 = OmniPlatform::Http::Get(url3, 6000);
     if (resp3.statusCode == 200 && !resp3.body.empty()) {
         size_t pos = resp3.body.find("\"content\"");
