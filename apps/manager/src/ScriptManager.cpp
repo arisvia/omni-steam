@@ -137,7 +137,7 @@ bool ScriptManager::EnsureAppManifest(uint32_t appId, const std::string& appName
         << "\t\"appid\"\t\t\"" << appId << "\"\n"
         << "\t\"Universe\"\t\t\"1\"\n"
         << "\t\"name\"\t\t\"" << name << "\"\n"
-        << "\t\"StateFlags\"\t\t\"1026\"\n"
+        << "\t\"StateFlags\"\t\t\"" << kSteamAppStateReadyToInstall << "\"\n"
         << "\t\"installdir\"\t\t\"" << installDir << "\"\n"
         << "\t\"LastUpdated\"\t\t\"0\"\n"
         << "\t\"UpdateResult\"\t\t\"0\"\n"

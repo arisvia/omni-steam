@@ -17,10 +17,12 @@ inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 1066065243419061
 
 // Default synthesized license count for unowned standalone apps & DLCs
 inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
+// Steam AppState Manifest Magic Flags
+inline constexpr uint32_t kSteamAppStateReadyToInstall =
+    1026; // k_EAppStateUpdateRequired (2) | k_EAppStateUpdateOptional (1024)
 
 // Steam Client Internal Callback IDs
 inline constexpr int32_t k_iCallback_LicensesUpdated = 125;
-
 // ==============================================================================
 // Valve Tier1 Containers (CUtlMemory / CUtlVector)
 // ==============================================================================
