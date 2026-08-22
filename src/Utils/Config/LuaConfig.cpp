@@ -30,9 +30,6 @@ static int Lua_AddAppId(lua_State* L) {
         return 0;
 
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
-    std::lock_guard<std::mutex> lock(g_luaMutex);
-    g_unlockedApps.insert(appId);
-
     std::string keyHex;
     if (n >= 3 && lua_isstring(L, 3)) {
         keyHex = lua_tostring(L, 3);
@@ -40,11 +37,13 @@ static int Lua_AddAppId(lua_State* L) {
         keyHex = lua_tostring(L, 2);
     }
 
+    std::lock_guard<std::mutex> lock(g_luaMutex);
     if (!keyHex.empty()) {
         auto bytes = OmniPlatform::Encoding::HexToBytes(keyHex);
         g_depotKeys[appId] = bytes;
         spdlog::info("Lua: addappid {} with depotKey ({} bytes)", appId, bytes.size());
     } else {
+        g_unlockedApps.insert(appId);
         spdlog::info("Lua: addappid {}", appId);
     }
     return 0;
@@ -198,13 +197,7 @@ bool HasDepot(uint32_t depotId) {
 
 bool HasApp(uint32_t appId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
-    return g_unlockedApps.find(appId) != g_unlockedApps.end();
-}
-
-std::vector<uint8_t> GetDecryptionKey(uint32_t depotId) {
-    std::lock_guard<std::mutex> lock(g_luaMutex);
-    auto it = g_depotKeys.find(depotId);
-    return it != g_depotKeys.end() ? it->second : std::vector<uint8_t>{};
+    return g_unlockedApps.find(appId) != g_unlockedApps.end() || g_depotKeys.find(appId) != g_depotKeys.end();
 }
 std::unordered_map<uint32_t, std::vector<uint8_t>> GetDepotKeys() {
     std::lock_guard<std::mutex> lock(g_luaMutex);

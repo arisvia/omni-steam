@@ -73,7 +73,9 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
         return false;
     }
 
-    std::vector<AppId_t> appIds = LuaConfig::GetAllDepotIds();
+    // 1. Inject pure AppIDs (Base Games & DLCs) into AppIdVec
+    auto unlockedApps = LuaConfig::GetUnlockedApps();
+    std::vector<AppId_t> appIds(unlockedApps.begin(), unlockedApps.end());
     if (Config::IsAutoUnlockDlcEnabled()) {
         auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
         appIds.insert(appIds.end(), autoDlcs.begin(), autoDlcs.end());
@@ -84,24 +86,48 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     if (!appIds.empty()) {
         uint32_t oldSize = static_cast<uint32_t>(pPkg->AppIdVec.m_Size);
         uint32_t numToAdd = static_cast<uint32_t>(appIds.size());
-        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): adding {} apps, oldSize={}", numToAdd, oldSize);
+        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): injecting {} apps into AppIdVec, oldSize={}",
+                     numToAdd, oldSize);
 
-        if (!CUtlMemoryGrowWrap(&pPkg->AppIdVec, static_cast<int>(numToAdd))) {
+        if (CUtlMemoryGrowWrap(&pPkg->AppIdVec, static_cast<int>(numToAdd))) {
+            for (uint32_t i = 0; i < numToAdd; ++i) {
+                pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
+            }
+            pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
+        } else {
             spdlog::warn("Hooks_Package: Failed to grow Package 0 AppId vector via CUtlMemoryGrow");
-            return false;
         }
+    }
 
-        for (uint32_t i = 0; i < numToAdd; ++i) {
-            pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
+    // 2. Inject DepotIDs into DepotIdVec
+    auto depotKeys = LuaConfig::GetDepotKeys();
+    std::vector<DepotId_t> depotIds;
+    for (const auto& [depotId, _] : depotKeys) {
+        depotIds.push_back(depotId);
+    }
+
+    if (!depotIds.empty()) {
+        uint32_t oldDepotSize = static_cast<uint32_t>(pPkg->DepotIdVec.m_Size);
+        uint32_t numDepotsToAdd = static_cast<uint32_t>(depotIds.size());
+        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): injecting {} depots into DepotIdVec, oldSize={}",
+                     numDepotsToAdd, oldDepotSize);
+
+        if (CUtlMemoryGrowWrap(&pPkg->DepotIdVec, static_cast<int>(numDepotsToAdd))) {
+            for (uint32_t i = 0; i < numDepotsToAdd; ++i) {
+                pPkg->DepotIdVec.m_Memory.m_pMemory[oldDepotSize + i] = depotIds[i];
+            }
+            pPkg->DepotIdVec.m_Size = static_cast<int>(oldDepotSize + numDepotsToAdd);
+        } else {
+            spdlog::warn("Hooks_Package: Failed to grow Package 0 DepotId vector via CUtlMemoryGrow");
         }
-        pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
     }
 
     g_pInjectedPackage = pPkg;
     g_licenseInitialized = true;
     g_licenseRefreshPending = true;
-    spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 (Total Size: {})", appIds.size(),
-                 pPkg->AppIdVec.m_Size);
+    spdlog::info(
+        "Hooks_Package: Injected {} apps and {} depots into Package 0 (AppIdVec Size: {}, DepotIdVec Size: {})",
+        appIds.size(), depotIds.size(), pPkg->AppIdVec.m_Size, pPkg->DepotIdVec.m_Size);
     TryProcessPendingLicenseRefresh();
     return true;
 }
