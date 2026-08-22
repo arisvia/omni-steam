@@ -51,14 +51,18 @@ void RegisterCoreSignatures() {
     // 64-bit Windows Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient64.dll", "48 8B C4 89 50 10 48 89 48 08 55 53", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "40 53 55 56 57 48 83 EC 38 48 63 FA 49 8B E9", 0);
+    RegisterPattern("GetPackageInfo", "steamclient64.dll",
+                    "48 89 5C 24 18 89 54 24 10 55 56 57 48 83 EC 20 44 8B 49 20", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
     // Linux ELF Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
+    RegisterPattern("GetPackageInfo", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
 #elif defined(OMNI_PLATFORM_MACOS)
     // macOS Mach-O Steamclient signatures
     RegisterPattern("CheckAppOwnership", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
     RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    RegisterPattern("GetPackageInfo", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
 #endif
 }
 std::string GetCacheDirectory() {
