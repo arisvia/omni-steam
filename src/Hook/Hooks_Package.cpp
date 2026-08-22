@@ -17,6 +17,8 @@ namespace {
 void* g_pCUser = nullptr;
 void* g_pCPackageInfo = nullptr;
 void* g_pInjectedPackage = nullptr;
+bool g_licenseInitialized = false;
+bool g_inBroadcast = false;
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
 
@@ -26,6 +28,7 @@ RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 std::vector<AppId_t> g_injectedAppIds;
 std::vector<DepotId_t> g_injectedDepotIds;
 static std::vector<AppId_t> g_staticAppBuffer;
+
 CUtlVector<AppId_t>* FindAppIdVector(void* pPkg) {
     if (!pPkg)
         return nullptr;
@@ -72,16 +75,23 @@ bool InjectPackage0Apps(void* pPkg) {
     pAppIdVec->m_Memory.m_nGrowSize = 0;
     pAppIdVec->m_Size = static_cast<int>(g_staticAppBuffer.size());
     pAppIdVec->m_pElements = g_staticAppBuffer.data();
+
     g_pInjectedPackage = pPkg;
+    g_licenseInitialized = true;
     spdlog::info("Hooks_Package: Injected {} total apps/DLCs into Package 0 memory structure",
                  g_staticAppBuffer.size());
     return true;
 }
 
 void BroadcastLicenseUpdates() {
+    if (g_inBroadcast)
+        return;
+
     if (g_pCUser && oMarkLicenseAsChanged && oProcessPendingLicenseUpdates) {
+        g_inBroadcast = true;
         oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
         oProcessPendingLicenseUpdates(g_pCUser);
+        g_inBroadcast = false;
         spdlog::info("Hooks_Package: Dispatched AppLicensesChanged notification to Steam UI");
     }
 }
@@ -93,9 +103,8 @@ HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t acces
     }
 
     void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (packageId == kInjectedPackageId && pPkg) {
+    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
         InjectPackage0Apps(pPkg);
-        BroadcastLicenseUpdates();
     }
     return pPkg;
 }
@@ -138,15 +147,18 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
         spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
-        NotifyLicensesChanged();
+        if (g_licenseInitialized) {
+            BroadcastLicenseUpdates();
+        } else if (g_pCPackageInfo && oGetPackageInfo) {
+            oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
+            BroadcastLicenseUpdates();
+        }
     }
-
     bool originalResult = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     if (originalResult) {
         // App is natively owned on Steam account; preserve legitimate package ID and license state
         return true;
     }
-
     if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
         if (pOwn) {
             uint8_t* raw = reinterpret_cast<uint8_t*>(pOwn);
