@@ -44,50 +44,6 @@ void NotifyLicensesChanged() {
     spdlog::info("Hooks_Package: Injected licenses synchronized ({} apps, {} depots)", g_injectedAppIds.size(),
                  g_injectedDepotIds.size());
 }
-HOOK_FUNC(GetPackageInfo, PackageInfo*, void* pThis, uint32_t packageId, uint64_t accessToken) {
-    if (!g_pCPackageInfo) {
-        g_pCPackageInfo = pThis;
-        spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
-    }
-
-    PackageInfo* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-
-    if (packageId == kInjectedPackageId && pPkg) {
-        if (g_injectedAppIds.empty()) {
-            UpdateInjectedPackages();
-        }
-        uint8_t* raw = reinterpret_cast<uint8_t*>(pPkg);
-        if constexpr (sizeof(void*) == 8) {
-            // 64-bit SteamClient verified offsets (Windows x64, Linux x86_64, macOS)
-            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo64::kStatus) =
-                static_cast<uint32_t>(EPackageStatus::Available);
-            *reinterpret_cast<uintptr_t*>(raw + SteamOffsets::PackageInfo64::kAppIdVecElements) =
-                reinterpret_cast<uintptr_t>(g_injectedAppIds.data());
-            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo64::kAppIdVecSize) =
-                static_cast<int32_t>(g_injectedAppIds.size());
-            *reinterpret_cast<uintptr_t*>(raw + SteamOffsets::PackageInfo64::kDepotIdVecElements) =
-                reinterpret_cast<uintptr_t>(g_injectedDepotIds.data());
-            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo64::kDepotIdVecSize) =
-                static_cast<int32_t>(g_injectedDepotIds.size());
-        } else {
-            // 32-bit SteamClient verified offsets (Linux i386)
-            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kStatus) =
-                static_cast<uint32_t>(EPackageStatus::Available);
-            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kAppIdVecElements) =
-                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedAppIds.data()));
-            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo32::kAppIdVecSize) =
-                static_cast<int32_t>(g_injectedAppIds.size());
-            *reinterpret_cast<uint32_t*>(raw + SteamOffsets::PackageInfo32::kDepotIdVecElements) =
-                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_injectedDepotIds.data()));
-            *reinterpret_cast<int32_t*>(raw + SteamOffsets::PackageInfo32::kDepotIdVecSize) =
-                static_cast<int32_t>(g_injectedDepotIds.size());
-        }
-        spdlog::info("Hooks_Package: Populated Package 0 with {} apps and {} depots at {:p}", g_injectedAppIds.size(),
-                     g_injectedDepotIds.size(), reinterpret_cast<void*>(pPkg));
-    }
-
-    return pPkg;
-}
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     if (!g_pCUser) {
         g_pCUser = pObj;
@@ -137,14 +93,6 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 } // namespace
 namespace Hooks_Package {
 void Install() {
-    // Attach hooks
-    uintptr_t fnGetPkg = PatternLoader::GetFunctionAddress("GetPackageInfo");
-    if (fnGetPkg) {
-        ATTACH_HOOK(fnGetPkg, GetPackageInfo);
-        spdlog::info("Hooks_Package: Successfully installed GetPackageInfo hook at {:p}",
-                     reinterpret_cast<void*>(fnGetPkg));
-    }
-
     uintptr_t fnCheck = PatternLoader::GetFunctionAddress("CheckAppOwnership");
     if (fnCheck) {
         ATTACH_HOOK(fnCheck, CheckAppOwnership);
