@@ -136,7 +136,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **运行时符号解析已落地**（`SymbolTable` 遍历模块自身符号数据，零维护自适应）；TOML 兜底库可经 `signature-harvest.yml` 采集生成 | 主路径就绪，兜底待采集 |
+| D | Linux/macOS 签名库 | **首次实采证实：官方客户端的 steamclient 库已被 strip**（无内部符号），运行时符号表与采集器均空手（5 个 TOML 全空已清理）。点亮路径收敛为两条：① 从 steam-monitor 上游获取 Linux/macOS 锚点（当前仅 Windows）；② 本地 VM 逆向提取差异化特征码 | 待锚点数据源 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
 
