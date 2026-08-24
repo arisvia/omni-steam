@@ -45,10 +45,8 @@ inline constexpr const char* kManifestDownloadBase = "https://manifest.opensteam
 //     路径格式: <base>/<platform-dir>/<sha256>.toml
 // ==============================================================================
 namespace SignatureDb {
-inline constexpr const char* kJsDelivrBase =
-    "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/signatures";
-inline constexpr const char* kRawBase =
-    "https://raw.githubusercontent.com/arisvia/omni-steam/main/signatures";
+inline constexpr const char* kJsDelivrBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/signatures";
+inline constexpr const char* kRawBase = "https://raw.githubusercontent.com/arisvia/omni-steam/main/signatures";
 } // namespace SignatureDb
 
 // ==============================================================================

@@ -19,6 +19,8 @@
 #include "Utils/Metadata/ManifestClient.h"
 #include "Utils/Metadata/PatternLoader.h"
 #include "Utils/Metadata/PicsTokenInjector.h"
+#include "Utils/Metadata/ProtoFields.h"
+#include "Utils/Metadata/StatsClient.h"
 
 #include "Hook/HookMacros.h"
 #include "Hook/Hooks_Misc.h"
@@ -66,6 +68,28 @@ uint8_t* AcquirePacketSlot(size_t needed) {
 std::unordered_map<uint64_t, std::shared_future<uint64_t>> g_ManifestFutures;
 std::unordered_map<uint64_t, uint64_t> g_ManifestInstantCodes;
 std::mutex g_ManifestMutex;
+
+// jobid_source -> appid for in-flight Player.GetUserStats requests
+std::unordered_map<uint64_t, AppId_t> g_StatsJobToAppId;
+std::mutex g_StatsJobMutex;
+
+void RememberStatsJob(uint64_t jobId, AppId_t appId) {
+    std::lock_guard<std::mutex> lock(g_StatsJobMutex);
+    if (g_StatsJobToAppId.size() > 512) {
+        g_StatsJobToAppId.clear();
+    }
+    g_StatsJobToAppId[jobId] = appId;
+}
+
+AppId_t TakeStatsJob(uint64_t jobId) {
+    std::lock_guard<std::mutex> lock(g_StatsJobMutex);
+    auto it = g_StatsJobToAppId.find(jobId);
+    if (it == g_StatsJobToAppId.end())
+        return 0;
+    AppId_t appId = it->second;
+    g_StatsJobToAppId.erase(it);
+    return appId;
+}
 
 std::deque<std::vector<uint8_t>> g_LegacyKeyQueue;
 std::mutex g_LegacyKeyMutex;
@@ -273,6 +297,34 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                         g_ManifestFutures[jobid_source] = task.share();
                     }
                 }
+            } else if (target_job_name == "Player.GetUserStats#1") {
+                std::vector<uint8_t> patched;
+                AppId_t appId = 0;
+                if (TryPatchGetUserStatsRequest(pBody, cbBody, patched, &appId)) {
+                    RememberStatsJob(jobid_source, appId);
+                    uint32_t newSize = 0;
+                    if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
+                        spdlog::info("Hooks_NetPacket: Spoofed GetUserStats request for AppID {} (donor SteamID)",
+                                     appId);
+                        return oBBuildAndAsyncSendFrame
+                                   ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
+                                   : false;
+                    }
+                }
+            }
+        } else if (eMsg == k_EMsgClientGetUserStats && cbBody > 0 && cubData <= kMaxPacketSize) {
+            std::vector<uint8_t> patched;
+            AppId_t appId = 0;
+            if (TryPatchGetUserStatsLegacyRequest(pBody, cbBody, patched, &appId)) {
+                uint32_t newSize = 0;
+                if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
+                    spdlog::info("Hooks_NetPacket: Patched CMsgClientGetUserStats for AppID {} "
+                                 "(schema_local_version=-1, donor SteamID)",
+                                 appId);
+                    return oBBuildAndAsyncSendFrame
+                               ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
+                               : false;
+                }
             }
         } else if (eMsg == k_EMsgClientPICSProductInfoRequest && cbBody > 0 && cubData <= kMaxPacketSize) {
             // Inject configured access tokens into PICS product info requests so
@@ -299,6 +351,25 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
     return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, pubData, cubData) : false;
 }
 
+// Assembles a replacement frame into the packet pool. eMsg carries the
+// proto flag already; header bytes are preserved verbatim.
+uint8_t* BuildPooledFrame(uint32_t eMsgWithFlag, const uint8_t* pHdr, uint32_t cbHdr,
+                          const std::vector<uint8_t>& newBody, uint32_t* outSize) {
+    size_t totalSize = sizeof(MsgHdr) + cbHdr + newBody.size();
+    uint8_t* poolBuf = AcquirePacketSlot(totalSize);
+    if (!poolBuf)
+        return nullptr;
+
+    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
+    outHdr->eMsg = eMsgWithFlag;
+    outHdr->headerLength = cbHdr;
+    if (cbHdr)
+        std::memcpy(poolBuf + sizeof(MsgHdr), pHdr, cbHdr);
+    std::memcpy(poolBuf + sizeof(MsgHdr) + cbHdr, newBody.data(), newBody.size());
+    *outSize = static_cast<uint32_t>(totalSize);
+    return poolBuf;
+}
+
 bool TryInjectRequestCode(uint64_t code, const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody, uint32_t cbBody,
                           CNetPacket* pPacket) {
     // Append-only protobuf override: scalar fields parsed later win, so
@@ -312,21 +383,118 @@ bool TryInjectRequestCode(uint64_t code, const uint8_t* pHdr, uint32_t cbHdr, co
     newBody.push_back(kProtoTagManifestRequestCode);
     WriteVarint(newBody, code);
 
-    size_t totalSize = sizeof(MsgHdr) + newHdr.size() + newBody.size();
-    uint8_t* poolBuf = AcquirePacketSlot(totalSize);
+    uint32_t newSize = 0;
+    uint8_t* poolBuf = BuildPooledFrame(k_EMsgServiceMethodResponse | kMsgHdrProtoFlag, newHdr.data(),
+                                        static_cast<uint32_t>(newHdr.size()), newBody, &newSize);
     if (!poolBuf)
         return false;
 
-    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
-    outHdr->eMsg = k_EMsgServiceMethodResponse | kMsgHdrProtoFlag;
-    outHdr->headerLength = static_cast<uint32_t>(newHdr.size());
-
-    std::memcpy(poolBuf + sizeof(MsgHdr), newHdr.data(), newHdr.size());
-    std::memcpy(poolBuf + sizeof(MsgHdr) + newHdr.size(), newBody.data(), newBody.size());
-
     pPacket->m_pubData = poolBuf;
-    pPacket->m_cubData = static_cast<uint32_t>(totalSize);
+    pPacket->m_cubData = newSize;
     return true;
+}
+
+// ---- Achievement/stats spoofing (donor SteamID) --------------------------
+// Field numbers per SteamKit protos:
+//   CPlayer_GetUserStats_Request  : steamid=1(varint) appid=2 sha_schema=3(bytes)
+//   CPlayer_GetUserStats_Response : stats=4(repeated msg)
+//   CMsgClientGetUserStats        : game_id=1(fixed64) schema_local_version=3 steam_id_for_user=4(fixed64)
+//   CMsgClientGetUserStatsResponse: game_id=1(fixed64) eresult=2 crc_stats=3 stats=5 achievement_blocks=6
+
+bool TryPatchGetUserStatsRequest(const uint8_t* pBody, uint32_t cbBody, std::vector<uint8_t>& out, AppId_t* outAppId) {
+    auto appIdValue = ProtoFields::GetVarintField(pBody, cbBody, 2);
+    if (!appIdValue || *appIdValue == 0)
+        return false;
+    AppId_t appId = static_cast<AppId_t>(*appIdValue);
+    if (!LuaConfig::HasDepot(appId))
+        return false;
+    if (ProtoFields::HasField(pBody, cbBody, 3))
+        return false; // sha_schema present: a real schema sync must not be spoofed
+
+    uint64_t donor = 0;
+    if (!StatsClient::GetDonorSteamId(appId, &donor))
+        return false;
+
+    out.assign(pBody, pBody + cbBody);
+    ProtoFields::AppendVarintField(out, 1, donor);
+    *outAppId = appId;
+    return true;
+}
+
+bool TryPatchGetUserStatsLegacyRequest(const uint8_t* pBody, uint32_t cbBody, std::vector<uint8_t>& out,
+                                       AppId_t* outAppId) {
+    uint32_t wire = 0;
+    auto gameId = ProtoFields::GetScalarField(pBody, cbBody, 1, &wire);
+    if (!gameId || wire != ProtoFields::WireFixed64)
+        return false;
+    AppId_t appId = static_cast<AppId_t>(*gameId & 0xFFFFFFFFull);
+    if (!LuaConfig::HasDepot(appId))
+        return false;
+
+    uint64_t donor = 0;
+    if (!StatsClient::GetDonorSteamId(appId, &donor))
+        return false;
+
+    out.assign(pBody, pBody + cbBody);
+    ProtoFields::AppendVarintField(out, 3, static_cast<uint64_t>(-1)); // schema_local_version = -1
+    ProtoFields::AppendFixed64Field(out, 4, donor);
+    *outAppId = appId;
+    return true;
+}
+
+void HandleGetUserStatsResponse(uint64_t jobId, const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody,
+                                uint32_t cbBody, CNetPacket* pPacket) {
+    AppId_t appId = TakeStatsJob(jobId);
+    if (appId == 0 || !LuaConfig::HasDepot(appId))
+        return;
+
+    auto pruned = ProtoFields::WithoutFields(pBody, cbBody, {4});
+    if (!pruned)
+        return;
+    ProtoFields::AppendVarintField(*pruned, 2, static_cast<uint64_t>(k_EResultOK));
+
+    std::vector<uint8_t> newHdr(pHdr, pHdr + cbHdr);
+    newHdr.push_back(kProtoTagEresultVarint);
+    WriteVarint(newHdr, static_cast<uint64_t>(k_EResultOK));
+
+    uint32_t newSize = 0;
+    uint8_t* poolBuf = BuildPooledFrame(k_EMsgServiceMethodResponse | kMsgHdrProtoFlag, newHdr.data(),
+                                        static_cast<uint32_t>(newHdr.size()), *pruned, &newSize);
+    if (poolBuf) {
+        pPacket->m_pubData = poolBuf;
+        pPacket->m_cubData = newSize;
+        spdlog::info("Hooks_NetPacket: Spoofed GetUserStats response for AppID {} (server stats stripped)", appId);
+    }
+}
+
+void HandleGetUserStatsLegacyResponse(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody, uint32_t cbBody,
+                                      CNetPacket* pPacket) {
+    uint32_t wire = 0;
+    auto gameId = ProtoFields::GetScalarField(pBody, cbBody, 1, &wire);
+    if (!gameId || wire != ProtoFields::WireFixed64)
+        return;
+    AppId_t appId = static_cast<AppId_t>(*gameId & 0xFFFFFFFFull);
+    if (!LuaConfig::HasDepot(appId))
+        return;
+
+    auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);
+    if (eresult && *eresult == static_cast<uint64_t>(k_EResultOK))
+        return;
+
+    auto pruned = ProtoFields::WithoutFields(pBody, cbBody, {5, 6});
+    if (!pruned)
+        return;
+    ProtoFields::AppendVarintField(*pruned, 2, static_cast<uint64_t>(k_EResultOK));
+    ProtoFields::AppendVarintField(*pruned, 3, 0);
+
+    uint32_t newSize = 0;
+    uint8_t* poolBuf =
+        BuildPooledFrame(k_EMsgClientGetUserStatsResponse | kMsgHdrProtoFlag, pHdr, cbHdr, *pruned, &newSize);
+    if (poolBuf) {
+        pPacket->m_pubData = poolBuf;
+        pPacket->m_cubData = newSize;
+        spdlog::info("Hooks_NetPacket: Spoofed GetUserStats legacy response for AppID {}", appId);
+    }
 }
 
 void HandleManifestResponse(uint64_t jobid_target, CNetPacket* pPacket, const uint8_t* pHdr, uint32_t cbHdr,
@@ -408,7 +576,14 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
                 uint64_t jobid_source = 0, jobid_target = 0;
                 std::string target_job_name;
                 ParseProtoHeader(pHdr, cbHdr, jobid_source, jobid_target, target_job_name);
-                HandleManifestResponse(jobid_target, pPacket, pHdr, cbHdr, pBody, cbBody);
+
+                if (target_job_name == "Player.GetUserStats#1") {
+                    HandleGetUserStatsResponse(jobid_target, pHdr, cbHdr, pBody, cbBody, pPacket);
+                } else {
+                    HandleManifestResponse(jobid_target, pPacket, pHdr, cbHdr, pBody, cbBody);
+                }
+            } else if (eMsg == k_EMsgClientGetUserStatsResponse) {
+                HandleGetUserStatsLegacyResponse(pHdr, cbHdr, pBody, cbBody, pPacket);
             }
         }
     }

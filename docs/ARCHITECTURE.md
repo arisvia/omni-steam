@@ -102,7 +102,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | 模块 | 职责 | 关键实现点 |
 | :--- | :--- | :--- |
 | `Hooks_Package` | 所有权与许可证 | CheckAppOwnership / GetPackageInfo / CUtlMemoryGrow / MarkLicenseAsChanged；原子化并发防护；反作弊白名单优先短路 |
-| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入 |
+| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入；成就/统计双协议伪造（151/147 + 818/819） |
 | `PicsTokenInjector` | PICS 令牌 | eMsg 8903 请求中为 addtoken 配置的 App 追加/覆盖 access_token，其余字段逐字节保留 |
 | `Hooks_Decryption` | Depot 密钥 | 大小写不敏感零分配快速拒绝，仅在命中 decryptionkey 时分配 |
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
@@ -135,7 +135,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | :- | :--- | :--- | :--- |
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
-| C | Stats 成就统计上报 | 前置依赖成就伪造子系统（eMsg 818/819）；供体 SteamID 解析可参照上游 StatsClient | 规划中 |
+| C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
 | D | Linux/macOS 签名库 | **运行时符号解析已落地**（`SymbolTable` 遍历模块自身符号数据，零维护自适应）；TOML 兜底库可经 `signature-harvest.yml` 采集生成 | 主路径就绪，兜底待采集 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地 | ✅ 2026-08 完成 |
 

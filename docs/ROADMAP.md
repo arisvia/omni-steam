@@ -66,6 +66,11 @@
 - [x] **PICS 访问令牌注入**（2026-08）：新增 `PicsTokenInjector` 模块消费 `addtoken` 收集的 access token，
       拦截 eMsg 8903 CMsgClientPICSProductInfoRequest，对已解锁且配置了令牌的 App 条目以追加字段方式
       覆盖 access_token（保留其余字段）；配套 `PicsTokenTests` 单元套件。
+- [x] **Stats 成就统计上报**（2026-08）：新增 `StatsClient`（供体 SteamID 解析：Lua
+      setStatSteamid > 本地缓存 > stats.opensteamtool.com，含 10 分钟失败退避）+
+      eMsg 151/147 Player.GetUserStats 与 eMsg 818/819 CMsgClientGetUserStats 双协议伪造
+      （改写请求 SteamID、剥离服务器统计、eresult→OK）；新增可复用 `ProtoFields` 手写 protobuf
+      字段操作库与 `StatsProtoTests` 套件；Lua 新增 setStatSteamid API。
 - [x] **addinject 接线**（2026-08）：`SpawnProcess` 后按 exe 文件名轮询新进程（基线快照去重、PID 认领防重复注入），
       自动调用 `ProcessInjector::InjectForApp`；平台层新增 `Process::FindProcessIdsByName`
       （Toolhelp32 / /proc / sysctl），注入器增加 WOW64 跨位数拒绝防护。

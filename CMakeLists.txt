@@ -380,6 +380,10 @@ if(BUILD_TESTS)
     add_executable(test_pics_token tests/test_pics_token.cpp src/Utils/Metadata/PicsTokenInjector.cpp src/Utils/Config/LuaConfig.cpp)
     target_link_libraries(test_pics_token PRIVATE OmniPlatform ${LUA_LIB_TARGET})
     add_test(NAME PicsTokenTests COMMAND test_pics_token)
+
+    # 8. Stats/achievements protobuf field manipulation
+    add_executable(test_stats_proto tests/test_stats_proto.cpp)
+    add_test(NAME StatsProtoTests COMMAND test_stats_proto)
 endif()
 
 # ---------------------------------------------------------------------------

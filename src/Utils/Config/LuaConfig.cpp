@@ -28,6 +28,7 @@ struct LuaData {
     std::unordered_map<uint32_t, std::string> manifestIds;
     std::unordered_map<uint32_t, std::string> accessTokens;
     std::unordered_map<uint32_t, std::vector<std::string>> injectModules;
+    std::unordered_map<uint32_t, std::string> statSteamIds;
 };
 
 std::mutex g_luaMutex;
@@ -41,7 +42,8 @@ LuaData& MutableActive() {
 
 namespace LuaConfig {
 void SetAccessToken(uint32_t appId, const std::string& token);
-}
+void SetStatSteamId(uint32_t appId, const std::string& steamId);
+} // namespace LuaConfig
 
 int* RegistryTargetKey() {
     static int key = 0;
@@ -132,6 +134,18 @@ static int Lua_SetETicket(lua_State* L) {
     return 0;
 }
 
+static int Lua_SetStatSteamId(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* steamId = lua_tostring(L, 2);
+    if (steamId) {
+        SetStatSteamId(appId, steamId);
+        spdlog::info("Lua: setStatSteamid for app {}", appId);
+    }
+    return 0;
+}
+
 static int Lua_AddInject(lua_State* L) {
     int n = lua_gettop(L);
     if (n < 1)
@@ -202,6 +216,8 @@ void RegisterLuaApi(lua_State* L, LuaData* target) {
     lua_register(L, "addinject", Lua_AddInject);
     lua_register(L, "addInject", Lua_AddInject);
     lua_register(L, "inject", Lua_AddInject);
+    lua_register(L, "setStatSteamid", Lua_SetStatSteamId);
+    lua_register(L, "setstatsteamid", Lua_SetStatSteamId);
 }
 
 void RunLuaFile(const std::string& filePath, LuaData* target) {
@@ -322,6 +338,26 @@ void SetAccessToken(uint32_t appId, const std::string& token) {
         active.accessTokens.erase(appId);
     } else {
         active.accessTokens[appId] = token;
+    }
+}
+
+std::string GetStatSteamId(uint32_t appId) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    const LuaData& active = g_slots[g_activeSlot];
+    auto it = active.statSteamIds.find(appId);
+    if (it != active.statSteamIds.end())
+        return it->second;
+    auto itGlobal = active.statSteamIds.find(0);
+    return itGlobal != active.statSteamIds.end() ? itGlobal->second : "";
+}
+
+void SetStatSteamId(uint32_t appId, const std::string& steamId) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    LuaData& active = g_slots[g_activeSlot];
+    if (steamId.empty()) {
+        active.statSteamIds.erase(appId);
+    } else {
+        active.statSteamIds[appId] = steamId;
     }
 }
 
