@@ -59,10 +59,17 @@ inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.co
 } // namespace Steam
 
 // ==============================================================================
-// 5. 云存档 WebDAV 默认配置
+// 5. 全局统一网络通信请求头与客户端标识 (HTTP User-Agent)
+// ==============================================================================
+namespace Http {
+inline constexpr const char* kUserAgent = "OpenSteamTool/1.0";
+inline constexpr const wchar_t* kUserAgentW = L"OpenSteamTool/1.0";
+} // namespace Http
+
+// ==============================================================================
+// 6. 云存档 WebDAV 默认配置
 // ==============================================================================
 namespace CloudSave {
 inline constexpr const char* kDefaultRemoteRoot = "OmniSteam_Saves";
 } // namespace CloudSave
-
 } // namespace OmniEndpoints

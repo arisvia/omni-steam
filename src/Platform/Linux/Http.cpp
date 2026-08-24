@@ -1,8 +1,8 @@
 #include <curl/curl.h>
 #include <string>
 
+#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
-
 namespace OmniPlatform {
 
 namespace {
@@ -25,7 +25,7 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "OpenSteamTool/1.0");
-
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
     CURLcode code = curl_easy_perform(curl);
     if (code == CURLE_OK) {
         long httpCode = 0;
@@ -54,8 +54,7 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCb);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "OpenSteamTool/1.0");
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
 
     CURLcode code = curl_easy_perform(curl);
     if (code == CURLE_OK) {
