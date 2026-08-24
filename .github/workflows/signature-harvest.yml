@@ -32,13 +32,28 @@ jobs:
       - name: Fetch Steam bootstrap and extract client libraries
         run: |
           mkdir -p steam-dist && cd steam-dist
-          DEB_URL=$(curl -s https://repo.steampowered.com/steam/pool/steam/s/steam/steam-launcher/ | grep -oE 'steam-launcher_[^"]*_all\.deb' | sort -V | tail -1)
-          if [ -z "$DEB_URL" ]; then echo "No deb found"; exit 1; fi
-          curl -fsSLO "https://repo.steampowered.com/steam/pool/steam/s/steam/steam-launcher/$DEB_URL"
-          dpkg-deb -x "$DEB_URL" root
-          BOOTSTRAP=$(find root -name 'bootstraplinux*' | head -1)
-          tar -xf "$BOOTSTRAP" -C .
+          POOL="https://repo.steampowered.com/steam/pool/steam/s/steam-launcher"
+          DEB_URL=$(curl -fsSL -A "Mozilla/5.0" "$POOL/" | grep -oE 'steam-launcher_[0-9.]+_all\.deb' | sort -uV | tail -1)
+          echo "Resolved deb: ${DEB_URL:-<none>}"
+          if [ -n "$DEB_URL" ]; then
+            curl -fsSLO "$POOL/$DEB_URL"
+            dpkg-deb -x "$DEB_URL" root
+            BOOTSTRAP=$(find root -name 'bootstraplinux*' | head -1)
+            [ -n "$BOOTSTRAP" ] && tar -xf "$BOOTSTRAP" -C .
+          fi
+          # Fallback/secondary source: steamcmd self-update installs linux32 client files
+          if ! find . -name 'steamclient*.so' | grep -q .; then
+            echo "Bootstrap lacked steamclient.so; bootstrapping steamcmd..."
+            mkdir -p cmd && cd cmd
+            curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
+            ./steamcmd.sh +quit || true
+            cd ..
+            find "$HOME" -name 'steamclient*.so' -exec cp --parents {} . \; 2>/dev/null || true
+          fi
+          COUNT=$(find . "$HOME" -name 'steamclient*.so' 2>/dev/null | wc -l)
+          echo "steamclient.so copies visible: $COUNT"
           find . -name 'steamclient*.so' -printf '%p\n'
+          [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
 
       - name: Harvest signatures
         run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/linux
@@ -68,17 +83,34 @@ jobs:
       - name: Install Steam silently
         shell: powershell
         run: |
-          curl.exe -L -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
-          Start-Process -FilePath ./SteamSetup.exe -ArgumentList '/S' -Wait
-          $dll = "C:\Program Files (x86)\Steam\steamclient64.dll"
-          if (-not (Test-Path $dll)) { throw "steamclient64.dll not found after install" }
+          $setup = "$env:TEMP\SteamSetup.exe"
+          curl.exe -L -o $setup https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
+          Start-Process -FilePath $setup -ArgumentList '/S' -Wait
+
+          # Resolve the actual install directory (installer may target another drive)
+          $reg = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' -ErrorAction SilentlyContinue
+          $dir = if ($reg -and $reg.InstallPath) { $reg.InstallPath } else { 'C:\Program Files (x86)\Steam' }
+          Write-Host "Steam directory: $dir"
+          "STEAM_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # First launch triggers the bootstrap download that produces steamclient64.dll
+          $deadline = (Get-Date).AddSeconds(300)
+          while (-not (Test-Path (Join-Path $dir 'steamclient64.dll')) -and (Get-Date) -lt $deadline) {
+            if (Test-Path (Join-Path $dir 'steam.exe') -PathType Leaf) {
+              Start-Process (Join-Path $dir 'steam.exe') -ArgumentList '-silent' -ErrorAction SilentlyContinue
+            }
+            Start-Sleep -Seconds 15
+          }
+          if (-not (Test-Path (Join-Path $dir 'steamclient64.dll'))) {
+            throw "steamclient64.dll still missing after 300s in $dir"
+          }
 
       - name: Locate client libraries
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path steam-dist | Out-Null
-          Copy-Item "C:\Program Files (x86)\Steam\steamclient64.dll" steam-dist/
-          if (Test-Path "C:\Program Files (x86)\Steam\steamui.dll") { Copy-Item "C:\Program Files (x86)\Steam\steamui.dll" steam-dist/ }
+          Copy-Item (Join-Path $env:STEAM_DIR 'steamclient64.dll') steam-dist/
+          if (Test-Path (Join-Path $env:STEAM_DIR 'steamui.dll')) { Copy-Item (Join-Path $env:STEAM_DIR 'steamui.dll') steam-dist/ }
           Get-ChildItem steam-dist
 
       - name: Harvest signatures
@@ -113,7 +145,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Download and mount Steam dmg
+      - name: Download, run once and collect Steam client
         run: |
           curl -L -o steam.dmg https://steamcdn-a.akamaihd.net/client/installer/steam.dmg
           hdiutil attach steam.dmg -nobrowse -quiet
@@ -121,7 +153,25 @@ jobs:
           mkdir -p steam-dist
           cp -R "$VOL/Steam.app" steam-dist/
           hdiutil detach "$VOL" -quiet || true
+
+          # The dmg ships only the shell app; the client files (incl.
+          # steamclient.dylib) are downloaded by the first launch.
+          ./steam-dist/Steam.app/Contents/MacOS/steam_osx & APP_PID=$!
+          for i in $(seq 1 24); do
+            sleep 10
+            if find "$HOME/Library/Application Support/Steam" -name 'steamclient*.dylib' 2>/dev/null | grep -q .; then
+              break
+            fi
+          done
+          kill $APP_PID 2>/dev/null || true
+
+          # Consolidate every discovered library into the single scan root
+          find "$HOME/Library/Application Support/Steam" \( -iname 'steamclient*.dylib' -o -iname 'steamui*.dylib' \) \
+            -exec cp {} steam-dist/ \; 2>/dev/null || true
+          COUNT=$(find steam-dist -iname '*steamclient*' | wc -l)
+          echo "steamclient copies: $COUNT"
           find steam-dist \( -iname '*steamclient*' -o -iname 'steamui*' \) -print
+          [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.dylib obtained"; exit 1; }
 
       - name: Harvest signatures
         run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos
