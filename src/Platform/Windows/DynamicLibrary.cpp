@@ -1,8 +1,10 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <cstring>
 #include <psapi.h>
 #include <string>
+#include <tlhelp32.h>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -117,6 +119,28 @@ std::string Process::GetProcessName(uint32_t pid) {
 std::string Process::GetExecutablePath() {
     char buf[MAX_PATH];
     return GetModuleFileNameA(nullptr, buf, MAX_PATH) ? std::string(buf) : "";
+}
+
+std::vector<uint32_t> Process::FindProcessIdsByName(const std::string& processName) {
+    std::vector<uint32_t> result;
+    if (processName.empty())
+        return result;
+
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE)
+        return result;
+
+    PROCESSENTRY32 entry{};
+    entry.dwSize = sizeof(entry);
+    if (Process32First(hSnap, &entry)) {
+        do {
+            if (_stricmp(entry.szExeFile, processName.c_str()) == 0) {
+                result.push_back(entry.th32ProcessID);
+            }
+        } while (Process32Next(hSnap, &entry));
+    }
+    CloseHandle(hSnap);
+    return result;
 }
 
 void Thread::StartDetached(std::function<void()> task) {

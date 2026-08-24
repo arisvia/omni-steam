@@ -56,6 +56,18 @@ bool ProcessInjector::InjectModule(uint32_t processId, const std::string& module
         return false;
     }
 
+    // Refuse cross-bitness injection: a 64-bit LoadLibraryW address is invalid
+    // inside a WOW64 target and would crash it.
+    BOOL targetWow64 = FALSE;
+    IsWow64Process(hProcess, &targetWow64);
+    BOOL selfWow64 = FALSE;
+    IsWow64Process(GetCurrentProcess(), &selfWow64);
+    if (targetWow64 != selfWow64) {
+        spdlog::warn("ProcessInjector: Skipping PID {} - bitness mismatch with Steam process", processId);
+        CloseHandle(hProcess);
+        return false;
+    }
+
     std::wstring wPath = OmniPlatform::Encoding::Utf8ToWide(fs::absolute(modulePath).generic_string());
     size_t pathSizeBytes = (wPath.length() + 1) * sizeof(wchar_t);
 
