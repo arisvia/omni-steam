@@ -107,7 +107,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `Hooks_Decryption` | Depot 密钥 | 大小写不敏感零分配快速拒绝，仅在命中 decryptionkey 时分配 |
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳 |
-| `Hooks_Misc` | OnlineFix | SpawnProcess / OptedInMask（原子化真实 AppID） |
+| `Hooks_Misc` | OnlineFix 与 DLL 注入 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入（基线快照 + PID 认领去重 + WOW64 拒绝） |
 | `Hooks_IPC` | 占位透传 | 当前无实际逻辑（预留扩展点） |
 | `PatternLoader` | 函数寻址 | SHA256 键控 RVA 缓存 → 失败回退特征扫描 |
 | `LuaConfig` | 解锁规则存储 | **双缓冲快照**：读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
@@ -119,7 +119,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | 模块 | 职责 |
 | :--- | :--- |
 | `WebServer` | 回环 (127.0.0.1) HTTP 服务：完整请求读取(Content-Length)、15s 收包超时、每连接独立线程(上限16)、可靠 shutdown |
-| `ApiRouter` | REST 路由；所有数值解析防溢出崩溃；密码永不回显（`passwordSet` + `__OMNI_KEEP__` 保持机制）；脚本路径操作经受管目录校验 |
+| `ApiRouter` | REST 路由；Host/Origin 回环校验（DNS 重绑定 / CSRF 防护）；所有数值解析防溢出崩溃；密码永不回显（`passwordSet` + `__OMNI_KEEP__` 保持机制）；脚本路径操作经受管目录校验 |
 | `StaticAssets` | 单文件嵌入式仪表盘（搜索/一键解锁/脚本管理/云存档/Doctor） |
 | `ScriptManager` | Lua 生成（字符串转义防注入）、appmanifest 预创建、启用/停用/删除（路径白名单双重校验） |
 | `DepotKeyStore` | 17.5万+ 密钥：多路径加载 → CDN 四镜像后台更新 → config.vdf 补录；32 位安全算术 + 数量上限 + 强制排序保证二分正确 |
@@ -133,10 +133,10 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | # | 断点 | 说明 | 现状 |
 | :- | :--- | :--- | :--- |
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
-| B | `addinject` DLL 注入 | `ProcessInjector` 已实现并编译，但无调用方接线（需在 SpawnProcess 后获取游戏 PID） | 规划中 |
-| C | Stats 成就统计上报 | 配置项 `[stats] enable_api` 与端点常量已备，无实现 | 规划中 |
+| B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
+| C | Stats 成就统计上报 | 前置依赖成就伪造子系统（eMsg 818/819）；供体 SteamID 解析可参照上游 StatsClient | 规划中 |
 | D | Linux/macOS 签名库 | 无验证过的 steamclient.so/dylib 特征码，Hook 主动休眠防止挂错地址 | 征集签名中 |
-| E | 仪表盘鉴权 | 仅绑定回环；浏览器 CSRF 面（POST 类接口）未加 Origin 校验/token | 低风险待办 |
+| E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地 | ✅ 2026-08 完成 |
 
 ## 6. 目录导览
 

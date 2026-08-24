@@ -66,9 +66,14 @@
 - [x] **PICS 访问令牌注入**（2026-08）：新增 `PicsTokenInjector` 模块消费 `addtoken` 收集的 access token，
       拦截 eMsg 8903 CMsgClientPICSProductInfoRequest，对已解锁且配置了令牌的 App 条目以追加字段方式
       覆盖 access_token（保留其余字段）；配套 `PicsTokenTests` 单元套件。
-- [ ] **addinject 接线**：SpawnProcess 后获取游戏 PID，调用既有 `ProcessInjector` 完成 DLL 注入链路。
+- [x] **addinject 接线**（2026-08）：`SpawnProcess` 后按 exe 文件名轮询新进程（基线快照去重、PID 认领防重复注入），
+      自动调用 `ProcessInjector::InjectForApp`；平台层新增 `Process::FindProcessIdsByName`
+      （Toolhelp32 / /proc / sysctl），注入器增加 WOW64 跨位数拒绝防护。
+- [x] **仪表盘基础防护**（2026-08）：ApiRouter 全局 Host 回环校验（阻断 DNS 重绑定）+
+      POST/PUT/DELETE Origin 回环校验（阻断浏览器 CSRF，非浏览器客户端不受影响）。
+- [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
+      校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
+- [ ] **Stats 成就统计上报**：前置条件是先实现成就伪造子系统（eMsg 818/819 拦截 + CloudRedirect 同类能力），
+      届时 `stats.opensteamtool.com/{appid}` 供体 SteamID 解析可参照上游 StatsClient 实现。
 - [ ] **Linux/macOS 特征签名库**：逆向提取 `steamclient.so/dylib` 差异化特征码（或引入上游同款
       "远程 TOML + RVA" 分发机制），点亮非 Windows 平台解锁功能。
-- [ ] **仪表盘基础防护**：POST 接口 Origin/Host 校验或本地 token（当前仅回环绑定）。
-- [ ] **Stats 成就统计上报**：落实 `[stats] enable_api` 配置的完整实现。
-- [ ] **下载产物完整性校验**：CoreInstaller / depotkeys.bin 增加 SHA256 校验和发布。

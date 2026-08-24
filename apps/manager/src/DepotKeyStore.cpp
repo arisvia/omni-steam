@@ -1,5 +1,7 @@
 #include "DepotKeyStore.h"
 
+#include "DownloadVerifier.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -136,6 +138,11 @@ void TriggerAsyncBackgroundUpdate(size_t localCount, const std::string& targetCa
         for (const auto& url : remoteUrls) {
             auto resp = OmniPlatform::Http::Get(url, 6000);
             if (resp.statusCode == 200 && !resp.body.empty()) {
+                std::string rejection;
+                if (!VerifyDownloadChecksumIfPublished(url, resp.body, &rejection)) {
+                    spdlog::warn("DepotKeyStore: Rejecting remote update from {} ({})", url, rejection);
+                    continue;
+                }
                 const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
                 if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
                     const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);
@@ -223,6 +230,11 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
         spdlog::info("DepotKeyStore: Checking remote depot keys from {}", url);
         auto resp = OmniPlatform::Http::Get(url, 6000);
         if (resp.statusCode == 200 && !resp.body.empty()) {
+            std::string rejection;
+            if (!VerifyDownloadChecksumIfPublished(url, resp.body, &rejection)) {
+                spdlog::warn("DepotKeyStore: Rejecting remote depot keys from {} ({})", url, rejection);
+                continue;
+            }
             const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
             if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
                 const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);

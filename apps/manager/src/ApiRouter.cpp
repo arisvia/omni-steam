@@ -11,6 +11,8 @@
 #include "SteamApi.h"
 #include "WebDavClient.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <iomanip>
 #include <regex>
@@ -83,9 +85,87 @@ bool ParseUint32Safe(const std::string& text, uint32_t& out) {
 
 constexpr const char* kKeepPasswordMarker = "__OMNI_KEEP__";
 
+std::string ToLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+// Extracts a request header value (first occurrence, case-insensitive name).
+std::string GetRequestHeader(const std::string& request, const char* name) {
+    size_t headerEnd = request.find("\r\n\r\n");
+    std::string headers = request.substr(0, headerEnd == std::string::npos ? request.size() : headerEnd);
+    const std::string needle = ToLowerCopy(name) + ":";
+
+    size_t lineStart = 0;
+    while (lineStart < headers.size()) {
+        size_t lineEnd = headers.find('\n', lineStart);
+        std::string line =
+            headers.substr(lineStart, (lineEnd == std::string::npos ? headers.size() : lineEnd) - lineStart);
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        if (ToLowerCopy(line).rfind(needle, 0) == 0) {
+            std::string value = line.substr(needle.size());
+            while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+                value.erase(value.begin());
+            while (!value.empty() && (value.back() == ' ' || value.back() == '\t'))
+                value.pop_back();
+            return value;
+        }
+        if (lineEnd == std::string::npos)
+            break;
+        lineStart = lineEnd + 1;
+    }
+    return "";
+}
+
+// Accepts "127.0.0.1[:port]", "localhost[:port]", "[::1][:port]".
+bool IsLocalAuthority(std::string authority) {
+    authority = ToLowerCopy(authority);
+    const std::string schemeSep = "://";
+    size_t authStart = authority.find(schemeSep);
+    if (authStart != std::string::npos)
+        authority = authority.substr(authStart + schemeSep.length());
+    size_t pathSlash = authority.find_first_of("/?#");
+    if (pathSlash != std::string::npos)
+        authority = authority.substr(0, pathSlash);
+
+    size_t portPos = authority.rfind(':');
+    if (portPos != std::string::npos && authority.find(']') == std::string::npos)
+        authority = authority.substr(0, portPos);
+    if (!authority.empty() && authority.back() == '.')
+        authority.pop_back();
+
+    return authority == "127.0.0.1" || authority == "localhost" || authority == "::1" || authority == "[::1]" ||
+           authority == "[0000:0000:0000:0000:0000:0000:0000:0001]";
+}
+
+// Blocks DNS-rebinding (Host must be loopback) and browser CSRF (an Origin
+// header on state-changing requests must also be loopback). Non-browser
+// clients that omit Origin are allowed.
+bool ValidateRequestOrigin(const std::string& request) {
+    std::string host = GetRequestHeader(request, "Host");
+    if (!host.empty() && !IsLocalAuthority(host))
+        return false;
+
+    if (request.rfind("POST", 0) == 0 || request.rfind("PUT", 0) == 0 || request.rfind("DELETE", 0) == 0) {
+        std::string origin = GetRequestHeader(request, "Origin");
+        if (!origin.empty() && !IsLocalAuthority(origin))
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
 std::string ApiRouter::HandleRequest(const std::string& request) {
+    // 0. Loopback origin enforcement (DNS rebinding / CSRF shield)
+    if (!ValidateRequestOrigin(request)) {
+        spdlog::warn("ApiRouter: Rejected request with non-local Host/Origin header");
+        return MakeHttpResponse(403, "text/plain", "403 Forbidden");
+    }
+
     // 1. Static HTML Root
     if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /index.html", 0) == 0) {
         return MakeHttpResponse(200, "text/html", StaticAssets::GetIndexHtml());

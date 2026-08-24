@@ -1,5 +1,7 @@
 #include "CoreInstaller.h"
 
+#include "DownloadVerifier.h"
+
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -217,6 +219,11 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
             spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
             auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
             if (resp.statusCode == 200 && !resp.body.empty()) {
+                std::string rejection;
+                if (!VerifyDownloadChecksumIfPublished(downloadUrl, resp.body, &rejection)) {
+                    spdlog::warn("CoreInstaller: Rejecting asset from {} ({})", downloadUrl, rejection);
+                    continue;
+                }
                 std::string tempPackage =
                     (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
                 std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
