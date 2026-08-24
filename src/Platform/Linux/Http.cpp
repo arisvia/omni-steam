@@ -24,7 +24,6 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res.body);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "OpenSteamTool/1.0");
     curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
     CURLcode code = curl_easy_perform(curl);
     if (code == CURLE_OK) {

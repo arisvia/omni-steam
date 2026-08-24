@@ -8,6 +8,7 @@
 namespace LuaConfig {
 void ParseDirectory(const std::string& dirPath);
 void ReloadDirectories(const std::string& dirPath);
+void ReloadDirectories(const std::vector<std::string>& dirPaths);
 void ParseFile(const std::string& filePath);
 bool HasDepot(uint32_t depotId);
 bool HasApp(uint32_t appId);

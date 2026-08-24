@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/SteamTypes.h"
 
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/PatternLoader.h"
@@ -22,7 +23,7 @@ struct CSteamApp {
 HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* pApp) {
     if (pApp && (LuaConfig::HasApp(pApp->nAppID) || LuaConfig::HasDepot(pApp->nAppID))) {
         if (pApp->PurchasedTime == 0) {
-            pApp->PurchasedTime = 1600000000; // Provide synthetic timestamp to ensure library visibility
+            pApp->PurchasedTime = kSteamSyntheticPurchasedTime;
             spdlog::debug("Hooks_SteamUI: Set synthetic PurchasedTime for uninstalled AppID {}", pApp->nAppID);
         }
     }

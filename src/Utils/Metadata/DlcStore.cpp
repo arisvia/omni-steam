@@ -72,8 +72,10 @@ void DlcStore::Initialize() {
         for (uint32_t i = 0; i < entryCount && in.good(); ++i) {
             uint32_t baseAppId = 0;
             uint32_t dlcCount = 0;
-            in.read(reinterpret_cast<char*>(&baseAppId), sizeof(baseAppId));
-            in.read(reinterpret_cast<char*>(&dlcCount), sizeof(dlcCount));
+            if (!in.read(reinterpret_cast<char*>(&baseAppId), sizeof(baseAppId)) ||
+                !in.read(reinterpret_cast<char*>(&dlcCount), sizeof(dlcCount))) {
+                break;
+            }
 
             if (dlcCount > 10000)
                 break; // Boundary sanity check
@@ -132,31 +134,40 @@ size_t DlcStore::Count() {
 }
 
 void DlcStore::SaveCache() {
-    std::string cachePath = GetDlcCachePath();
-    try {
-        std::ofstream out(cachePath, std::ios::binary | std::ios::trunc);
-        if (!out)
-            return;
-
-        uint32_t magic = kSteamDlcCacheMagic;
-        uint32_t version = kSteamDlcCacheVersion;
-        uint32_t entryCount = 0;
-
+    // Serialize the payload under the lock, then perform file I/O outside so
+    // ownership hot paths are never blocked by disk latency.
+    std::string serialized;
+    {
         std::lock_guard<std::mutex> lock(g_dlcMutex);
-        entryCount = static_cast<uint32_t>(g_baseAppToDlcs.size());
-
-        out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
-        out.write(reinterpret_cast<const char*>(&version), sizeof(version));
-        out.write(reinterpret_cast<const char*>(&entryCount), sizeof(entryCount));
-
+        serialized.reserve(8 + g_baseAppToDlcs.size() * 8);
+        auto appendU32 = [&serialized](uint32_t v) { serialized.append(reinterpret_cast<const char*>(&v), sizeof(v)); };
+        appendU32(kSteamDlcCacheMagic);
+        appendU32(kSteamDlcCacheVersion);
+        appendU32(static_cast<uint32_t>(g_baseAppToDlcs.size()));
         for (const auto& [baseId, dlcs] : g_baseAppToDlcs) {
-            uint32_t baseAppId = baseId;
-            uint32_t dlcCount = static_cast<uint32_t>(dlcs.size());
-            out.write(reinterpret_cast<const char*>(&baseAppId), sizeof(baseAppId));
-            out.write(reinterpret_cast<const char*>(&dlcCount), sizeof(dlcCount));
-            if (dlcCount > 0) {
-                out.write(reinterpret_cast<const char*>(dlcs.data()), sizeof(uint32_t) * dlcCount);
+            appendU32(baseId);
+            appendU32(static_cast<uint32_t>(dlcs.size()));
+            if (!dlcs.empty()) {
+                serialized.append(reinterpret_cast<const char*>(dlcs.data()), sizeof(uint32_t) * dlcs.size());
             }
+        }
+    }
+
+    try {
+        std::string cachePath = GetDlcCachePath();
+        std::string tempPath = cachePath + ".tmp";
+        {
+            std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
+            if (!out)
+                return;
+            out.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
+            out.flush();
+        }
+        std::error_code ec;
+        fs::rename(tempPath, cachePath, ec);
+        if (ec) {
+            fs::copy_file(tempPath, cachePath, fs::copy_options::overwrite_existing, ec);
+            fs::remove(tempPath, ec);
         }
     } catch (const std::exception& e) {
         spdlog::warn("DlcStore: Failed to save cache: {}", e.what());

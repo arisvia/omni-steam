@@ -68,20 +68,11 @@ void RegisterCoreSignatures() {
     RegisterPattern("FillInAppOverview", "steamui.dll",
                     "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
-    // Linux ELF Steamclient signatures
-    RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("GetPackageInfo", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("MarkLicenseAsChanged", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC",
-                    0);
+    spdlog::warn("PatternLoader: No verified steamclient.so signatures are bundled; "
+                 "function hooks stay dormant to avoid attaching to wrong addresses");
 #elif defined(OMNI_PLATFORM_MACOS)
-    // macOS Mach-O Steamclient signatures
-    RegisterPattern("CheckAppOwnership", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
-    RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
-    RegisterPattern("GetPackageInfo", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
-    RegisterPattern("MarkLicenseAsChanged", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
+    spdlog::warn("PatternLoader: No verified steamclient.dylib signatures are bundled; "
+                 "function hooks stay dormant to avoid attaching to wrong addresses");
 #endif
 }
 std::string GetCacheDirectory() {
@@ -121,6 +112,10 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         }
         uint64_t rva = 0;
         if (!file.read(reinterpret_cast<char*>(&rva), 8)) {
+            return false;
+        }
+        if (rva == 0 || rva > (512ull << 20)) {
+            spdlog::warn("PatternLoader: Cache entry '{}' has implausible RVA 0x{:X}, discarding cache", name, rva);
             return false;
         }
 

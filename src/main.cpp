@@ -1,6 +1,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
@@ -100,9 +101,15 @@ static void InitializeOmniSteam() {
 #endif
 
         int waitAttempts = 0;
-        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < 50) {
+        constexpr int kMaxWaitAttempts = 600;
+        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < kMaxWaitAttempts) {
             OmniPlatform::Thread::Sleep(100);
             waitAttempts++;
+        }
+        if (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule)) {
+            spdlog::error("Target module {} did not load within {}s; aborting hook initialization", targetModule,
+                          kMaxWaitAttempts / 10);
+            return;
         }
         spdlog::info("Target module {} ready (waited {}ms)", targetModule, waitAttempts * 100);
 
@@ -111,29 +118,30 @@ static void InitializeOmniSteam() {
         Security::AntiCheatGuard::Initialize();
         Metadata::DlcStore::Initialize();
         PatternLoader::Initialize();
+
+        // 3. Parse Lua unlock scripts and watch for hot reloads (deduplicated)
+        std::set<std::string> watchDirSet;
         auto luaDirs = OmniPlatform::Paths::GetCandidateLuaDirectories();
-        std::vector<std::string> watchDirs;
         for (const auto& dir : luaDirs) {
             if (fs::exists(dir)) {
                 spdlog::info("Scanning Lua directory: {}", dir);
                 LuaConfig::ParseDirectory(dir);
-                watchDirs.push_back(dir);
+                watchDirSet.insert(fs::weakly_canonical(fs::path(dir)).generic_string());
             }
         }
 
         for (const auto& p : Config::GetLuaPaths()) {
             if (fs::exists(p)) {
-                watchDirs.push_back(p);
+                watchDirSet.insert(fs::weakly_canonical(fs::path(p)).generic_string());
             }
         }
 
+        std::vector<std::string> watchDirs(watchDirSet.begin(), watchDirSet.end());
         if (!watchDirs.empty()) {
             OmniPlatform::DirectoryWatch::StartWatch(watchDirs, [watchDirs](const std::string& path, bool isDir) {
                 if (!isDir && path.ends_with(".lua")) {
                     spdlog::info("Hot reload: Lua configuration modified ({}), refreshing in-memory licenses...", path);
-                    for (const auto& d : watchDirs) {
-                        LuaConfig::ReloadDirectories(d);
-                    }
+                    LuaConfig::ReloadDirectories(watchDirs);
                     Hooks_Package::SyncInjectedLicenses();
                 }
             });

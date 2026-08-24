@@ -20,11 +20,24 @@ inline constexpr AppId_t kOnlineFixAppId = 480;
 
 // Default synthesized license count for unowned standalone apps & DLCs
 // Steam Protocol Network eMsg Constants
+inline constexpr uint32_t kMsgHdrProtoFlag = 0x80000000;
+inline constexpr uint32_t k_EMsgServiceMethodCallFromClient = 151;
+inline constexpr uint32_t k_EMsgServiceMethodResponse = 147;
+inline constexpr int32_t k_EResultOK = 1;
 inline constexpr uint32_t k_EMsgClientGetLegacyGameKey = 730;
 inline constexpr uint32_t k_EMsgClientGetLegacyGameKeyResponse = 785;
 inline constexpr uint32_t k_EMsgClientGamesPlayed = 742;
 inline constexpr uint32_t k_EMsgClientGamesPlayedWithDataBlob = 5410;
 inline constexpr uint32_t k_EMsgClientRequestEncryptedAppTicketResponse = 5527;
+
+// Synthetic purchase timestamp injected into AppOverview so unlocked titles
+// appear instantly and persist in the library UI.
+inline constexpr uint32_t kSteamSyntheticPurchasedTime = 1600000000;
+
+// Protobuf field tags for CMsgProtoBufHeader / service responses
+inline constexpr uint8_t kProtoTagJobIdTarget64 = 0x59;       // field 11, wire type 1
+inline constexpr uint8_t kProtoTagEresultVarint = 0x68;       // field 13, wire type 0
+inline constexpr uint8_t kProtoTagManifestRequestCode = 0x08; // field 1, wire type 0
 
 // Steam Client Game Identifier Structure
 struct CGameID {
@@ -143,6 +156,10 @@ enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable 
 // Steam Client Verified Structure Offsets (Windows x64 / Linux / macOS vs 32-bit)
 // ==============================================================================
 namespace SteamOffsets {
+
+namespace CUser64 {
+inline constexpr size_t kAccountId = 0x1E4;
+} // namespace CUser64
 
 namespace Ownership64 {
 inline constexpr size_t kPackageId = 0x00;

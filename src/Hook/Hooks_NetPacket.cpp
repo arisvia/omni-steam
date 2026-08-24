@@ -1,5 +1,6 @@
 #include "Hooks_NetPacket.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -23,15 +24,23 @@
 
 namespace {
 
-constexpr uint32_t kMsgHdrProtoFlag = 0x80000000;
-constexpr uint32_t k_EMsgServiceMethodCallFromClient = 151;
-constexpr uint32_t k_EMsgServiceMethodResponse = 147;
-constexpr int32_t k_EResultOK = 1;
-
+constexpr int kPacketPoolSize = 32;
 constexpr uint32_t kMaxBodySize = 65536;
 constexpr uint32_t kMaxHdrSize = 1024;
 constexpr uint32_t kMaxPacketSize = 8 + kMaxHdrSize + kMaxBodySize;
-constexpr int kPacketPoolSize = 8;
+
+// How long RecvPkt may block waiting for the upstream request-code lookup.
+// Steam re-issues GetManifestRequestCode roughly every 45s when it fails, and
+// successful lookups land in ManifestClient's persistent cache, so a short
+// bound avoids stalling the CM receive path while guaranteeing convergence on
+// the next attempt.
+constexpr auto kManifestRecvWait = std::chrono::milliseconds(2500);
+
+struct CNetPacket {
+    void* m_pVTable;
+    uint8_t* m_pubData;
+    uint32_t m_cubData;
+};
 
 #pragma pack(push, 1)
 struct MsgHdr {
@@ -40,22 +49,26 @@ struct MsgHdr {
 };
 #pragma pack(pop)
 
-struct CNetPacket {
-    void* m_pVTable;
-    uint8_t* m_pubData;
-    uint32_t m_cubData;
-};
-
 uint8_t g_RecvPacketPool[kPacketPoolSize][kMaxPacketSize];
 int g_RecvPacketPoolIdx = 0;
+std::mutex g_PoolMutex;
+
+uint8_t* AcquirePacketSlot(size_t needed) {
+    if (needed > kMaxPacketSize)
+        return nullptr;
+    std::lock_guard<std::mutex> lock(g_PoolMutex);
+    uint8_t* buf = g_RecvPacketPool[g_RecvPacketPoolIdx];
+    g_RecvPacketPoolIdx = (g_RecvPacketPoolIdx + 1) % kPacketPoolSize;
+    return buf;
+}
 
 std::unordered_map<uint64_t, std::shared_future<uint64_t>> g_ManifestFutures;
-std::mutex g_ManifestFuturesMutex;
+std::unordered_map<uint64_t, uint64_t> g_ManifestInstantCodes;
+std::mutex g_ManifestMutex;
 
 std::deque<std::vector<uint8_t>> g_LegacyKeyQueue;
 std::mutex g_LegacyKeyMutex;
 
-// Lightweight Protobuf varint helper
 inline uint64_t ReadVarint(const uint8_t*& ptr, const uint8_t* end) {
     uint64_t val = 0;
     int shift = 0;
@@ -77,7 +90,6 @@ inline void WriteVarint(std::vector<uint8_t>& buf, uint64_t val) {
     buf.push_back(static_cast<uint8_t>(val & 0x7F));
 }
 
-// Check and unpack packet
 inline bool UnpackRaw(const uint8_t* data, uint32_t size, uint32_t& eMsg, const uint8_t*& pHdr, uint32_t& cbHdr,
                       const uint8_t*& pBody, uint32_t& cbBody) {
     if (!data || size < sizeof(MsgHdr))
@@ -98,7 +110,6 @@ inline bool UnpackRaw(const uint8_t* data, uint32_t size, uint32_t& eMsg, const 
     return true;
 }
 
-// Parse jobid_source and target_job_name from CMsgProtoBufHeader
 bool ParseProtoHeader(const uint8_t* pHdr, uint32_t cbHdr, uint64_t& jobid_source, uint64_t& jobid_target,
                       std::string& target_job_name) {
     const uint8_t* ptr = pHdr;
@@ -112,27 +123,31 @@ bool ParseProtoHeader(const uint8_t* pHdr, uint32_t cbHdr, uint64_t& jobid_sourc
         uint32_t fieldNumber = static_cast<uint32_t>(tag >> 3);
         uint32_t wireType = static_cast<uint32_t>(tag & 7);
 
-        if (wireType == 0) { // Varint
-            ReadVarint(ptr, end);
-        } else if (wireType == 1) { // 64-bit fixed
-            if (ptr + 8 > end)
+        if (wireType == 0) {
+            uint64_t val = ReadVarint(ptr, end);
+            if (fieldNumber == 10)
+                jobid_source = val;
+            else if (fieldNumber == 11)
+                jobid_target = val;
+        } else if (wireType == 1) {
+            if (end - ptr < 8)
                 break;
-            if (fieldNumber == 10) { // jobid_source
+            if (fieldNumber == 10) {
                 std::memcpy(&jobid_source, ptr, 8);
-            } else if (fieldNumber == 11) { // jobid_target
+            } else if (fieldNumber == 11) {
                 std::memcpy(&jobid_target, ptr, 8);
             }
             ptr += 8;
-        } else if (wireType == 2) { // Length-delimited
+        } else if (wireType == 2) {
             uint64_t len = ReadVarint(ptr, end);
-            if (ptr + len > end)
+            if (len > static_cast<uint64_t>(end - ptr))
                 break;
-            if (fieldNumber == 12) { // target_job_name
-                target_job_name.assign(reinterpret_cast<const char*>(ptr), len);
+            if (fieldNumber == 12) {
+                target_job_name.assign(reinterpret_cast<const char*>(ptr), static_cast<size_t>(len));
             }
-            ptr += len;
-        } else if (wireType == 5) { // 32-bit fixed
-            if (ptr + 4 > end)
+            ptr += static_cast<size_t>(len);
+        } else if (wireType == 5) {
+            if (end - ptr < 4)
                 break;
             ptr += 4;
         } else {
@@ -142,7 +157,6 @@ bool ParseProtoHeader(const uint8_t* pHdr, uint32_t cbHdr, uint64_t& jobid_sourc
     return true;
 }
 
-// Parse GetManifestRequestCode request
 bool ParseManifestRequest(const uint8_t* pBody, uint32_t cbBody, uint32_t& appId, uint32_t& depotId,
                           uint64_t& manifestId) {
     const uint8_t* ptr = pBody;
@@ -156,7 +170,7 @@ bool ParseManifestRequest(const uint8_t* pBody, uint32_t cbBody, uint32_t& appId
         uint32_t fieldNumber = static_cast<uint32_t>(tag >> 3);
         uint32_t wireType = static_cast<uint32_t>(tag & 7);
 
-        if (wireType == 0) { // Varint
+        if (wireType == 0) {
             uint64_t val = ReadVarint(ptr, end);
             if (fieldNumber == 1)
                 appId = static_cast<uint32_t>(val);
@@ -165,11 +179,17 @@ bool ParseManifestRequest(const uint8_t* pBody, uint32_t cbBody, uint32_t& appId
             else if (fieldNumber == 3)
                 manifestId = val;
         } else if (wireType == 1) {
+            if (end - ptr < 8)
+                break;
             ptr += 8;
         } else if (wireType == 2) {
             uint64_t len = ReadVarint(ptr, end);
-            ptr += len;
+            if (len > static_cast<uint64_t>(end - ptr))
+                break;
+            ptr += static_cast<size_t>(len);
         } else if (wireType == 5) {
+            if (end - ptr < 4)
+                break;
             ptr += 4;
         } else {
             break;
@@ -195,7 +215,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                     std::vector<uint8_t> respPkt(totalSize);
                     auto* respHdr = reinterpret_cast<ExtendedMsgHdr*>(respPkt.data());
                     *respHdr = *reqHdr;
-                    respHdr->eMsg = k_EMsgClientGetLegacyGameKeyResponse; // 785
+                    respHdr->eMsg = k_EMsgClientGetLegacyGameKeyResponse;
                     respHdr->targetJobID = reqHdr->sourceJobID;
                     respHdr->sourceJobID = 0;
 
@@ -214,7 +234,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                     spdlog::info("Hooks_NetPacket: Intercepted LegacyKey request for AppID {}, synthesized CD-Key "
                                  "response (suppressing real send)",
                                  appId);
-                    return true; // Suppress outbound frame to Valve server
+                    return true;
                 }
             }
         }
@@ -238,14 +258,19 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                                  "JobId: {})",
                                  depotId, manifestId, jobid_source);
 
-                    auto task = std::async(std::launch::async, [manifestId]() -> uint64_t {
-                        uint64_t code = 0;
-                        ManifestClient::FetchManifestRequestCode(manifestId, &code);
-                        return code;
-                    });
-
-                    std::lock_guard<std::mutex> lock(g_ManifestFuturesMutex);
-                    g_ManifestFutures[jobid_source] = task.share();
+                    uint64_t cached = ManifestClient::GetCachedRequestCode(manifestId);
+                    if (cached != 0) {
+                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
+                        g_ManifestInstantCodes[jobid_source] = cached;
+                    } else if (!ManifestClient::IsNegativeCached(manifestId)) {
+                        auto task = std::async(std::launch::async, [manifestId]() -> uint64_t {
+                            uint64_t code = 0;
+                            ManifestClient::FetchManifestRequestCode(manifestId, &code);
+                            return code;
+                        });
+                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
+                        g_ManifestFutures[jobid_source] = task.share();
+                    }
                 }
             }
         }
@@ -253,22 +278,102 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
     return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, pubData, cubData) : false;
 }
 
+bool TryInjectRequestCode(uint64_t code, const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody, uint32_t cbBody,
+                          CNetPacket* pPacket) {
+    // Append-only protobuf override: scalar fields parsed later win, so
+    // appending eresult / manifest_request_code preserves every original
+    // header and body field untouched.
+    std::vector<uint8_t> newHdr(pHdr, pHdr + cbHdr);
+    newHdr.push_back(kProtoTagEresultVarint);
+    WriteVarint(newHdr, static_cast<uint64_t>(k_EResultOK));
+
+    std::vector<uint8_t> newBody(pBody, pBody + cbBody);
+    newBody.push_back(kProtoTagManifestRequestCode);
+    WriteVarint(newBody, code);
+
+    size_t totalSize = sizeof(MsgHdr) + newHdr.size() + newBody.size();
+    uint8_t* poolBuf = AcquirePacketSlot(totalSize);
+    if (!poolBuf)
+        return false;
+
+    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
+    outHdr->eMsg = k_EMsgServiceMethodResponse | kMsgHdrProtoFlag;
+    outHdr->headerLength = static_cast<uint32_t>(newHdr.size());
+
+    std::memcpy(poolBuf + sizeof(MsgHdr), newHdr.data(), newHdr.size());
+    std::memcpy(poolBuf + sizeof(MsgHdr) + newHdr.size(), newBody.data(), newBody.size());
+
+    pPacket->m_pubData = poolBuf;
+    pPacket->m_cubData = static_cast<uint32_t>(totalSize);
+    return true;
+}
+
+void HandleManifestResponse(uint64_t jobid_target, CNetPacket* pPacket, const uint8_t* pHdr, uint32_t cbHdr,
+                            const uint8_t* pBody, uint32_t cbBody) {
+    uint64_t instantCode = 0;
+    std::shared_future<uint64_t> future;
+    bool hasFuture = false;
+    {
+        std::lock_guard<std::mutex> lock(g_ManifestMutex);
+        auto itInstant = g_ManifestInstantCodes.find(jobid_target);
+        if (itInstant != g_ManifestInstantCodes.end()) {
+            instantCode = itInstant->second;
+            g_ManifestInstantCodes.erase(itInstant);
+        }
+        if (instantCode == 0) {
+            auto it = g_ManifestFutures.find(jobid_target);
+            if (it != g_ManifestFutures.end()) {
+                future = it->second;
+                g_ManifestFutures.erase(it);
+                hasFuture = true;
+            }
+        }
+    }
+
+    uint64_t code = instantCode;
+    if (code == 0 && hasFuture) {
+        if (future.wait_for(kManifestRecvWait) == std::future_status::ready) {
+            code = future.get();
+        } else {
+            spdlog::info("Hooks_NetPacket: Request-code lookup still pending for JobId {}; passing original response, "
+                         "retry will use cache",
+                         jobid_target);
+            return;
+        }
+    }
+
+    if (code == 0)
+        return;
+
+    if (TryInjectRequestCode(code, pHdr, cbHdr, pBody, cbBody, pPacket)) {
+        spdlog::info("Hooks_NetPacket: Injecting manifest_request_code {} into response (JobId: {})", code,
+                     jobid_target);
+    }
+}
+
 HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
     // 1. Drain synthesized Legacy CD-Key responses first
     if (pPacket) {
-        std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
-        if (!g_LegacyKeyQueue.empty()) {
-            auto respPkt = std::move(g_LegacyKeyQueue.front());
-            g_LegacyKeyQueue.pop_front();
-
-            uint8_t* poolBuf = g_RecvPacketPool[g_RecvPacketPoolIdx];
-            g_RecvPacketPoolIdx = (g_RecvPacketPoolIdx + 1) % kPacketPoolSize;
-            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
-
-            pPacket->m_pubData = poolBuf;
-            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
-            spdlog::debug("Hooks_NetPacket: Delivered synthesized LegacyKey response ({} bytes)", respPkt.size());
-            return pPacket;
+        std::vector<uint8_t> respPkt;
+        {
+            std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
+            if (!g_LegacyKeyQueue.empty()) {
+                respPkt = std::move(g_LegacyKeyQueue.front());
+                g_LegacyKeyQueue.pop_front();
+            }
+        }
+        if (!respPkt.empty()) {
+            if (uint8_t* poolBuf = AcquirePacketSlot(respPkt.size())) {
+                std::memcpy(poolBuf, respPkt.data(), respPkt.size());
+                pPacket->m_pubData = poolBuf;
+                pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
+                spdlog::debug("Hooks_NetPacket: Delivered synthesized LegacyKey response ({} bytes)", respPkt.size());
+                return pPacket;
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
+                g_LegacyKeyQueue.push_front(std::move(respPkt));
+            }
         }
     }
 
@@ -282,58 +387,7 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
                 uint64_t jobid_source = 0, jobid_target = 0;
                 std::string target_job_name;
                 ParseProtoHeader(pHdr, cbHdr, jobid_source, jobid_target, target_job_name);
-
-                std::shared_future<uint64_t> future;
-                bool hasFuture = false;
-                {
-                    std::lock_guard<std::mutex> lock(g_ManifestFuturesMutex);
-                    auto it = g_ManifestFutures.find(jobid_target);
-                    if (it != g_ManifestFutures.end()) {
-                        future = it->second;
-                        g_ManifestFutures.erase(it);
-                        hasFuture = true;
-                    }
-                }
-
-                if (hasFuture) {
-                    auto status = future.wait_for(std::chrono::seconds(8));
-                    uint64_t code = (status == std::future_status::ready) ? future.get() : 0;
-
-                    if (code != 0) {
-                        spdlog::info("Hooks_NetPacket: Injecting manifest_request_code {} into response (JobId: {})",
-                                     code, jobid_target);
-
-                        // 1. Build modified Header (set eresult = 1 / k_EResultOK)
-                        std::vector<uint8_t> newHdr;
-                        newHdr.push_back(0x59);
-                        newHdr.resize(newHdr.size() + 8);
-                        std::memcpy(&newHdr[newHdr.size() - 8], &jobid_target, 8);
-                        newHdr.push_back(0x68);
-                        WriteVarint(newHdr, static_cast<uint64_t>(k_EResultOK));
-
-                        // 2. Build modified Body (tag for manifest_request_code: (1 << 3) | 0 = 0x08)
-                        std::vector<uint8_t> newBody;
-                        newBody.push_back(0x08);
-                        WriteVarint(newBody, code);
-
-                        // 3. Assemble complete packet into pool
-                        uint32_t totalSize = sizeof(MsgHdr) + static_cast<uint32_t>(newHdr.size() + newBody.size());
-                        if (totalSize <= kMaxPacketSize) {
-                            uint8_t* poolBuf = g_RecvPacketPool[g_RecvPacketPoolIdx];
-                            g_RecvPacketPoolIdx = (g_RecvPacketPoolIdx + 1) % kPacketPoolSize;
-
-                            auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
-                            outHdr->eMsg = k_EMsgServiceMethodResponse | kMsgHdrProtoFlag;
-                            outHdr->headerLength = static_cast<uint32_t>(newHdr.size());
-
-                            std::memcpy(poolBuf + sizeof(MsgHdr), newHdr.data(), newHdr.size());
-                            std::memcpy(poolBuf + sizeof(MsgHdr) + newHdr.size(), newBody.data(), newBody.size());
-
-                            pPacket->m_pubData = poolBuf;
-                            pPacket->m_cubData = totalSize;
-                        }
-                    }
-                }
+                HandleManifestResponse(jobid_target, pPacket, pHdr, cbHdr, pBody, cbBody);
             }
         }
     }

@@ -1,5 +1,6 @@
 #include "Hooks_Misc.h"
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <spdlog/spdlog.h>
@@ -14,19 +15,19 @@
 
 namespace {
 
-AppId_t g_OnlineFixRealAppId = 0;
+std::atomic<AppId_t> g_OnlineFixRealAppId{0};
 
 HOOK_FUNC(SpawnProcess, void*, void* pCUser, const char* pExePath, const char* pCommandLine, const char* pWorkingDir,
           CGameID* pGameID, void* a6, void* a7, void* a8, void* a9, void* a10, void* a11, void* a12, void* a13,
           void* a14, void* a15) {
     if (pGameID && pCommandLine && std::strstr(pCommandLine, "-onlinefix")) {
         AppId_t originalAppId = pGameID->AppID();
-        g_OnlineFixRealAppId = originalAppId;
+        g_OnlineFixRealAppId.store(originalAppId);
         pGameID->SetAppID(kOnlineFixAppId);
         spdlog::info("Hooks_Misc: SpawnProcess detected -onlinefix! Spoofing AppID {} -> {} (cmd: {})", originalAppId,
                      kOnlineFixAppId, pCommandLine);
     } else {
-        g_OnlineFixRealAppId = 0;
+        g_OnlineFixRealAppId.store(0);
     }
 
     return oSpawnProcess ? oSpawnProcess(pCUser, pExePath, pCommandLine, pWorkingDir, pGameID, a6, a7, a8, a9, a10, a11,
@@ -35,10 +36,13 @@ HOOK_FUNC(SpawnProcess, void*, void* pCUser, const char* pExePath, const char* p
 }
 
 HOOK_FUNC(OptedInMask, int64_t, void* pThis, AppId_t appId) {
-    if (appId == kOnlineFixAppId && g_OnlineFixRealAppId != 0) {
-        spdlog::debug("Hooks_Misc: OptedInMask rerouting AppID {} -> {} for native controller and overlay support",
-                      appId, g_OnlineFixRealAppId);
-        appId = g_OnlineFixRealAppId;
+    if (appId == kOnlineFixAppId) {
+        AppId_t realAppId = g_OnlineFixRealAppId.load();
+        if (realAppId != 0) {
+            spdlog::debug("Hooks_Misc: OptedInMask rerouting AppID {} -> {} for native controller and overlay support",
+                          appId, realAppId);
+            appId = realAppId;
+        }
     }
     return oOptedInMask ? oOptedInMask(pThis, appId) : 0;
 }
@@ -48,15 +52,15 @@ HOOK_FUNC(OptedInMask, int64_t, void* pThis, AppId_t appId) {
 namespace Hooks_Misc {
 
 bool IsOnlineFixActive() {
-    return g_OnlineFixRealAppId != 0;
+    return g_OnlineFixRealAppId.load() != 0;
 }
 
 AppId_t GetOnlineFixRealAppId() {
-    return g_OnlineFixRealAppId;
+    return g_OnlineFixRealAppId.load();
 }
 
 void SetOnlineFixRealAppId(AppId_t appId) {
-    g_OnlineFixRealAppId = appId;
+    g_OnlineFixRealAppId.store(appId);
 }
 
 void Install() {

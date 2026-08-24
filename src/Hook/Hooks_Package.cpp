@@ -1,7 +1,10 @@
 #include "Hooks_Package.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <set>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -20,12 +23,31 @@
 
 namespace {
 
-void* g_pCUser = nullptr;
-void* g_pCPackageInfo = nullptr;
+void* AtomicLoadPtr(std::atomic<void*>& slot) {
+    return slot.load(std::memory_order_acquire);
+}
+
+void* CaptureOnce(std::atomic<void*>& slot, void* value) {
+    void* expected = nullptr;
+    if (value && slot.compare_exchange_strong(expected, value, std::memory_order_acq_rel)) {
+        return value;
+    }
+    return slot.load(std::memory_order_acquire);
+}
+
+std::atomic<void*> g_pCUser{nullptr};
+std::atomic<void*> g_pCPackageInfo{nullptr};
+std::atomic<bool> g_licenseInitialized{false};
+std::atomic<bool> g_licenseRefreshPending{false};
+std::atomic<bool> g_inBroadcast{false};
+std::atomic<bool> g_injectInProgress{false};
+
 PackageInfo* g_pInjectedPackage = nullptr;
-bool g_licenseInitialized = false;
-bool g_licenseRefreshPending = false;
-bool g_inBroadcast = false;
+std::vector<AppId_t> g_currentInjectedAppIds;
+std::vector<DepotId_t> g_currentInjectedDepotIds;
+
+std::mutex g_injectMutex;
+
 constexpr PackageId_t kInjectedPackageId = kSteamDefaultBasePackageId;
 constexpr uint64_t kInjectedPkgAccessToken = kSteamDefaultBasePackageAccessToken;
 
@@ -33,35 +55,135 @@ RESOLVE_FUNC(CUtlMemoryGrow, void*, void*, int);
 RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
-std::vector<AppId_t> g_injectedAppIds;
-std::vector<DepotId_t> g_injectedDepotIds;
-
-bool CUtlMemoryGrowWrap(CUtlVector<AppId_t>* pVec, int grow_size) {
+template <typename T> bool GrowAndAppend(CUtlVector<T>* pVec, const std::vector<T>& values) {
+    if (values.empty())
+        return true;
     if (!oCUtlMemoryGrow) {
         spdlog::warn("Hooks_Package: oCUtlMemoryGrow not ready, cannot grow");
         return false;
     }
-    return oCUtlMemoryGrow(pVec, grow_size) != nullptr;
+    const int oldSize = pVec->m_Size;
+    const int numToAdd = static_cast<int>(values.size());
+    if (!oCUtlMemoryGrow(pVec, numToAdd)) {
+        spdlog::warn("Hooks_Package: CUtlMemoryGrow returned null, cannot append {} entries", numToAdd);
+        return false;
+    }
+    for (int i = 0; i < numToAdd; ++i) {
+        pVec->m_Memory.m_pMemory[oldSize + i] = values[i];
+    }
+    pVec->m_Size = static_cast<int>(oldSize + numToAdd);
+    return true;
+}
+
+template <typename T> bool FastRemoveValue(CUtlVector<T>* pVec, T value) {
+    for (int i = 0; i < pVec->m_Size; ++i) {
+        if (pVec->m_Memory.m_pMemory[i] == value) {
+            pVec->m_Memory.m_pMemory[i] = pVec->m_Memory.m_pMemory[pVec->m_Size - 1];
+            pVec->m_Size--;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool MarkLicenseAsChangedAndProcessUpdates() {
-    if (!g_pCUser || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates || g_inBroadcast) {
+    if (!AtomicLoadPtr(g_pCUser) || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates || g_inBroadcast.load()) {
         return false;
     }
-    g_inBroadcast = true;
-    oMarkLicenseAsChanged(g_pCUser, kInjectedPackageId, true);
-    oProcessPendingLicenseUpdates(g_pCUser);
-    g_inBroadcast = false;
+    g_inBroadcast.store(true);
+    oMarkLicenseAsChanged(AtomicLoadPtr(g_pCUser), kInjectedPackageId, true);
+    oProcessPendingLicenseUpdates(AtomicLoadPtr(g_pCUser));
+    g_inBroadcast.store(false);
     spdlog::info("Hooks_Package: Dispatched AppLicensesChanged notification to Steam UI");
     return true;
 }
 
 void TryProcessPendingLicenseRefresh() {
-    if (!g_licenseRefreshPending)
+    if (!g_licenseRefreshPending.load())
         return;
     if (MarkLicenseAsChangedAndProcessUpdates()) {
-        g_licenseRefreshPending = false;
+        g_licenseRefreshPending.store(false);
     }
+}
+
+std::vector<AppId_t> CollectDesiredAppIds() {
+    auto unlockedApps = LuaConfig::GetUnlockedApps();
+    std::set<AppId_t> allApps(unlockedApps.begin(), unlockedApps.end());
+    if (Config::IsAutoUnlockDlcEnabled()) {
+        auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
+        allApps.insert(autoDlcs.begin(), autoDlcs.end());
+    }
+    return std::vector<AppId_t>(allApps.begin(), allApps.end());
+}
+
+std::vector<DepotId_t> CollectDesiredDepotIds() {
+    auto depotKeys = LuaConfig::GetDepotKeys();
+    std::set<DepotId_t> allDepots;
+    for (const auto& [depotId, _] : depotKeys) {
+        allDepots.insert(depotId);
+    }
+    return std::vector<DepotId_t>(allDepots.begin(), allDepots.end());
+}
+
+// Applies the desired app/depot sets to Package 0 as a delta so repeated
+// invocations (hot reload, racing hook threads) never duplicate entries.
+// Removals only ever touch IDs previously injected by us.
+void ApplyDesiredLicenseDelta(PackageInfo* pPkg, const std::vector<AppId_t>& desiredApps,
+                              const std::vector<DepotId_t>& desiredDepots) {
+    std::set<AppId_t> desiredAppComponent(desiredApps.begin(), desiredApps.end());
+    std::set<DepotId_t> desiredDepotComponent(desiredDepots.begin(), desiredDepots.end());
+
+    size_t removedApps = 0;
+    size_t removedDepots = 0;
+    for (AppId_t id : g_currentInjectedAppIds) {
+        if (!desiredAppComponent.count(id) && FastRemoveValue(&pPkg->AppIdVec, id)) {
+            ++removedApps;
+        }
+    }
+    for (DepotId_t id : g_currentInjectedDepotIds) {
+        if (!desiredDepotComponent.count(id) && FastRemoveValue(&pPkg->DepotIdVec, id)) {
+            ++removedDepots;
+        }
+    }
+
+    std::unordered_set<AppId_t> presentInVec;
+    presentInVec.reserve(static_cast<size_t>(pPkg->AppIdVec.m_Size));
+    for (int i = 0; i < pPkg->AppIdVec.m_Size; ++i) {
+        presentInVec.insert(pPkg->AppIdVec.m_Memory.m_pMemory[i]);
+    }
+    std::vector<AppId_t> appAdditions;
+    for (AppId_t id : desiredApps) {
+        if (!presentInVec.count(id)) {
+            appAdditions.push_back(id);
+        }
+    }
+
+    std::unordered_set<DepotId_t> presentDepotsInVec;
+    presentDepotsInVec.reserve(static_cast<size_t>(pPkg->DepotIdVec.m_Size));
+    for (int i = 0; i < pPkg->DepotIdVec.m_Size; ++i) {
+        presentDepotsInVec.insert(pPkg->DepotIdVec.m_Memory.m_pMemory[i]);
+    }
+    std::vector<DepotId_t> depotAdditions;
+    for (DepotId_t id : desiredDepots) {
+        if (!presentDepotsInVec.count(id)) {
+            depotAdditions.push_back(id);
+        }
+    }
+
+    bool appsOk = GrowAndAppend(&pPkg->AppIdVec, appAdditions);
+    bool depotsOk = GrowAndAppend(&pPkg->DepotIdVec, depotAdditions);
+
+    if (appsOk) {
+        g_currentInjectedAppIds.assign(desiredApps.begin(), desiredApps.end());
+    }
+    if (depotsOk) {
+        g_currentInjectedDepotIds.assign(desiredDepots.begin(), desiredDepots.end());
+    }
+
+    spdlog::info("Hooks_Package: License delta applied (+{} apps, +{} depots, -{} apps, -{} depots; AppIdVec: {}, "
+                 "DepotIdVec: {})",
+                 appAdditions.size(), depotAdditions.size(), removedApps, removedDepots, pPkg->AppIdVec.m_Size,
+                 pPkg->DepotIdVec.m_Size);
 }
 
 bool InitFakeLicenseOnce(PackageInfo* pPkg) {
@@ -75,136 +197,74 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
         return false;
     }
 
-    // 1. Inject pure AppIDs (Base Games & DLCs) into AppIdVec
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::vector<AppId_t> appIds(unlockedApps.begin(), unlockedApps.end());
-    if (Config::IsAutoUnlockDlcEnabled()) {
-        auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
-        appIds.insert(appIds.end(), autoDlcs.begin(), autoDlcs.end());
-        std::unordered_set<AppId_t> dedup(appIds.begin(), appIds.end());
-        appIds.assign(dedup.begin(), dedup.end());
-    }
+    std::lock_guard<std::mutex> lock(g_injectMutex);
+    auto desiredApps = CollectDesiredAppIds();
+    auto desiredDepots = CollectDesiredDepotIds();
 
-    if (!appIds.empty()) {
-        uint32_t oldSize = static_cast<uint32_t>(pPkg->AppIdVec.m_Size);
-        uint32_t numToAdd = static_cast<uint32_t>(appIds.size());
-        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): injecting {} apps into AppIdVec, oldSize={}",
-                     numToAdd, oldSize);
-
-        if (CUtlMemoryGrowWrap(&pPkg->AppIdVec, static_cast<int>(numToAdd))) {
-            for (uint32_t i = 0; i < numToAdd; ++i) {
-                pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
-            }
-            pPkg->AppIdVec.m_Size = static_cast<int>(oldSize + numToAdd);
-        } else {
-            spdlog::warn("Hooks_Package: Failed to grow Package 0 AppId vector via CUtlMemoryGrow");
-        }
-    }
-
-    // 2. Inject DepotIDs into DepotIdVec
-    auto depotKeys = LuaConfig::GetDepotKeys();
-    std::vector<DepotId_t> depotIds;
-    for (const auto& [depotId, _] : depotKeys) {
-        depotIds.push_back(depotId);
-    }
-
-    if (!depotIds.empty()) {
-        uint32_t oldDepotSize = static_cast<uint32_t>(pPkg->DepotIdVec.m_Size);
-        uint32_t numDepotsToAdd = static_cast<uint32_t>(depotIds.size());
-        spdlog::info("Hooks_Package: InitFakeLicense(PackageId=0): injecting {} depots into DepotIdVec, oldSize={}",
-                     numDepotsToAdd, oldDepotSize);
-
-        if (CUtlMemoryGrowWrap(&pPkg->DepotIdVec, static_cast<int>(numDepotsToAdd))) {
-            for (uint32_t i = 0; i < numDepotsToAdd; ++i) {
-                pPkg->DepotIdVec.m_Memory.m_pMemory[oldDepotSize + i] = depotIds[i];
-            }
-            pPkg->DepotIdVec.m_Size = static_cast<int>(oldDepotSize + numDepotsToAdd);
-        } else {
-            spdlog::warn("Hooks_Package: Failed to grow Package 0 DepotId vector via CUtlMemoryGrow");
-        }
-    }
+    ApplyDesiredLicenseDelta(pPkg, desiredApps, desiredDepots);
 
     g_pInjectedPackage = pPkg;
-    g_licenseInitialized = true;
-    g_licenseRefreshPending = true;
-    spdlog::info(
-        "Hooks_Package: Injected {} apps and {} depots into Package 0 (AppIdVec Size: {}, DepotIdVec Size: {})",
-        appIds.size(), depotIds.size(), pPkg->AppIdVec.m_Size, pPkg->DepotIdVec.m_Size);
+    g_licenseInitialized.store(true);
+    g_licenseRefreshPending.store(true);
     TryProcessPendingLicenseRefresh();
     return true;
 }
 
 HOOK_FUNC(GetPackageInfo, void*, void* pThis, uint32_t packageId, uint64_t accessToken) {
-    if (!g_pCPackageInfo) {
-        g_pCPackageInfo = pThis;
-        spdlog::info("Hooks_Package: Captured CPackageInfo instance at {:p}", g_pCPackageInfo);
-    }
+    CaptureOnce(g_pCPackageInfo, pThis);
 
     void* pPkg = oGetPackageInfo ? oGetPackageInfo(pThis, packageId, accessToken) : nullptr;
-    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized) {
+    if (packageId == kInjectedPackageId && pPkg && !g_licenseInitialized.load()) {
         InitFakeLicenseOnce(reinterpret_cast<PackageInfo*>(pPkg));
     }
     return pPkg;
 }
 
 bool TryInitFakeLicenseOnce() {
-    if (g_licenseInitialized)
+    if (g_licenseInitialized.load())
         return true;
-    if (g_pCPackageInfo && oGetPackageInfo) {
-        PackageInfo* pPkg = reinterpret_cast<PackageInfo*>(
-            oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken));
+    void* cpi = AtomicLoadPtr(g_pCPackageInfo);
+    if (cpi && oGetPackageInfo) {
+        PackageInfo* pPkg =
+            reinterpret_cast<PackageInfo*>(oGetPackageInfo(cpi, kInjectedPackageId, kInjectedPkgAccessToken));
         if (!pPkg) {
             spdlog::warn("Hooks_Package: GetPackageInfo returned null for injected package");
             return false;
         }
-        if (!g_pInjectedPackage)
-            g_pInjectedPackage = pPkg;
         return InitFakeLicenseOnce(pPkg);
     }
     return false;
 }
 
 void UpdateInjectedPackages() {
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    std::set<AppId_t> allApps(unlockedApps.begin(), unlockedApps.end());
-    if (Config::IsAutoUnlockDlcEnabled()) {
-        auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
-        allApps.insert(autoDlcs.begin(), autoDlcs.end());
-    }
-    g_injectedAppIds.assign(allApps.begin(), allApps.end());
+    auto desiredApps = CollectDesiredAppIds();
+    auto desiredDepots = CollectDesiredDepotIds();
 
-    auto depotKeys = LuaConfig::GetDepotKeys();
-    std::set<DepotId_t> allDepots;
-    for (const auto& [depotId, _] : depotKeys) {
-        allDepots.insert(depotId);
-    }
-    g_injectedDepotIds.assign(allDepots.begin(), allDepots.end());
-
-    spdlog::info("Hooks_Package: Prepared injected package payload with {} apps and {} depots", g_injectedAppIds.size(),
-                 g_injectedDepotIds.size());
-
-    // If Package 0 is already captured, trigger hot re-injection
-    if (g_pInjectedPackage) {
-        InitFakeLicenseOnce(g_pInjectedPackage);
-    } else if (g_pCPackageInfo && oGetPackageInfo) {
-        oGetPackageInfo(g_pCPackageInfo, kInjectedPackageId, kInjectedPkgAccessToken);
+    {
+        std::lock_guard<std::mutex> lock(g_injectMutex);
+        if (g_pInjectedPackage) {
+            ApplyDesiredLicenseDelta(g_pInjectedPackage, desiredApps, desiredDepots);
+        } else {
+            void* cpi = AtomicLoadPtr(g_pCPackageInfo);
+            if (cpi && oGetPackageInfo) {
+                oGetPackageInfo(cpi, kInjectedPackageId, kInjectedPkgAccessToken);
+            }
+        }
     }
 
-    g_licenseRefreshPending = true;
+    spdlog::info("Hooks_Package: Prepared injected package payload with {} apps and {} depots", desiredApps.size(),
+                 desiredDepots.size());
+
+    g_licenseRefreshPending.store(true);
     TryProcessPendingLicenseRefresh();
 }
 
 void NotifyLicensesChanged() {
     UpdateInjectedPackages();
-    spdlog::info("Hooks_Package: Injected licenses synchronized ({} apps, {} depots)", g_injectedAppIds.size(),
-                 g_injectedDepotIds.size());
 }
 
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
-    if (!g_pCUser) {
-        g_pCUser = pObj;
-        spdlog::info("Hooks_Package: Captured CUser instance at {:p}", g_pCUser);
-    }
+    CaptureOnce(g_pCUser, pObj);
 
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     TryInitFakeLicenseOnce();
@@ -232,14 +292,15 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             auto* pOwnership = reinterpret_cast<AppOwnership*>(pOwn);
             pOwnership->PackageId = kInjectedPackageId;
             pOwnership->ReleaseState = EAppReleaseState::Released;
-            if (g_pCUser) {
-                // Steam CUser has AccountID at offset 0x1E4
-                pOwnership->SteamId32 =
-                    *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_pCUser) + 0x1E4);
+            const void* cUser = AtomicLoadPtr(g_pCUser);
+            if (cUser) {
+                // Steam CUser has AccountID at a fixed offset (SteamOffsets::CUser64)
+                pOwnership->SteamId32 = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(cUser) +
+                                                                           SteamOffsets::CUser64::kAccountId);
             }
             pOwnership->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
             pOwnership->bOwnsLicense = true;
-            pOwnership->bFreeLicense = true;
+            pOwnership->bFreeLicense = false;
             pOwnership->bBorrowed = false;
             pOwnership->bFamilyShared = false;
         }

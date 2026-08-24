@@ -32,9 +32,12 @@ inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/ar
 // ==============================================================================
 namespace Manifest {
 inline constexpr const char* kDefaultUpstream = "opensteamtool";
+// Request-code endpoints: append "/<manifest_gid>" to the base URL.
 inline constexpr const char* kOpenSteamToolUrl = "https://manifest.opensteamtool.com";
-inline constexpr const char* kSteamRunUrl = "https://api.steamrun.net";
-inline constexpr const char* kWuDrmUrl = "https://manifest.wudrm.com";
+inline constexpr const char* kSteamRunUrl = "https://manifest.steam.run/api/manifest";
+inline constexpr const char* kWuDrmUrl = "http://gmrc.wudrm.com/manifest";
+// Full manifest download endpoint: append "/<depot_id>/<manifest_gid>".
+inline constexpr const char* kManifestDownloadBase = "https://manifest.opensteamtool.com";
 } // namespace Manifest
 
 // ==============================================================================
