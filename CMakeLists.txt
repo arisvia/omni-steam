@@ -250,6 +250,17 @@ target_link_libraries(OmniPlatform PUBLIC
 # ---------------------------------------------------------------------------
 # Core OmniSteam Target (DLL / Shared Library)
 # ---------------------------------------------------------------------------
+# SymbolTable has exactly one platform backend per build; shared between the
+# core target and any test target that compiles PatternLoader.cpp.
+set(SYMBOLTABLE_SOURCES src/Utils/Metadata/SymbolTable.cpp)
+if(WIN32)
+    list(APPEND SYMBOLTABLE_SOURCES src/Utils/Metadata/SymbolTableWindows.cpp)
+elseif(APPLE)
+    list(APPEND SYMBOLTABLE_SOURCES src/Utils/Metadata/SymbolTableDarwin.cpp)
+else()
+    list(APPEND SYMBOLTABLE_SOURCES src/Utils/Metadata/SymbolTableLinux.cpp)
+endif()
+
 set(OMNISTEAM_SOURCES
     src/main.cpp
     src/Utils/Config/Config.cpp
@@ -258,7 +269,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
     src/Utils/Metadata/PicsTokenInjector.cpp
-    src/Utils/Metadata/SymbolTable.cpp
+    ${SYMBOLTABLE_SOURCES}
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
@@ -270,14 +281,6 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_Package.cpp
     src/Hook/Hooks_SteamUI.cpp
 )
-
-if(WIN32)
-    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableWindows.cpp)
-elseif(APPLE)
-    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableDarwin.cpp)
-else()
-    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableLinux.cpp)
-endif()
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
 set_target_properties(omnisteam_core PROPERTIES
     OUTPUT_NAME "omnisteam"
@@ -350,7 +353,7 @@ if(BUILD_TESTS)
     add_test(NAME PlatformTests COMMAND test_platform)
 
     # 2. Steam IPC Protocol & Signature / Manifest Metadata Engine
-    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/DlcStore.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
+    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/DlcStore.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp ${SYMBOLTABLE_SOURCES})
     target_link_libraries(test_ipc_metadata PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
     add_test(NAME IpcMetadataTests COMMAND test_ipc_metadata)
     # 3. Lua Script Manager (Unlock Code Generation, Lifecycle & Hot-Reload)
