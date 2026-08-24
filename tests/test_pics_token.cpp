@@ -1,12 +1,25 @@
 #include <algorithm>
-#include <cassert>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/PicsTokenInjector.h"
+
+// NDEBUG strips <cassert>, which would turn every check into a no-op and let
+// failures pass silently (or surface later as unrelated exceptions). This
+// macro stays active in Release and prints the exact failing expression.
+#define OMNI_CHECK(cond)                                                                                               \
+    do {                                                                                                               \
+        if (!(cond)) {                                                                                                 \
+            std::fprintf(stderr, "[FAIL] %s:%d  CHECK(%s)\n", __FILE__, __LINE__, #cond);                              \
+            std::abort();                                                                                              \
+        }                                                                                                              \
+    } while (0)
 
 namespace {
 
@@ -78,18 +91,18 @@ struct ScopedToken {
 void TestNoTokensMeansNoPatch() {
     auto body = WrapAppEntry(MakeAppEntry(480));
     std::vector<uint8_t> out;
-    assert(!PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
     std::cout << "[PASS] TestNoTokensMeansNoPatch\n";
 }
 
 void TestMalformedBodyRejected() {
     const uint8_t truncated[] = {0x0A, 0x20, 0x08, 0x01};
     std::vector<uint8_t> out;
-    assert(!PicsTokenInjector::PatchProductInfoRequest(truncated, sizeof(truncated), out));
-    assert(!PicsTokenInjector::PatchProductInfoRequest(nullptr, 100, out));
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(truncated, sizeof(truncated), out));
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(nullptr, 100, out));
 
     const uint8_t badWireType[] = {0x03};
-    assert(!PicsTokenInjector::PatchProductInfoRequest(badWireType, sizeof(badWireType), out));
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(badWireType, sizeof(badWireType), out));
     std::cout << "[PASS] TestMalformedBodyRejected\n";
 }
 
@@ -99,16 +112,16 @@ void TestTokenInjectedForConfiguredApp() {
     auto origEntry = MakeAppEntry(620);
     auto body = WrapAppEntry(origEntry);
     std::vector<uint8_t> out;
-    assert(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
+    OMNI_CHECK(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
 
     // Output: tag+len+patched entry; patched entry keeps the original appid
     // varint prefix and gains the token field.
-    assert(out.size() > body.size());
-    assert(out[0] == 0x0A);
+    OMNI_CHECK(out.size() > body.size());
+    OMNI_CHECK(out[0] == 0x0A);
     std::vector<uint8_t> entry(out.begin() + 2, out.end());
-    assert(entry.size() > origEntry.size());
-    assert(std::equal(origEntry.begin(), origEntry.end(), entry.begin()));
-    assert(ContainsTokenField(entry, 12345678901234567890ull));
+    OMNI_CHECK(entry.size() > origEntry.size());
+    OMNI_CHECK(std::equal(origEntry.begin(), origEntry.end(), entry.begin()));
+    OMNI_CHECK(ContainsTokenField(entry, 12345678901234567890ull));
     std::cout << "[PASS] TestTokenInjectedForConfiguredApp\n";
 }
 
@@ -117,10 +130,10 @@ void TestExistingTokenOverridden() {
 
     auto body = WrapAppEntry(MakeAppEntry(570, true, 999999));
     std::vector<uint8_t> out;
-    assert(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
+    OMNI_CHECK(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
 
     std::vector<uint8_t> entry(out.begin() + 2, out.end());
-    assert(ContainsTokenField(entry, 42));
+    OMNI_CHECK(ContainsTokenField(entry, 42));
     std::cout << "[PASS] TestExistingTokenOverridden\n";
 }
 
@@ -129,7 +142,7 @@ void TestCorrectTokenLeftUntouched() {
 
     auto body = WrapAppEntry(MakeAppEntry(4000, true, 777));
     std::vector<uint8_t> out;
-    assert(!PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
     std::cout << "[PASS] TestCorrectTokenLeftUntouched\n";
 }
 
@@ -147,20 +160,47 @@ void TestUnrelatedFieldsPreserved() {
     body.insert(body.end(), entry.begin(), entry.end());
 
     std::vector<uint8_t> out;
-    assert(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
-    assert(out[0] == 0x28 && out[1] == 1); // sibling field byte-identical prefix
-    assert(out.size() > body.size());      // app entry grew by the token suffix
+    OMNI_CHECK(PicsTokenInjector::PatchProductInfoRequest(body.data(), static_cast<uint32_t>(body.size()), out));
+    OMNI_CHECK(out[0] == 0x28 && out[1] == 1); // sibling field byte-identical prefix
+    OMNI_CHECK(out.size() > body.size());      // app entry grew by the token suffix
     std::cout << "[PASS] TestUnrelatedFieldsPreserved\n";
 }
 
 int main() {
     std::cout << "Running OmniSteam PICS Token Injector Tests...\n";
-    TestNoTokensMeansNoPatch();
-    TestMalformedBodyRejected();
-    TestTokenInjectedForConfiguredApp();
-    TestExistingTokenOverridden();
-    TestCorrectTokenLeftUntouched();
-    TestUnrelatedFieldsPreserved();
+    const char* current = "startup";
+    try {
+        struct Guard {
+            const char* name;
+            explicit Guard(const char* n) : name(n) { std::cout << "[RUN ] " << name << "\n"; }
+            ~Guard() { std::cout << "[DONE] " << name << "\n"; }
+        } guard;
+
+        current = "TestNoTokensMeansNoPatch";
+        Guard g1(current);
+        TestNoTokensMeansNoPatch();
+        current = "TestMalformedBodyRejected";
+        Guard g2(current);
+        TestMalformedBodyRejected();
+        current = "TestTokenInjectedForConfiguredApp";
+        Guard g3(current);
+        TestTokenInjectedForConfiguredApp();
+        current = "TestExistingTokenOverridden";
+        Guard g4(current);
+        TestExistingTokenOverridden();
+        current = "TestCorrectTokenLeftUntouched";
+        Guard g5(current);
+        TestCorrectTokenLeftUntouched();
+        current = "TestUnrelatedFieldsPreserved";
+        Guard g6(current);
+        TestUnrelatedFieldsPreserved();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[EXCEPTION] in %s: %s\n", current, e.what());
+        return 2;
+    } catch (...) {
+        std::fprintf(stderr, "[EXCEPTION] unknown type in %s\n", current);
+        return 2;
+    }
     std::cout << "All PicsTokenTests Passed!\n";
     return 0;
 }

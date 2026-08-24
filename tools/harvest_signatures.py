@@ -208,6 +208,22 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     short = data_sha[:16]
 
+    # Modern Steam clients strip internal symbols - zero resolved targets is
+    # the COMMON outcome there. Writing an empty TOML would only add repo
+    # noise, so emit the report alone and skip the signature file.
+    if not resolved:
+        print(f"[harvest] {binary.name}: 0/{len(TARGETS)} resolved; skipping TOML (report written)")
+        report_path = out_dir / f"report-{short}.json"
+        report_path.write_text(
+            json.dumps(
+                {"binary": binary.name, "sha256": data_sha, "resolved": {}, "candidates": candidates,
+                 "note": "no uniquely-resolved functions"},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return 0
+
     function_entries = "\n".join(
         f'{name} = {{ rva = "{meta["rva"]}", source = "{meta["source"]}" }}' for name, meta in sorted(resolved.items())
     )
@@ -217,7 +233,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
             source_name=binary.name,
             sha256=data_sha,
             kind=detected,
-            function_entries=function_entries or "# (no uniquely-resolved functions)",
+            function_entries=function_entries,
         ),
         encoding="utf-8",
     )

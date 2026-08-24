@@ -120,7 +120,8 @@ bool PatchAppEntry(const uint8_t* data, uint64_t len, std::vector<uint8_t>& out)
 } // namespace
 
 bool PatchProductInfoRequest(const uint8_t* body, uint32_t cbBody, std::vector<uint8_t>& out) {
-    if (!body || cbBody == 0)
+    constexpr uint32_t kMaxInputBytes = 1u << 20;
+    if (!body || cbBody == 0 || cbBody > kMaxInputBytes)
         return false;
 
     const uint8_t* ptr = body;
