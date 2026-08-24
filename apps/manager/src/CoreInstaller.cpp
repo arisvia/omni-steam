@@ -95,8 +95,7 @@ void SyncSignatureFiles() {
         (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path() / "signatures").generic_string(),
     };
 
-    std::string targetDir =
-        (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "signatures").generic_string();
+    std::string targetDir = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "signatures").generic_string();
     size_t copied = 0;
 
     for (const auto& dir : searchDirs) {
@@ -108,8 +107,7 @@ void SyncSignatureFiles() {
                 continue;
             try {
                 fs::create_directories(targetDir);
-                std::string destination =
-                    (fs::path(targetDir) / entry.path().filename()).generic_string();
+                std::string destination = (fs::path(targetDir) / entry.path().filename()).generic_string();
                 if (fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing)) {
                     ++copied;
                 }
@@ -285,7 +283,8 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
                 int unpackResult = std::system(unpackCmd.c_str());
                 spdlog::info("CoreInstaller: Archive extraction executed (result: {})", unpackResult);
                 if (unpackResult != 0) {
-                    return {false, "下载成功但解压失败（缺少 tar 或归档损坏）。请手动解压 " + tempPackage + " 到 Steam 目录。"};
+                    return {false, "下载成功但解压失败（缺少 tar 或归档损坏）。请手动解压 " + tempPackage +
+                                       " 到 Steam 目录。"};
                 }
                 SyncSignatureFiles();
                 return {true, "已成功从远程下载并解压部署 OmniSteam Core 引擎到 Steam 目录！"};

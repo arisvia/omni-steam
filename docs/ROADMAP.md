@@ -75,8 +75,11 @@
       校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
 - [ ] **Stats 成就统计上报**：前置条件是先实现成就伪造子系统（eMsg 818/819 拦截 + CloudRedirect 同类能力），
       届时 `stats.opensteamtool.com/{appid}` 供体 SteamID 解析可参照上游 StatsClient 实现。
+- [x] **Linux/macOS 运行时符号解析**（2026-08）：新增 `SymbolTable` 跨平台符号表枚举
+      （ELF 节区解析含 32/64 位、Mach-O LC_SYMTAB 内存遍历、PE 导出表），PatternLoader 直接从
+      目标模块自身符号数据解析 hook 目标——与 Windows 特征码同级的零维护自适应路径；
+      模糊匹配歧义自动跳过防止挂错地址。
 - [x] **Linux/macOS 特征签名采集流水线**（2026-08）：`tools/harvest_signatures.py` 跨格式
       （ELF/Mach-O/PE）符号采集 + `signature-harvest.yml` 三平台工作流（二进制仅入私有 artifact，
-      签名 TOML 自动反推仓库）；PatternLoader 支持按 SHA256 键控加载外部签名。
-- [ ] **Linux/macOS 签名数据落地**：在 Actions 页面手动运行一次 Signature Harvest 工作流即可生成
-      当前版本的签名库；此后每次 Steam 客户端更新重跑一遍。签名入库后非 Windows 平台解锁功能自动点亮。
+      签名 TOML 自动反推仓库）；TOML 库降级为离线兜底（应对 strip 过的发行版）。
+- [ ] **Linux/macOS 签名数据落地**（可选）：运行一次 Signature Harvest 即可生成兜底签名库。

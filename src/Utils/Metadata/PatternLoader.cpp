@@ -5,7 +5,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <tomlplusplus/toml.hpp>
@@ -13,6 +15,8 @@
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
+
+#include "Utils/Metadata/SymbolTable.h"
 
 namespace fs = std::filesystem;
 
@@ -217,6 +221,71 @@ void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBa
     }
 }
 
+// Runtime symbol-table targets. Keep these aliases in sync with
+// tools/harvest_signatures.py (TARGETS), which uses the same matching rules.
+struct SymbolTarget {
+    const char* canonical;
+    std::vector<const char*> aliases;
+};
+
+const SymbolTarget kSymbolTargets[] = {
+    {"CheckAppOwnership", {"checkappownership"}},
+    {"ConfigStore_GetBinary", {"configstore", "getbinary", "loaddepotdecryptionkey"}},
+    {"GetPackageInfo", {"getpackageinfo"}},
+    {"MarkLicenseAsChanged", {"marklicenseaschanged"}},
+    {"ProcessPendingLicenseUpdates", {"processpendinglicenseupdates"}},
+    {"BBuildAndAsyncSendFrame", {"bbuildandasyncsendframe"}},
+    {"RecvPkt", {"recvpkt", "recvpacket"}},
+    {"OptedInMask", {"optedinmask"}},
+    {"SpawnProcess", {"spawnprocess"}},
+    {"FillInAppOverview", {"fillinappoverview"}},
+};
+
+// Resolves hook targets directly from the target module's own symbol data -
+// the zero-maintenance path for Linux/macOS clients that retain symbols.
+// Ambiguous matches (same alias hitting several distinct RVAs) are skipped so
+// we never hook a wrong function.
+void ResolveViaSymbolTable(const std::string& moduleName, uintptr_t moduleBase) {
+    struct MatchState {
+        uint64_t rva = 0;
+        size_t hits = 0;
+        bool ambiguous = false;
+    };
+    std::map<std::string, MatchState> matches;
+
+    SymbolTable::ForEachFunction(moduleName, [&](const std::string& name, const std::string& demangled, uint64_t rva) {
+        const std::string lowerName = SymbolTable::ToLower(name);
+        const std::string lowerDemangled = SymbolTable::ToLower(demangled);
+
+        for (const auto& target : kSymbolTargets) {
+            for (const auto* alias : target.aliases) {
+                if (lowerName.find(alias) == std::string::npos && lowerDemangled.find(alias) == std::string::npos) {
+                    continue;
+                }
+                MatchState& state = matches[target.canonical];
+                if (state.hits == 0) {
+                    state.rva = rva;
+                } else if (state.rva != rva) {
+                    state.ambiguous = true;
+                }
+                ++state.hits;
+                break;
+            }
+        }
+        return true;
+    });
+
+    for (const auto& [canonical, state] : matches) {
+        if (state.ambiguous || state.hits == 0) {
+            spdlog::warn("PatternLoader: Symbol table match for {} is ambiguous ({} hits), skipping", canonical,
+                         state.hits);
+            continue;
+        }
+        g_resolvedAddresses[NormalizeFunctionName(canonical)] = moduleBase + state.rva;
+        spdlog::info("PatternLoader: Resolved {} via runtime symbol table (RVA: 0x{:X})", canonical, state.rva);
+    }
+}
+
 } // namespace
 
 void Initialize(const std::string& /*unused*/) {
@@ -249,7 +318,11 @@ void Initialize(const std::string& /*unused*/) {
     // 2. Merge harvested signature TOMLs shipped with the deployment
     LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
 
-    // 3. Hash changed or first run: Perform one-time dynamic pattern scan
+    // 3. Resolve remaining targets from the module's own symbol table
+    //    (zero-maintenance path; adapts to any client update automatically)
+    ResolveViaSymbolTable(modName, moduleBase);
+
+    // 4. Hash changed or first run: Perform one-time dynamic pattern scan
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
                  moduleHash);
     for (const auto& [name, entry] : g_patterns) {
@@ -266,7 +339,7 @@ void Initialize(const std::string& /*unused*/) {
         }
     }
 
-    // 4. Save resolved RVAs to local cache for instant future launches
+    // 5. Save resolved RVAs to local cache for instant future launches
     SaveRvaCache(cacheFile, moduleBase);
 }
 

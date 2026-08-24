@@ -109,7 +109,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳 |
 | `Hooks_Misc` | OnlineFix 与 DLL 注入 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入（基线快照 + PID 认领去重 + WOW64 拒绝） |
 | `Hooks_IPC` | 占位透传 | 当前无实际逻辑（预留扩展点） |
-| `PatternLoader` | 函数寻址 | SHA256 键控 RVA 缓存 → 失败回退特征扫描 |
+| `PatternLoader` | 函数寻址 | 四级解析：SHA256 键控 RVA 缓存 → **运行时符号表**（Linux/macOS 零维护路径）→ 外部签名 TOML → 特征码扫描；含 RVA 合理性校验与歧义跳过 |
+| `SymbolTable` | 符号枚举 | ELF 节区解析（32/64 位，dynsym+symtab）/ Mach-O LC_SYMTAB 内存遍历 / PE 导出表；`__cxa_demangle` 反修饰 |
 | `LuaConfig` | 解锁规则存储 | **双缓冲快照**：读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
 | `DlcStore` | DLC 元数据 | Steam API 异步发现 + 本地二进制缓存（锁外写盘、原子替换） |
 | `AntiCheatGuard` | 安全白名单 | CS2/Dota2/T F2/Apex 等 30+ 竞技游戏透明直通 |
@@ -135,7 +136,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | Stats 成就统计上报 | 前置依赖成就伪造子系统（eMsg 818/819）；供体 SteamID 解析可参照上游 StatsClient | 规划中 |
-| D | Linux/macOS 签名库 | 采集流水线已就绪（`signature-harvest.yml` + `tools/harvest_signatures.py`），运行工作流即可生成签名库并自动入库；PatternLoader 按 SHA256 键控消费 | 待首次采集 |
+| D | Linux/macOS 签名库 | **运行时符号解析已落地**（`SymbolTable` 遍历模块自身符号数据，零维护自适应）；TOML 兜底库可经 `signature-harvest.yml` 采集生成 | 主路径就绪，兜底待采集 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地 | ✅ 2026-08 完成 |
 
 ## 6. 目录导览

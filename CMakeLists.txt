@@ -249,6 +249,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
     src/Utils/Metadata/PicsTokenInjector.cpp
+    src/Utils/Metadata/SymbolTable.cpp
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
@@ -260,6 +261,14 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_Package.cpp
     src/Hook/Hooks_SteamUI.cpp
 )
+
+if(WIN32)
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableWindows.cpp)
+elseif(APPLE)
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableDarwin.cpp)
+else()
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableLinux.cpp)
+endif()
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
 set_target_properties(omnisteam_core PROPERTIES
     OUTPUT_NAME "omnisteam"
