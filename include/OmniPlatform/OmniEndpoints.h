@@ -32,10 +32,22 @@ inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/ar
 // ==============================================================================
 namespace Manifest {
 inline constexpr const char* kDefaultUpstream = "opensteamtool";
+// Request-code endpoints: append "/<manifest_gid>" to the base URL.
 inline constexpr const char* kOpenSteamToolUrl = "https://manifest.opensteamtool.com";
-inline constexpr const char* kSteamRunUrl = "https://api.steamrun.net";
-inline constexpr const char* kWuDrmUrl = "https://manifest.wudrm.com";
+inline constexpr const char* kSteamRunUrl = "https://manifest.steam.run/api/manifest";
+inline constexpr const char* kWuDrmUrl = "http://gmrc.wudrm.com/manifest";
+// Full manifest download endpoint: append "/<depot_id>/<manifest_gid>".
+inline constexpr const char* kManifestDownloadBase = "https://manifest.opensteamtool.com";
 } // namespace Manifest
+
+// ==============================================================================
+// 2b. 远程签名数据库 (PatternLoader 运行时拉取, depotkeys.bin 同款分发模型)
+//     路径格式: <base>/<platform-dir>/<sha256>.toml
+// ==============================================================================
+namespace SignatureDb {
+inline constexpr const char* kJsDelivrBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/signatures";
+inline constexpr const char* kRawBase = "https://raw.githubusercontent.com/arisvia/omni-steam/main/signatures";
+} // namespace SignatureDb
 
 // ==============================================================================
 // 3. 成就与统计数据同步服务
@@ -59,10 +71,17 @@ inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.co
 } // namespace Steam
 
 // ==============================================================================
-// 5. 云存档 WebDAV 默认配置
+// 5. 全局统一网络通信请求头与客户端标识 (HTTP User-Agent)
+// ==============================================================================
+namespace Http {
+inline constexpr const char* kUserAgent = "OpenSteamTool/1.0";
+inline constexpr const wchar_t* kUserAgentW = L"OpenSteamTool/1.0";
+} // namespace Http
+
+// ==============================================================================
+// 6. 云存档 WebDAV 默认配置
 // ==============================================================================
 namespace CloudSave {
 inline constexpr const char* kDefaultRemoteRoot = "OmniSteam_Saves";
 } // namespace CloudSave
-
 } // namespace OmniEndpoints

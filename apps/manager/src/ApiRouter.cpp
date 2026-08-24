@@ -11,12 +11,15 @@
 #include "SteamApi.h"
 #include "WebDavClient.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <iomanip>
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
+#include <toml++/toml.hpp>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -61,14 +64,132 @@ std::string MakeHttpResponse(int statusCode, const std::string& contentType, con
     oss << "HTTP/1.1 " << statusText << "\r\n"
         << "Content-Type: " << contentType << "; charset=utf-8\r\n"
         << "Content-Length: " << body.length() << "\r\n"
+        << "Cache-Control: no-store\r\n"
         << "Connection: close\r\n\r\n"
         << body;
     return oss.str();
 }
 
+bool ParseUint32Safe(const std::string& text, uint32_t& out) {
+    if (text.empty())
+        return false;
+    try {
+        unsigned long value = std::stoul(text);
+        if (value > 0xFFFFFFFFul)
+            return false;
+        out = static_cast<uint32_t>(value);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+constexpr const char* kKeepPasswordMarker = "__OMNI_KEEP__";
+
+std::string ToLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+// Extracts a request header value (first occurrence, case-insensitive name).
+std::string GetRequestHeader(const std::string& request, const char* name) {
+    size_t headerEnd = request.find("\r\n\r\n");
+    std::string headers = request.substr(0, headerEnd == std::string::npos ? request.size() : headerEnd);
+    const std::string needle = ToLowerCopy(name) + ":";
+
+    size_t lineStart = 0;
+    while (lineStart < headers.size()) {
+        size_t lineEnd = headers.find('\n', lineStart);
+        std::string line =
+            headers.substr(lineStart, (lineEnd == std::string::npos ? headers.size() : lineEnd) - lineStart);
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        if (ToLowerCopy(line).rfind(needle, 0) == 0) {
+            std::string value = line.substr(needle.size());
+            while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+                value.erase(value.begin());
+            while (!value.empty() && (value.back() == ' ' || value.back() == '\t'))
+                value.pop_back();
+            return value;
+        }
+        if (lineEnd == std::string::npos)
+            break;
+        lineStart = lineEnd + 1;
+    }
+    return "";
+}
+
+// Accepts "127.0.0.1[:port]", "localhost[:port]", "[::1][:port]".
+bool IsLocalAuthority(std::string authority) {
+    authority = ToLowerCopy(authority);
+    const std::string schemeSep = "://";
+    size_t authStart = authority.find(schemeSep);
+    if (authStart != std::string::npos)
+        authority = authority.substr(authStart + schemeSep.length());
+    size_t pathSlash = authority.find_first_of("/?#");
+    if (pathSlash != std::string::npos)
+        authority = authority.substr(0, pathSlash);
+
+    size_t portPos = authority.rfind(':');
+    if (portPos != std::string::npos && authority.find(']') == std::string::npos)
+        authority = authority.substr(0, portPos);
+    if (!authority.empty() && authority.back() == '.')
+        authority.pop_back();
+
+    return authority == "127.0.0.1" || authority == "localhost" || authority == "::1" || authority == "[::1]" ||
+           authority == "[0000:0000:0000:0000:0000:0000:0000:0001]";
+}
+
+// Blocks DNS-rebinding (Host must be loopback) and browser CSRF (an Origin
+// header on state-changing requests must also be loopback). Non-browser
+// clients that omit Origin are allowed.
+bool ValidateRequestOrigin(const std::string& request) {
+    std::string host = GetRequestHeader(request, "Host");
+    if (!host.empty() && !IsLocalAuthority(host))
+        return false;
+
+    if (request.rfind("POST", 0) == 0 || request.rfind("PUT", 0) == 0 || request.rfind("DELETE", 0) == 0) {
+        std::string origin = GetRequestHeader(request, "Origin");
+        if (!origin.empty() && !IsLocalAuthority(origin))
+            return false;
+    }
+    return true;
+}
+
+// Optional shared-secret gate: when [webui] token is set in omnisteam.toml,
+// every request must carry "X-Omni-Token: <token>".
+bool ValidateAccessToken(const std::string& request) {
+    static const std::string requiredToken = [] {
+        try {
+            auto tbl = toml::parse_file(ConfigManager::GetConfigFilePath());
+            return tbl["webui"]["token"].value_or(std::string{});
+        } catch (...) {
+            return std::string{};
+        }
+    }();
+    if (requiredToken.empty())
+        return true;
+
+    std::string provided = GetRequestHeader(request, "X-Omni-Token");
+    return !provided.empty() && provided == requiredToken;
+}
+
 } // namespace
 
 std::string ApiRouter::HandleRequest(const std::string& request) {
+    // 0. Loopback origin enforcement (DNS rebinding / CSRF shield)
+    if (!ValidateRequestOrigin(request)) {
+        spdlog::warn("ApiRouter: Rejected request with non-local Host/Origin header");
+        return MakeHttpResponse(403, "text/plain", "403 Forbidden");
+    }
+
+    // 0b. Optional shared-secret gate ([webui] token in omnisteam.toml)
+    if (!ValidateAccessToken(request)) {
+        return MakeHttpResponse(401, "text/plain", "401 Unauthorized");
+    }
+
     // 1. Static HTML Root
     if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /index.html", 0) == 0) {
         return MakeHttpResponse(200, "text/html", StaticAssets::GetIndexHtml());
@@ -257,22 +378,25 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
-                auto details = SteamApi::GetAppDetails(appId);
-                UnlockGameSpec spec;
-                spec.appId = appId;
-                spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
-                spec.dlcAppIds = details.dlcAppIds;
-                dlcCount = spec.dlcAppIds.size();
+                uint32_t parsed = 0;
+                if (ParseUint32Safe(m[1].str(), parsed)) {
+                    appId = parsed;
+                    auto details = SteamApi::GetAppDetails(appId);
+                    UnlockGameSpec spec;
+                    spec.appId = appId;
+                    spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
+                    spec.dlcAppIds = details.dlcAppIds;
+                    dlcCount = spec.dlcAppIds.size();
 
-                auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
-                for (const auto& [depotId, keyHex] : matchedKeys) {
-                    if (depotId == appId) {
-                        spec.depotKeyHex = keyHex;
+                    auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
+                    for (const auto& [depotId, keyHex] : matchedKeys) {
+                        if (depotId == appId) {
+                            spec.depotKeyHex = keyHex;
+                        }
+                        spec.depotKeys[depotId] = keyHex;
                     }
-                    spec.depotKeys[depotId] = keyHex;
+                    ScriptManager::SaveGameUnlock(spec);
                 }
-                ScriptManager::SaveGameUnlock(spec);
             }
         }
         std::ostringstream json;
@@ -321,7 +445,8 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
              << "\"enabled\":" << (cfg.cloudEnabled ? "true" : "false") << ","
              << "\"serverUrl\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavServerUrl) << "\","
              << "\"username\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavUsername) << "\","
-             << "\"password\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavPassword) << "\","
+             << "\"password\":\"\","
+             << "\"passwordSet\":" << (!cfg.webdavPassword.empty() ? "true" : "false") << ","
              << "\"remoteRoot\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavRemoteRoot) << "\""
              << "}";
         return MakeHttpResponse(200, "application/json", json.str());
@@ -347,8 +472,12 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
                 cfg.webdavServerUrl = m[1].str();
             if (std::regex_search(body, m, userRegex))
                 cfg.webdavUsername = m[1].str();
-            if (std::regex_search(body, m, passRegex))
-                cfg.webdavPassword = m[1].str();
+            if (std::regex_search(body, m, passRegex)) {
+                std::string incoming = m[1].str();
+                if (incoming != kKeepPasswordMarker) {
+                    cfg.webdavPassword = incoming;
+                }
+            }
             if (std::regex_search(body, m, rootRegex))
                 cfg.webdavRemoteRoot = m[1].str();
 
@@ -403,7 +532,7 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+                ParseUint32Safe(m[1].str(), appId);
             }
         }
         auto cfg = ConfigManager::ReadConfig();
@@ -428,7 +557,7 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+                ParseUint32Safe(m[1].str(), appId);
             }
         }
         auto cfg = ConfigManager::ReadConfig();

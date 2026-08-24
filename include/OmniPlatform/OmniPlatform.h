@@ -104,6 +104,7 @@ public:
     static uint32_t GetCurrentProcessId();
     static std::string GetProcessName(uint32_t pid);
     static std::string GetExecutablePath();
+    static std::vector<uint32_t> FindProcessIdsByName(const std::string& processName);
 };
 
 class Thread {

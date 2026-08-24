@@ -962,7 +962,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             } else {
                 alert('写入解锁脚本失败');
             }
-
+        }
         async function loadScripts() {
             try {
                 const res = await fetch('/api/scripts');
@@ -1023,6 +1023,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             renderScripts(filtered);
         }
 
+        let savedHasPassword = false;
         async function openCloudModal() {
             document.getElementById('cloudModal').style.display = 'flex';
             document.getElementById('cloudTestMsg').textContent = '';
@@ -1032,7 +1033,10 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 document.getElementById('cloudEnabled').checked = !!cfg.enabled;
                 document.getElementById('webdavUrl').value = cfg.serverUrl || '';
                 document.getElementById('webdavUser').value = cfg.username || '';
-                document.getElementById('webdavPass').value = cfg.password || '';
+                savedHasPassword = !!cfg.passwordSet;
+                const passInput = document.getElementById('webdavPass');
+                passInput.value = '';
+                passInput.placeholder = savedHasPassword ? '已保存（留空保持不变）' : '••••••••';
                 document.getElementById('webdavRoot').value = cfg.remoteRoot || 'OmniSteam_Saves';
             } catch(e) {}
         }
@@ -1074,6 +1078,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             }
         }
         async function saveCloudConfig() {
+            const pass = document.getElementById('webdavPass').value.trim();
             const res = await fetch('/api/cloud/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1081,7 +1086,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                     enabled: document.getElementById('cloudEnabled').checked,
                     serverUrl: document.getElementById('webdavUrl').value.trim(),
                     username: document.getElementById('webdavUser').value.trim(),
-                    password: document.getElementById('webdavPass').value.trim(),
+                    password: pass || (savedHasPassword ? '__OMNI_KEEP__' : ''),
                     remoteRoot: document.getElementById('webdavRoot').value.trim()
                 })
             });

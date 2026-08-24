@@ -1,11 +1,13 @@
 #include "CloudSaveManager.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <regex>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -27,6 +29,62 @@ std::string GetCurrentTimestamp() {
     ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
     return ss.str();
 }
+
+// MKCOL fails unless every parent exists, so create each path level in turn.
+void EnsureRemoteDirs(const WebDavConfig& webdav, const std::string& appRemoteDir, const std::string& relativePath,
+                      std::set<std::string>& attempted) {
+    std::string accumulated = appRemoteDir;
+    std::istringstream stream(relativePath);
+    std::string component;
+    while (std::getline(stream, component, '/')) {
+        if (component.empty())
+            continue;
+        accumulated += "/" + component;
+        if (attempted.insert(accumulated).second) {
+            WebDavClient::MkCol(webdav, accumulated);
+        }
+    }
+}
+
+// Extracts child entry paths from a Depth-1 PROPFIND multistatus document.
+std::vector<std::string> ParsePropFindHrefs(const std::string& xml) {
+    static const std::regex hrefRe(R"(<(?:[A-Za-z0-9]+:)?href>\s*([^<]+?)\s*</(?:[A-Za-z0-9]+:)?href>)");
+    std::vector<std::string> hrefs;
+    for (auto it = std::sregex_iterator(xml.begin(), xml.end(), hrefRe); it != std::sregex_iterator(); ++it) {
+        std::string href = OmniPlatform::Encoding::UrlDecode((*it)[1].str());
+        // Trim the query part some servers append (%3Ftoken=...)
+        size_t query = href.find('?');
+        if (query != std::string::npos)
+            href = href.substr(0, query);
+        hrefs.push_back(href);
+    }
+    return hrefs;
+}
+
+// Reduces an absolute href to the path relative to remoteDir.
+std::optional<std::string> RelativeTo(const std::string& href, const std::string& remoteDir) {
+    auto contains = [](const std::string& hay, const std::string& needle) {
+        return hay.find(needle) != std::string::npos;
+    };
+    std::string dir = remoteDir;
+    if (!dir.empty() && dir.front() != '/')
+        dir = "/" + dir;
+
+    size_t pos = std::string::npos;
+    if (contains(href, dir))
+        pos = href.find(dir);
+    else if (contains(OmniPlatform::Encoding::UrlDecode(href), dir)) {
+        pos = OmniPlatform::Encoding::UrlDecode(href).find(dir);
+    }
+    if (pos == std::string::npos)
+        return std::nullopt;
+
+    std::string rest = href.substr(pos + dir.size());
+    while (!rest.empty() && rest.front() == '/')
+        rest.erase(rest.begin());
+    return rest;
+}
+
 } // namespace
 
 bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
@@ -48,6 +106,7 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
 
     std::string timestamp = GetCurrentTimestamp();
     size_t uploadedFiles = 0;
+    std::set<std::string> attemptedDirs;
 
     for (const auto& loc : locations) {
         if (!loc.exists)
@@ -60,17 +119,18 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
                 continue;
 
             std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-            std::string relativePath = fs::relative(f, loc.path).string();
+            std::string relativePath = fs::relative(f, loc.path).generic_string();
             std::string remoteTarget = appRemoteDir + "/" + timestamp + "/" + relativePath;
 
-            // Make parent dirs if needed
-            std::string remoteParent = fs::path(remoteTarget).parent_path().string();
-            WebDavClient::MkCol(webdav, remoteParent);
+            EnsureRemoteDirs(webdav, appRemoteDir, timestamp + "/" + relativePath, attemptedDirs);
 
             auto res = WebDavClient::UploadFile(webdav, remoteTarget, buffer);
             if (res.isSuccess()) {
                 uploadedFiles++;
                 spdlog::debug("CloudSaveManager: Uploaded {}", remoteTarget);
+            } else {
+                spdlog::warn("CloudSaveManager: Upload failed {} ({})", remoteTarget,
+                             res.error.empty() ? std::to_string(res.statusCode) : res.error);
             }
         }
     }
@@ -110,13 +170,41 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
         const auto& latest = backups.front();
         std::string remoteAppDir = webdav.remoteRootPath + "/" + std::to_string(appId) + "/" + latest.timestamp;
 
-        // Download backup manifest / files from remote
-        auto resp = WebDavClient::DownloadFile(webdav, remoteAppDir);
-        if (resp.isSuccess() && !resp.body.empty()) {
-            spdlog::info("CloudSaveManager: Restored save payload from {} ({} bytes)", remoteAppDir, resp.body.size());
-            return true;
+        auto listing = WebDavClient::PropFind(webdav, remoteAppDir);
+        if (!listing.isSuccess()) {
+            spdlog::warn("CloudSaveManager: PROPFIND failed for {} (HTTP {})", remoteAppDir, listing.statusCode);
+            return false;
         }
-        return true;
+
+        size_t restoredFiles = 0;
+        for (const auto& href : ParsePropFindHrefs(listing.body)) {
+            std::string relative = RelativeTo(href, remoteAppDir).value_or("");
+            if (relative.empty() || relative.back() == '/')
+                continue; // the collection itself or nested directories
+
+            auto payload = WebDavClient::DownloadFile(webdav, remoteAppDir + "/" + relative);
+            if (!payload.isSuccess()) {
+                spdlog::warn("CloudSaveManager: Download failed for {}/{}", remoteAppDir, relative);
+                continue;
+            }
+
+            std::string destination = (fs::path(localDir) / fs::path(relative)).generic_string();
+            std::string parentDir = fs::path(destination).parent_path().string();
+            if (!parentDir.empty())
+                fs::create_directories(parentDir);
+
+            std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                spdlog::warn("CloudSaveManager: Cannot write {}", destination);
+                continue;
+            }
+            out.write(payload.body.data(), static_cast<std::streamsize>(payload.body.size()));
+            ++restoredFiles;
+        }
+
+        spdlog::info("CloudSaveManager: Restored {} file(s) from backup {} into {}", restoredFiles, latest.timestamp,
+                     localDir);
+        return restoredFiles > 0;
     } catch (const std::exception& e) {
         spdlog::error("CloudSaveManager: Restore exception: {}", e.what());
         return false;
@@ -125,24 +213,20 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
 
 std::vector<BackupMetadata> CloudSaveManager::ListRemoteBackups(uint32_t appId, const WebDavConfig& webdav) {
     std::vector<BackupMetadata> backups;
-    if (webdav.serverUrl.empty()) {
+    if (webdav.serverUrl.empty())
         return backups;
-    }
 
     std::string remoteAppDir = webdav.remoteRootPath + "/" + std::to_string(appId);
-    auto resp = WebDavClient::DownloadFile(webdav, remoteAppDir);
+    auto resp = WebDavClient::PropFind(webdav, remoteAppDir);
+    if (!resp.isSuccess() || resp.body.empty())
+        return backups;
 
-    // Parse XML/HTML directory listing from WebDAV
-    if (!resp.body.empty()) {
-        std::regex tsRegex(R"((\d{8}_\d{6}))");
-        auto begin = std::sregex_iterator(resp.body.begin(), resp.body.end(), tsRegex);
-        auto end = std::sregex_iterator();
-        std::set<std::string> seenTimestamps;
-
-        for (auto it = begin; it != end; ++it) {
+    static const std::regex tsRegex(R"((\d{8}_\d{6}))");
+    std::set<std::string> seenTimestamps;
+    for (const auto& href : ParsePropFindHrefs(resp.body)) {
+        for (auto it = std::sregex_iterator(href.begin(), href.end(), tsRegex); it != std::sregex_iterator(); ++it) {
             std::string ts = (*it)[1].str();
-            if (!seenTimestamps.contains(ts)) {
-                seenTimestamps.insert(ts);
+            if (seenTimestamps.insert(ts).second) {
                 BackupMetadata meta;
                 meta.appId = appId;
                 meta.timestamp = ts;
@@ -152,6 +236,8 @@ std::vector<BackupMetadata> CloudSaveManager::ListRemoteBackups(uint32_t appId, 
         }
     }
 
+    std::sort(backups.begin(), backups.end(),
+              [](const BackupMetadata& a, const BackupMetadata& b) { return a.timestamp > b.timestamp; });
     return backups;
 }
 } // namespace Manager

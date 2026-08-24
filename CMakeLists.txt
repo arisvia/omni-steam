@@ -17,6 +17,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Canonical architecture macros (see AGENTS.md conventions)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    add_compile_definitions(OMNI_ARCH_ARM64)
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    add_compile_definitions(OMNI_ARCH_X86)
+else()
+    add_compile_definitions(OMNI_ARCH_X64)
+endif()
+
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
@@ -245,14 +254,30 @@ set(OMNISTEAM_SOURCES
     src/main.cpp
     src/Utils/Config/Config.cpp
     src/Utils/Config/LuaConfig.cpp
+    src/Utils/Metadata/DlcStore.cpp
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
+    src/Utils/Metadata/PicsTokenInjector.cpp
+    src/Utils/Metadata/SymbolTable.cpp
+    src/Utils/Security/AntiCheatGuard.cpp
+    src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
     src/Hook/Hooks_Manifest.cpp
+    src/Hook/Hooks_Misc.cpp
+    src/Hook/Hooks_NetPacket.cpp
     src/Hook/Hooks_Package.cpp
+    src/Hook/Hooks_SteamUI.cpp
 )
+
+if(WIN32)
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableWindows.cpp)
+elseif(APPLE)
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableDarwin.cpp)
+else()
+    list(APPEND OMNISTEAM_SOURCES src/Utils/Metadata/SymbolTableLinux.cpp)
+endif()
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
 set_target_properties(omnisteam_core PROPERTIES
     OUTPUT_NAME "omnisteam"
@@ -325,10 +350,9 @@ if(BUILD_TESTS)
     add_test(NAME PlatformTests COMMAND test_platform)
 
     # 2. Steam IPC Protocol & Signature / Manifest Metadata Engine
-    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
+    add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/DlcStore.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp)
     target_link_libraries(test_ipc_metadata PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
     add_test(NAME IpcMetadataTests COMMAND test_ipc_metadata)
-
     # 3. Lua Script Manager (Unlock Code Generation, Lifecycle & Hot-Reload)
     add_executable(test_script_manager tests/test_script_manager.cpp apps/manager/src/ScriptManager.cpp)
     target_include_directories(test_script_manager PRIVATE apps/manager/src)
@@ -351,6 +375,15 @@ if(BUILD_TESTS)
     target_include_directories(test_depot_keys PRIVATE apps/manager/src)
     target_link_libraries(test_depot_keys PRIVATE OmniPlatform)
     add_test(NAME DepotKeyTests COMMAND test_depot_keys)
+
+    # 7. PICS Access Token Injector (addtoken -> eMsg 8903)
+    add_executable(test_pics_token tests/test_pics_token.cpp src/Utils/Metadata/PicsTokenInjector.cpp src/Utils/Config/LuaConfig.cpp)
+    target_link_libraries(test_pics_token PRIVATE OmniPlatform ${LUA_LIB_TARGET})
+    add_test(NAME PicsTokenTests COMMAND test_pics_token)
+
+    # 8. Stats/achievements protobuf field manipulation
+    add_executable(test_stats_proto tests/test_stats_proto.cpp)
+    add_test(NAME StatsProtoTests COMMAND test_stats_proto)
 endif()
 
 # ---------------------------------------------------------------------------

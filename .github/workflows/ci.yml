@@ -2,11 +2,24 @@ name: OmniSteam CI
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ dev ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'assets/**'
+      - 'depotkeys.bin'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, dev ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'assets/**'
+      - 'depotkeys.bin'
   workflow_dispatch:
-
 jobs:
   build:
     name: Build & Test on ${{ matrix.os }} (${{ matrix.arch }})

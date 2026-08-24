@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -15,6 +14,27 @@
 namespace {
 
 void* g_pConfigStoreLocal = nullptr;
+
+// Case-insensitive substring search without allocating.
+const char* FindCaseInsensitive(const char* haystack, const char* needle) {
+    if (!haystack || !needle)
+        return nullptr;
+    const size_t needleLen = std::strlen(needle);
+    const size_t hayLen = std::strlen(haystack);
+    if (needleLen == 0 || needleLen > hayLen)
+        return nullptr;
+    for (size_t i = 0; i + needleLen <= hayLen; ++i) {
+        size_t j = 0;
+        while (j < needleLen && std::tolower(static_cast<unsigned char>(haystack[i + j])) ==
+                                    std::tolower(static_cast<unsigned char>(needle[j]))) {
+            ++j;
+        }
+        if (j == needleLen)
+            return haystack + i;
+    }
+    return nullptr;
+}
+
 HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key,
           uint32_t KeySize) {
     if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal) {
@@ -22,50 +42,50 @@ HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStor
         spdlog::debug("Captured local ConfigStore instance at {:p}", g_pConfigStoreLocal);
     }
 
-    if (KeyName) {
-        std::string name(KeyName);
-        std::string lowerName = name;
-        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    // Fast rejection first: this hook fires for every config lookup, so the
+    // common path must not allocate.
+    const char* keyPos = KeyName ? FindCaseInsensitive(KeyName, "decryptionkey") : nullptr;
+    if (!keyPos)
+        return oConfigStoreGetBinary ? oConfigStoreGetBinary(pObject, eConfigStore, KeyName, Key, KeySize) : 0;
 
-        size_t keyPos = lowerName.find("decryptionkey");
-        if (keyPos != std::string::npos) {
-            std::string depotIdStr;
-            if (keyPos > 0) {
-                size_t endDigits = lowerName.find_last_not_of("/\\ ", keyPos - 1);
-                if (endDigits != std::string::npos && std::isdigit(static_cast<unsigned char>(lowerName[endDigits]))) {
-                    size_t startDigits = lowerName.find_last_not_of("0123456789", endDigits);
-                    depotIdStr = (startDigits == std::string::npos)
-                                     ? lowerName.substr(0, endDigits + 1)
-                                     : lowerName.substr(startDigits + 1, endDigits - startDigits);
-                }
-            }
-            if (depotIdStr.empty()) {
-                size_t startDigits = lowerName.find_first_of("0123456789", keyPos + 13);
-                if (startDigits != std::string::npos) {
-                    size_t endDigits = lowerName.find_first_not_of("0123456789", startDigits);
-                    depotIdStr = (endDigits == std::string::npos)
-                                     ? lowerName.substr(startDigits)
-                                     : lowerName.substr(startDigits, endDigits - startDigits);
-                }
-            }
+    {
+        std::string lowerName(KeyName);
 
-            if (!depotIdStr.empty()) {
-                try {
-                    uint32_t depotId = static_cast<uint32_t>(std::stoul(depotIdStr));
-                    auto key = LuaConfig::GetDecryptionKey(depotId);
-                    if (!key.empty()) {
-                        if (Key && KeySize >= key.size()) {
-                            spdlog::info("Hooks_Decryption: Injected depot decryption key for depot {} ({} bytes)",
-                                         depotId, key.size());
-                            std::memcpy(Key, key.data(), key.size());
-                            return static_cast<int32_t>(key.size());
-                        } else if (!Key || KeySize == 0) {
-                            return static_cast<int32_t>(key.size());
-                        }
+        size_t pos = static_cast<size_t>(keyPos - KeyName);
+        std::string depotIdStr;
+        if (pos > 0) {
+            size_t endDigits = lowerName.find_last_not_of("/\\ ", pos - 1);
+            if (endDigits != std::string::npos && std::isdigit(static_cast<unsigned char>(lowerName[endDigits]))) {
+                size_t startDigits = lowerName.find_last_not_of("0123456789", endDigits);
+                depotIdStr = (startDigits == std::string::npos)
+                                 ? lowerName.substr(0, endDigits + 1)
+                                 : lowerName.substr(startDigits + 1, endDigits - startDigits);
+            }
+        }
+        if (depotIdStr.empty()) {
+            size_t startDigits = lowerName.find_first_of("0123456789", pos + 13);
+            if (startDigits != std::string::npos) {
+                size_t endDigits = lowerName.find_first_not_of("0123456789", startDigits);
+                depotIdStr = (endDigits == std::string::npos) ? lowerName.substr(startDigits)
+                                                              : lowerName.substr(startDigits, endDigits - startDigits);
+            }
+        }
+
+        if (!depotIdStr.empty()) {
+            try {
+                uint32_t depotId = static_cast<uint32_t>(std::stoul(depotIdStr));
+                auto key = LuaConfig::GetDecryptionKey(depotId);
+                if (!key.empty()) {
+                    if (Key && KeySize >= key.size()) {
+                        spdlog::info("Hooks_Decryption: Injected depot decryption key for depot {} ({} bytes)", depotId,
+                                     key.size());
+                        std::memcpy(Key, key.data(), key.size());
+                        return static_cast<int32_t>(key.size());
+                    } else if (!Key || KeySize == 0) {
+                        return static_cast<int32_t>(key.size());
                     }
-                } catch (...) {
                 }
+            } catch (...) {
             }
         }
     }

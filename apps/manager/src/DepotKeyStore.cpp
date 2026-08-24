@@ -1,5 +1,7 @@
 #include "DepotKeyStore.h"
 
+#include "DownloadVerifier.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -38,7 +40,8 @@ struct DepotKeyRecord {
 std::mutex g_storeMutex;
 bool g_initialized = false;
 std::vector<DepotKeyRecord> g_records;
-const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysBin;
+
+constexpr uint32_t kMaxRecordCount = 5000000;
 
 bool ParseBinaryContent(const uint8_t* data, size_t size) {
     if (size < sizeof(DepotKeyHeader)) {
@@ -57,15 +60,24 @@ bool ParseBinaryContent(const uint8_t* data, size_t size) {
         return false;
     }
 
-    size_t expectedSize = sizeof(DepotKeyHeader) + header->count * sizeof(DepotKeyRecord);
-    if (size < expectedSize) {
+    if (header->count > kMaxRecordCount) {
+        spdlog::warn("DepotKeyStore: Implausible record count {}, rejecting payload", header->count);
+        return false;
+    }
+
+    const uint64_t expectedSize =
+        static_cast<uint64_t>(sizeof(DepotKeyHeader)) + static_cast<uint64_t>(header->count) * sizeof(DepotKeyRecord);
+    if (static_cast<uint64_t>(size) < expectedSize) {
         spdlog::warn("DepotKeyStore: Buffer size {} smaller than expected payload {}", size, expectedSize);
         return false;
     }
 
     g_records.resize(header->count);
     const auto* recordsData = reinterpret_cast<const DepotKeyRecord*>(data + sizeof(DepotKeyHeader));
-    std::memcpy(g_records.data(), recordsData, header->count * sizeof(DepotKeyRecord));
+    std::memcpy(g_records.data(), recordsData, static_cast<size_t>(header->count) * sizeof(DepotKeyRecord));
+
+    std::sort(g_records.begin(), g_records.end(),
+              [](const DepotKeyRecord& a, const DepotKeyRecord& b) { return a.depot_id < b.depot_id; });
 
     return true;
 }
@@ -126,6 +138,11 @@ void TriggerAsyncBackgroundUpdate(size_t localCount, const std::string& targetCa
         for (const auto& url : remoteUrls) {
             auto resp = OmniPlatform::Http::Get(url, 6000);
             if (resp.statusCode == 200 && !resp.body.empty()) {
+                std::string rejection;
+                if (!VerifyDownloadChecksumIfPublished(url, resp.body, &rejection)) {
+                    spdlog::warn("DepotKeyStore: Rejecting remote update from {} ({})", url, rejection);
+                    continue;
+                }
                 const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
                 if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
                     const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);
@@ -213,6 +230,11 @@ void DepotKeyStore::Initialize(const std::string& binFilePath) {
         spdlog::info("DepotKeyStore: Checking remote depot keys from {}", url);
         auto resp = OmniPlatform::Http::Get(url, 6000);
         if (resp.statusCode == 200 && !resp.body.empty()) {
+            std::string rejection;
+            if (!VerifyDownloadChecksumIfPublished(url, resp.body, &rejection)) {
+                spdlog::warn("DepotKeyStore: Rejecting remote depot keys from {} ({})", url, rejection);
+                continue;
+            }
             const uint8_t* rawData = reinterpret_cast<const uint8_t*>(resp.body.data());
             if (rawData && resp.body.size() >= sizeof(DepotKeyHeader)) {
                 const auto* header = reinterpret_cast<const DepotKeyHeader*>(rawData);

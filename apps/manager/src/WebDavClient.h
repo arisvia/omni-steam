@@ -28,6 +28,8 @@ public:
                                      const std::vector<uint8_t>& data);
     static WebDavResponse DownloadFile(const WebDavConfig& config, const std::string& remotePath);
     static WebDavResponse Delete(const WebDavConfig& config, const std::string& remotePath);
+    // Depth-1 PROPFIND; body carries the raw multistatus XML document.
+    static WebDavResponse PropFind(const WebDavConfig& config, const std::string& remotePath);
 };
 
 } // namespace Manager

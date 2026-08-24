@@ -1,61 +1,56 @@
 # ==============================================================================
 # OmniSteam 统一配置文件示例
-# 
+#
 # 存放位置 (自动按平台查找):
-#   - Windows: <Steam 安装目录>/omnisteam.toml
+#   - Windows: <Steam 安装目录>/omnisteam.toml 或工作目录
 #   - Linux / Steam Deck: ~/.config/omnisteam/omnisteam.toml
 #   - macOS: ~/Library/Application Support/OmniSteam/omnisteam.toml
+#
+# 提示: 通过 Web 仪表盘保存配置会自动生成/更新本文件。
 # ==============================================================================
 
 [log]
 # 日志输出级别: "trace", "debug", "info", "warn", "error"
 level = "info"
-# 是否输出到独立日志文件 (默认 true)
 file_output = true
 
 [manifest]
-# 获取 Depot Manifest 授权请求码的上游服务
-# 预设可选: "opensteamtool", "steamrun", "wudrm"，或填写自建的完整 URL
+# Depot Manifest 授权请求码上游服务。
+# 预设可选 "opensteamtool" (默认), "steamrun", "wudrm"，或填写自建的完整 Base URL。
+# 解析结果会持久缓存至 cache/manifest_request_codes.bin，失败结果 10 分钟内不重复请求。
 url = "opensteamtool"
 
-# Manifest 下载及网络请求超时时间 (毫秒)
-timeout_resolve_ms = 5000
-timeout_connect_ms = 5000
-timeout_send_ms    = 10000
-timeout_recv_ms    = 10000
+[dlc]
+# 自动发现已拥有游戏的所有 DLC 并一并注入 Package 0 (依赖 Steam Store API)
+auto_unlock = true
 
 [stats]
-# 是否开启成就与统计数据在线同步 API (https://stats.opensteamtool.com/{appid})
-# 优先级: Lua setStat > stats API > 默认预设 SteamID
+# 成就/统计数据供体 SteamID 解析服务 (stats.opensteamtool.com/<appid>)
+# 优先级: Lua setStatSteamid > 本地持久缓存 > 本 API
 enable_api = true
 
 [lua]
 # ------------------------------------------------------------------------------
 # Lua 脚本监听目录配置 (支持递归扫描子目录)
-# 
+#
 # 默认加载目录 (无需配置自动包含):
 #   - Windows: <Steam 根目录>/config/lua/
 #   - Linux / Steam Deck: ~/.config/omnisteam/lua/
 #   - macOS: ~/Library/Application Support/OmniSteam/lua/
-# 
-# paths: 可以在此处添加任意数量的自定义目录，内核热重载引擎会同时监控所有目录。
+#
+# paths 可添加任意数量的自定义目录；热重载引擎同时监控所有目录，
+# 任一 .lua 变更都会触发全量目录集的双缓冲重建并即时同步 Package 0。
 # ------------------------------------------------------------------------------
 paths = [
     # "D:/MyGameConfigs/lua",
     # "/home/deck/my_steam_lua"
 ]
 
-[onlinefix]
-# 自定义 -onlinefix 联机伪装 AppID (默认 480 即 Spacewar，亦可配置为 251040 / 1007 等)
-fake_appid = 480
-
-[inject]
-# 是否开启向游戏子进程注入辅助动态库 (用于绕过部分游戏内鉴权)
-enabled = false
-# library_x64 = "OmniSteam.GameHook.x64.dll"
-# library_x86 = "OmniSteam.GameHook.x86.dll"
-
 [cloud]
-# Steam 云存档重定向 (实验性功能)
+# WebDAV 云存档备份 (建议通过仪表盘"云存档"面板配置)
 enabled = false
-# save_path = ""
+webdav_server_url = ""
+webdav_username = ""
+# 密码明文存储于本文件，请勿分享；仪表盘不会回显该字段
+webdav_password = ""
+webdav_remote_root = "OmniSteam_Saves"

@@ -5,13 +5,19 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <toml++/toml.hpp>
 #include <unordered_map>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
+
+#include "Utils/Metadata/SymbolTable.h"
 
 namespace fs = std::filesystem;
 
@@ -56,21 +62,23 @@ void RegisterCoreSignatures() {
     RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
     RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 98 24 00 00 00",
                     0);
-#elif defined(OMNI_PLATFORM_LINUX)
-    // Linux ELF Steamclient signatures
-    RegisterPattern("CheckAppOwnership", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("ConfigStore_GetBinary", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("GetPackageInfo", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("MarkLicenseAsChanged", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.so", "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC",
+    RegisterPattern("BBuildAndAsyncSendFrame", "steamclient64.dll",
+                    "48 8B C4 55 48 8D 68 A1 48 81 EC C0 00 00 00 48 89 70 18", 0);
+    RegisterPattern("RecvPkt", "steamclient64.dll", "48 8B C4 55 48 8D A8 98 F6 FF FF", 0);
+    RegisterPattern("OptedInMask", "steamclient64.dll", "89 54 24 10 55 53 56 57 41 54 41 55 48 8D AC 24 38 FF FF FF",
                     0);
+    RegisterPattern("SpawnProcess", "steamclient64.dll",
+                    "48 89 5C 24 18 4C 89 4C 24 20 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 30 "
+                    "FF FF FF",
+                    0);
+    RegisterPattern("FillInAppOverview", "steamui.dll",
+                    "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1", 0);
+#elif defined(OMNI_PLATFORM_LINUX)
+    spdlog::warn("PatternLoader: No verified steamclient.so signatures are bundled; "
+                 "function hooks stay dormant to avoid attaching to wrong addresses");
 #elif defined(OMNI_PLATFORM_MACOS)
-    // macOS Mach-O Steamclient signatures
-    RegisterPattern("CheckAppOwnership", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
-    RegisterPattern("ConfigStore_GetBinary", "steamclient.dylib", "55 48 89 E5 41 57 41 56 41 55 41 54", 0);
-    RegisterPattern("GetPackageInfo", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
-    RegisterPattern("MarkLicenseAsChanged", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient.dylib", "55 48 89 E5 41 57 41 56", 0);
+    spdlog::warn("PatternLoader: No verified steamclient.dylib signatures are bundled; "
+                 "function hooks stay dormant to avoid attaching to wrong addresses");
 #endif
 }
 std::string GetCacheDirectory() {
@@ -110,6 +118,10 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         }
         uint64_t rva = 0;
         if (!file.read(reinterpret_cast<char*>(&rva), 8)) {
+            return false;
+        }
+        if (rva == 0 || rva > (512ull << 20)) {
+            spdlog::warn("PatternLoader: Cache entry '{}' has implausible RVA 0x{:X}, discarding cache", name, rva);
             return false;
         }
 
@@ -153,6 +165,183 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
     spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
 }
 
+// Applies a parsed signature document ([functions] table of name -> rva).
+size_t ApplyParsedSignatures(const toml::parse_result& parsed, uintptr_t moduleBase) {
+    size_t applied = 0;
+    if (auto* functions = parsed["functions"].as_table()) {
+        for (const auto& [name, node] : *functions) {
+            uint64_t rva = 0;
+            if (auto text = node.value<std::string>()) {
+                try {
+                    rva = std::stoull(*text, nullptr, 0);
+                } catch (...) {
+                    continue;
+                }
+            } else if (auto number = node.value<int64_t>()) {
+                rva = static_cast<uint64_t>(*number);
+            }
+            if (rva == 0 || rva > (512ull << 20))
+                continue;
+            g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
+            ++applied;
+        }
+    }
+    return applied;
+}
+
+bool DeclaresMatchingHash(const toml::parse_result& parsed, const std::string& moduleHash) {
+    auto declaredHash = parsed["binary_sha256"].value<std::string>();
+    return declaredHash && (moduleHash.empty() || *declaredHash == moduleHash);
+}
+
+// Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
+// (see .github/workflows/signature-harvest.yml). Each file declares the
+// SHA256 of the binary it was harvested from; only matching files apply.
+void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBase, const std::string& moduleHash) {
+    if (moduleBase == 0)
+        return;
+
+    std::error_code ec;
+    if (!fs::exists(signaturesDir, ec))
+        return;
+
+    size_t appliedFiles = 0;
+    size_t appliedFunctions = 0;
+    for (const auto& entry : fs::directory_iterator(signaturesDir, ec)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".toml")
+            continue;
+
+        toml::parse_result parsed = toml::parse_file(entry.path().string());
+        if (!parsed.succeeded()) {
+            spdlog::warn("PatternLoader: Skipping malformed signature file {}", entry.path().filename().string());
+            continue;
+        }
+
+        if (!DeclaresMatchingHash(parsed, moduleHash))
+            continue;
+
+        appliedFunctions += ApplyParsedSignatures(parsed, moduleBase);
+        ++appliedFiles;
+    }
+
+    if (appliedFiles > 0) {
+        spdlog::info("PatternLoader: Applied {} external signature files ({} functions) from {}", appliedFiles,
+                     appliedFunctions, signaturesDir);
+    }
+}
+
+std::string GetSignaturePlatformDir() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+    return "windows-x64";
+#elif defined(OMNI_PLATFORM_MACOS)
+    return "macos-universal";
+#else
+#if defined(OMNI_ARCH_X86)
+    return "linux-i386";
+#else
+    return "linux-x64";
+#endif
+#endif
+}
+
+// Runtime remote fallback: fetches a fresh signature document from the CDN
+// mirrors when local sources cannot resolve every registered target. This is
+// what makes Windows pattern breakage self-healing across Steam updates.
+void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) {
+    if (moduleHash.empty() || moduleBase == 0)
+        return;
+
+    const std::string platformDir = GetSignaturePlatformDir();
+    const std::string shortHash = moduleHash.substr(0, 16);
+
+    const char* bases[] = {OmniEndpoints::SignatureDb::kJsDelivrBase, OmniEndpoints::SignatureDb::kRawBase};
+    const char* fileNames[] = {moduleHash.c_str(), shortHash.c_str()};
+
+    for (const char* base : bases) {
+        for (const char* fileName : fileNames) {
+            std::string url = std::string(base) + "/" + platformDir + "/" + fileName + ".toml";
+            auto resp = OmniPlatform::Http::Get(url, 5000);
+            if (resp.statusCode != 200 || resp.body.empty())
+                continue;
+
+            toml::parse_result parsed = toml::parse(resp.body);
+            if (!parsed.succeeded() || !DeclaresMatchingHash(parsed, moduleHash))
+                continue;
+
+            size_t applied = ApplyParsedSignatures(parsed, moduleBase);
+            if (applied > 0) {
+                spdlog::info("PatternLoader: Fetched {} signatures from {}", applied, url);
+                return;
+            }
+        }
+    }
+}
+
+// Runtime symbol-table targets. Keep these aliases in sync with
+// tools/harvest_signatures.py (TARGETS), which uses the same matching rules.
+struct SymbolTarget {
+    const char* canonical;
+    std::vector<const char*> aliases;
+};
+
+const SymbolTarget kSymbolTargets[] = {
+    {"CheckAppOwnership", {"checkappownership"}},
+    {"ConfigStore_GetBinary", {"configstore", "getbinary", "loaddepotdecryptionkey"}},
+    {"GetPackageInfo", {"getpackageinfo"}},
+    {"MarkLicenseAsChanged", {"marklicenseaschanged"}},
+    {"ProcessPendingLicenseUpdates", {"processpendinglicenseupdates"}},
+    {"BBuildAndAsyncSendFrame", {"bbuildandasyncsendframe"}},
+    {"RecvPkt", {"recvpkt", "recvpacket"}},
+    {"OptedInMask", {"optedinmask"}},
+    {"SpawnProcess", {"spawnprocess"}},
+    {"FillInAppOverview", {"fillinappoverview"}},
+};
+
+// Resolves hook targets directly from the target module's own symbol data -
+// the zero-maintenance path for Linux/macOS clients that retain symbols.
+// Ambiguous matches (same alias hitting several distinct RVAs) are skipped so
+// we never hook a wrong function.
+void ResolveViaSymbolTable(const std::string& moduleName, uintptr_t moduleBase) {
+    struct MatchState {
+        uint64_t rva = 0;
+        size_t hits = 0;
+        bool ambiguous = false;
+    };
+    std::map<std::string, MatchState> matches;
+
+    SymbolTable::ForEachFunction(moduleName, [&](const std::string& name, const std::string& demangled, uint64_t rva) {
+        const std::string lowerName = SymbolTable::ToLower(name);
+        const std::string lowerDemangled = SymbolTable::ToLower(demangled);
+
+        for (const auto& target : kSymbolTargets) {
+            for (const auto* alias : target.aliases) {
+                if (lowerName.find(alias) == std::string::npos && lowerDemangled.find(alias) == std::string::npos) {
+                    continue;
+                }
+                MatchState& state = matches[target.canonical];
+                if (state.hits == 0) {
+                    state.rva = rva;
+                } else if (state.rva != rva) {
+                    state.ambiguous = true;
+                }
+                ++state.hits;
+                break;
+            }
+        }
+        return true;
+    });
+
+    for (const auto& [canonical, state] : matches) {
+        if (state.ambiguous || state.hits == 0) {
+            spdlog::warn("PatternLoader: Symbol table match for {} is ambiguous ({} hits), skipping", canonical,
+                         state.hits);
+            continue;
+        }
+        g_resolvedAddresses[NormalizeFunctionName(canonical)] = moduleBase + state.rva;
+        spdlog::info("PatternLoader: Resolved {} via runtime symbol table (RVA: 0x{:X})", canonical, state.rva);
+    }
+}
+
 } // namespace
 
 void Initialize(const std::string& /*unused*/) {
@@ -182,10 +371,25 @@ void Initialize(const std::string& /*unused*/) {
         return;
     }
 
-    // 2. Hash changed or first run: Perform one-time dynamic pattern scan
+    // 2. Merge harvested signature TOMLs shipped with the deployment
+    LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
+
+    // 3. Resolve remaining targets from the module's own symbol table
+    //    (zero-maintenance path; adapts to any client update automatically)
+    ResolveViaSymbolTable(modName, moduleBase);
+
+    // 4. If registered targets are still missing (e.g. patterns broke after a
+    //    Steam update), try the remote signature database before scanning
+    if (g_resolvedAddresses.size() < g_patterns.size()) {
+        FetchRemoteSignatures(moduleHash, moduleBase);
+    }
+
+    // 5. Hash changed or first run: Perform one-time dynamic pattern scan
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
                  moduleHash);
     for (const auto& [name, entry] : g_patterns) {
+        if (g_resolvedAddresses.count(name))
+            continue;
         uintptr_t found = OmniPlatform::ByteSearch::FindPatternInModule(entry.moduleName, entry.pattern);
         if (found != 0) {
             uintptr_t finalAddr = found + entry.offset;
@@ -197,7 +401,7 @@ void Initialize(const std::string& /*unused*/) {
         }
     }
 
-    // 3. Save resolved RVAs to local cache for instant future launches
+    // 6. Save resolved RVAs to local cache for instant future launches
     SaveRvaCache(cacheFile, moduleBase);
 }
 

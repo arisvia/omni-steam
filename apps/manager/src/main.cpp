@@ -25,9 +25,6 @@ void Init(const std::string& componentName = "omnisteam_core");
 int main(int argc, char* argv[]) {
     Log::Init("omnisteam_manager");
 
-    // Initialize depot keys in background
-    Manager::DepotKeyStore::Initialize();
-
     if (argc > 1) {
         std::string cmd = argv[1];
 
@@ -58,6 +55,7 @@ int main(int argc, char* argv[]) {
 
         // 2. Doctor Diagnostics
         if (cmd == "doctor" || cmd == "diagnose" || cmd == "check") {
+            Manager::DepotKeyStore::Initialize();
             auto report = Manager::Doctor::RunDiagnostics();
             Manager::Doctor::PrintReport(report);
             return report.overallHealthy ? 0 : 1;
@@ -114,6 +112,7 @@ int main(int argc, char* argv[]) {
 
         // 5. Unlock Game directly
         if (cmd == "unlock" && argc > 2) {
+            Manager::DepotKeyStore::Initialize();
             uint32_t appId = 0;
             try {
                 appId = static_cast<uint32_t>(std::stoul(argv[2]));
@@ -220,6 +219,7 @@ int main(int argc, char* argv[]) {
 
         // 9. Denuvo Ticket Import
         if (cmd == "import-ticket" && argc > 2) {
+            Manager::DepotKeyStore::Initialize();
             std::string ticketPath = argv[2];
             std::cout << "[OmniSteam] Importing Denuvo ticket from " << ticketPath << "...\n";
             std::ifstream in(ticketPath, std::ios::binary);
@@ -259,7 +259,13 @@ int main(int argc, char* argv[]) {
             webdav.remoteRootPath = config.webdavRemoteRoot.empty() ? OmniEndpoints::CloudSave::kDefaultRemoteRoot
                                                                     : config.webdavRemoteRoot;
             if (argc > 2) {
-                uint32_t appId = static_cast<uint32_t>(std::stoul(argv[2]));
+                uint32_t appId = 0;
+                try {
+                    appId = static_cast<uint32_t>(std::stoul(argv[2]));
+                } catch (...) {
+                    std::cerr << " [ERROR] Invalid AppID: " << argv[2] << "\n";
+                    return 1;
+                }
                 std::cout << "[OmniSteam] Backing up saves for AppID " << appId << " to WebDAV...\n";
                 bool ok = Manager::CloudSaveManager::BackupAppSaves(appId, webdav);
                 std::cout << (ok ? " [SUCCESS] Backup completed.\n" : " [FAILED] Backup failed.\n");
@@ -283,7 +289,13 @@ int main(int argc, char* argv[]) {
 
         // 11. Restore Saves
         if (cmd == "restore" && argc > 2) {
-            uint32_t appId = static_cast<uint32_t>(std::stoul(argv[2]));
+            uint32_t appId = 0;
+            try {
+                appId = static_cast<uint32_t>(std::stoul(argv[2]));
+            } catch (...) {
+                std::cerr << " [ERROR] Invalid AppID: " << argv[2] << "\n";
+                return 1;
+            }
             auto config = Manager::ConfigManager::ReadConfig();
             if (!config.cloudEnabled || config.webdavServerUrl.empty()) {
                 std::cerr << " [ERROR] Cloud save is not configured or disabled.\n";
@@ -303,6 +315,9 @@ int main(int argc, char* argv[]) {
     }
 
     spdlog::info("Starting OmniSteam standalone CLI application...");
+
+    // Initialize depot keys (may load the local cache and refresh from CDN)
+    Manager::DepotKeyStore::Initialize();
 
     uint16_t port = 8080;
     if (argc > 1) {

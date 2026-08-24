@@ -26,8 +26,22 @@ if [ -d "${PROJECT_ROOT}/build" ]; then
         scripts/uninstall-steamos.sh \
         -C "${PROJECT_ROOT}/build" \
         lib/ \
-        bin/
+        bin/ 2>/dev/null || true
     echo "✓ Generated ${LINUX_TAR}"
+fi
+
+# 1b. Ship harvested signature TOMLs alongside the release so CoreInstaller
+# can deploy them into the runtime cache for PatternLoader.
+if [ -d "${PROJECT_ROOT}/signatures" ]; then
+    cp -r "${PROJECT_ROOT}/signatures" "${DIST_DIR}/signatures"
+    echo "✓ Included signatures database in dist/"
+fi
+
+# 2. Package Decky Loader Plugin ZIP for Steam Deck
+if [ -d "${PROJECT_ROOT}/plugins/decky-omnisteam" ]; then
+    DECKY_ZIP="${DIST_DIR}/decky-omnisteam-v${VERSION}.zip"
+    (cd "${PROJECT_ROOT}/plugins/decky-omnisteam" && zip -r "${DECKY_ZIP}" . -x "*.git*" -x "node_modules/*")
+    echo "✓ Generated ${DECKY_ZIP}"
 fi
 
 echo "Packaging complete!"

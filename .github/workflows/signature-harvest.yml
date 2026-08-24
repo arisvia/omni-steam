@@ -1,0 +1,190 @@
+name: Signature Harvest
+
+# Harvests OmniSteam function signatures (RVA/symbol data) from official
+# Steam client binaries on each platform. Valve binaries themselves are NOT
+# committed - they are uploaded as short-lived private artifacts only.
+# Generated signature TOMLs are pushed back to the repository automatically.
+
+on:
+  schedule:
+    # Every Monday 03:00 UTC - keeps signature DB current with Steam client updates
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      push_signatures:
+        description: 'Push harvested signature TOMLs back to the repository'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  harvest-linux:
+    name: Harvest Linux steamclient.so
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y binutils file curl dpkg-dev
+
+      - name: Fetch Steam bootstrap and extract client libraries
+        run: |
+          mkdir -p steam-dist && cd steam-dist
+          DEB_URL=$(curl -s https://repo.steampowered.com/steam/pool/steam/s/steam/steam-launcher/ | grep -oE 'steam-launcher_[^"]*_all\.deb' | sort -V | tail -1)
+          if [ -z "$DEB_URL" ]; then echo "No deb found"; exit 1; fi
+          curl -fsSLO "https://repo.steampowered.com/steam/pool/steam/s/steam/steam-launcher/$DEB_URL"
+          dpkg-deb -x "$DEB_URL" root
+          BOOTSTRAP=$(find root -name 'bootstraplinux*' | head -1)
+          tar -xf "$BOOTSTRAP" -C .
+          find . -name 'steamclient*.so' -printf '%p\n'
+
+      - name: Harvest signatures
+        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/linux
+
+      - name: Upload binaries artifact (private, 7 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-binaries-linux
+          path: |
+            steam-dist/**/steamclient*.so*
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload harvest output
+        uses: actions/upload-artifact@v7
+        with:
+          name: signatures-linux
+          path: signatures-out/
+          retention-days: 90
+
+  harvest-windows:
+    name: Harvest Windows steamclient64.dll
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Steam silently
+        shell: powershell
+        run: |
+          curl.exe -L -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
+          Start-Process -FilePath ./SteamSetup.exe -ArgumentList '/S' -Wait
+          $dll = "C:\Program Files (x86)\Steam\steamclient64.dll"
+          if (-not (Test-Path $dll)) { throw "steamclient64.dll not found after install" }
+
+      - name: Locate client libraries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path steam-dist | Out-Null
+          Copy-Item "C:\Program Files (x86)\Steam\steamclient64.dll" steam-dist/
+          if (Test-Path "C:\Program Files (x86)\Steam\steamui.dll") { Copy-Item "C:\Program Files (x86)\Steam\steamui.dll" steam-dist/ }
+          Get-ChildItem steam-dist
+
+      - name: Harvest signatures
+        shell: pwsh
+        run: |
+          pip install pefile
+          python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/windows
+
+      - name: Sync upstream pattern database
+        shell: pwsh
+        run: |
+          pip install pefile capstone
+          python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows --sub steamclient --sub steamui
+
+      - name: Upload binaries artifact (private, 7 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-binaries-windows
+          path: steam-dist/*.dll
+          retention-days: 7
+
+      - name: Upload harvest output
+        uses: actions/upload-artifact@v7
+        with:
+          name: signatures-windows
+          path: signatures-out/
+          retention-days: 90
+
+  harvest-macos:
+    name: Harvest macOS steamclient.dylib
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and mount Steam dmg
+        run: |
+          curl -L -o steam.dmg https://steamcdn-a.akamaihd.net/client/installer/steam.dmg
+          hdiutil attach steam.dmg -nobrowse -quiet
+          VOL=$(ls -d /Volumes/Steam* | head -1)
+          mkdir -p steam-dist
+          cp -R "$VOL/Steam.app" steam-dist/
+          hdiutil detach "$VOL" -quiet || true
+          find steam-dist \( -iname '*steamclient*' -o -iname 'steamui*' \) -print
+
+      - name: Harvest signatures
+        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos
+
+      - name: Upload binaries artifact (private, 7 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-binaries-macos
+          path: |
+            steam-dist/**/*steamclient*
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload harvest output
+        uses: actions/upload-artifact@v7
+        with:
+          name: signatures-macos
+          path: signatures-out/
+          retention-days: 90
+
+  collect-and-push:
+    name: Collect & Push Signatures
+    needs: [harvest-linux, harvest-windows, harvest-macos]
+    runs-on: ubuntu-latest
+    # Manual runs honour the toggle; scheduled runs push by default.
+    if: ${{ always() && !failure() && !cancelled() && (inputs.push_signatures != false) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download all harvest outputs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: signatures-*
+          merge-multiple: true
+          path: signatures-collected
+
+      - name: Stage into repository tree
+        run: |
+          STAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          {
+            echo "# OmniSteam Signature Database"
+            echo "# Regenerated from official Steam clients on ${STAMP}"
+            echo "# Consumed by PatternLoader via cache/signatures/ (deployed by CoreInstaller)"
+            echo ""
+            for f in $(find signatures-collected -name '*.toml' | sort); do
+              platform=$(dirname "$f" | xargs basename)
+              mkdir -p "signatures/${platform}"
+              cp "$f" "signatures/${platform}/"
+            done
+            find signatures -type f -name '*.toml' -exec echo "- {}" \;
+          } > signatures/README.md
+          cat signatures/README.md
+
+      - name: Commit and push
+        run: |
+          git config user.name "omnisteam-signature-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add signatures/
+          if git diff --cached --quiet; then
+            echo "No signature changes to push"
+            exit 0
+          fi
+          git commit -m "chore(signatures): refresh harvested Steam client signatures [skip ci]"
+          git push

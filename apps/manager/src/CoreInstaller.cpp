@@ -1,5 +1,7 @@
 #include "CoreInstaller.h"
 
+#include "DownloadVerifier.h"
+
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -80,6 +82,43 @@ bool IsProcessAlive(uint32_t pid) {
 #else
     return kill(static_cast<pid_t>(pid), 0) == 0;
 #endif
+}
+
+// Copies harvested signature TOMLs (tools/harvest_signatures.py output) from
+// a deployment sibling directory into the cache so PatternLoader can consume
+// them on the next Steam start.
+void SyncSignatureFiles() {
+    std::vector<std::string> searchDirs = {
+        "signatures",
+        "lib/signatures",
+        "bin/signatures",
+        (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path() / "signatures").generic_string(),
+    };
+
+    std::string targetDir = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "signatures").generic_string();
+    size_t copied = 0;
+
+    for (const auto& dir : searchDirs) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec))
+            continue;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".toml")
+                continue;
+            try {
+                fs::create_directories(targetDir);
+                std::string destination = (fs::path(targetDir) / entry.path().filename()).generic_string();
+                if (fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing)) {
+                    ++copied;
+                }
+            } catch (...) {
+            }
+        }
+    }
+
+    if (copied > 0) {
+        spdlog::info("CoreInstaller: Deployed {} signature file(s) to {}", copied, targetDir);
+    }
 }
 } // namespace
 
@@ -193,6 +232,7 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
         if (fs::exists(coreDll) && fs::exists(proxyDll)) {
             fs::copy_file(coreDll, fs::path(steamPath) / "libomnisteam.dll", fs::copy_options::overwrite_existing);
             fs::copy_file(proxyDll, fs::path(steamPath) / "dwmapi.dll", fs::copy_options::overwrite_existing);
+            SyncSignatureFiles();
             spdlog::info("CoreInstaller: Successfully deployed local Core binaries from {} to {}", d, steamPath);
             return {true, "已成功从本地构建产物 (" + d +
                               ") 部署 Core 拦截引擎 (libomnisteam.dll + dwmapi.dll) 到 Steam 目录！"};
@@ -217,6 +257,11 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
             spdlog::info("CoreInstaller: Downloading Core asset from {}", downloadUrl);
             auto resp = OmniPlatform::Http::Get(downloadUrl, 30000);
             if (resp.statusCode == 200 && !resp.body.empty()) {
+                std::string rejection;
+                if (!VerifyDownloadChecksumIfPublished(downloadUrl, resp.body, &rejection)) {
+                    spdlog::warn("CoreInstaller: Rejecting asset from {} ({})", downloadUrl, rejection);
+                    continue;
+                }
                 std::string tempPackage =
                     (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / assetName).generic_string();
                 std::ofstream out(tempPackage, std::ios::binary | std::ios::trunc);
@@ -237,6 +282,11 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
 #endif
                 int unpackResult = std::system(unpackCmd.c_str());
                 spdlog::info("CoreInstaller: Archive extraction executed (result: {})", unpackResult);
+                if (unpackResult != 0) {
+                    return {false, "下载成功但解压失败（缺少 tar 或归档损坏）。请手动解压 " + tempPackage +
+                                       " 到 Steam 目录。"};
+                }
+                SyncSignatureFiles();
                 return {true, "已成功从远程下载并解压部署 OmniSteam Core 引擎到 Steam 目录！"};
             }
         }

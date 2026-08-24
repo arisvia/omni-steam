@@ -14,3 +14,12 @@ __pycache__/
 *.pyc
 *.exe
 *.obj
+
+# Debug dumps
+dump*.txt
+
+# Upstream reference sources (local only)
+/source/
+
+# Code review tool cache
+.code-review-graph/

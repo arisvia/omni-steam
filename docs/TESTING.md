@@ -1,62 +1,66 @@
 # OmniSteam 测试体系与功能模块划分指南 (Testing & Modules)
 
-本项目已完成全功能模块划分与自动化测试规范化。测试代码位于 `tests/` 目录下，按照业务领域与底层模块独立拆分，摆脱了开发过程中的临时阶段标记，便于长期维护与持续集成。
+测试代码位于 `tests/` 目录，按业务领域独立拆分。采用零外部框架的断言驱动（`assert`）设计，
+秒级编译执行，离线 CI 环境稳定通过。
 
 ---
 
-## 一、 测试套件与模块映射表
+## 一、测试套件与模块映射表
 
 | CTest 测试名 | 目标二进制 | 源码文件 | 覆盖的核心功能与业务模块 |
 | :--- | :--- | :--- | :--- |
-| **`PlatformTests`** | `test_platform` | `tests/test_platform.cpp` | **底层跨平台抽象层**：内存掩码特征搜索 (`ByteSearch`)、十六进制编解码 (`Encoding`)、凭证存储与票据存取 (`CredentialStore`)。 |
-| **`IpcMetadataTests`** | `test_ipc_metadata` | `tests/test_ipc_metadata.cpp` | **Steam IPC 与特征元数据引擎**：Steam 二进制指令特征扫描 (`PatternLoader`)、无锁高效 IPC 消息流序列化/反序列化 (`SteamIPC`)、Manifest GID 解析器 (`ManifestClient`)。 |
-| **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：游戏 AppID / DLC / Token 代码自动生成、脚本启用与停用重命名状态切换、目录自动扫描。 |
-| **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档与同步引擎**：跨平台游戏存档目录探测（Steam UserData、Proton CompatData 路径）、WebDAV 客户端多平台配置。 |
-| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与 Decky 插件整合**：发布打包资源定义校验（Linux/Windows 特征文件、SteamOS 免 root 安装脚本）、Decky Loader 插件规范 (`plugin.json` 架构校验)。 |
-| **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：本地 `depotkeys.bin` 二进制加载、二分查找与远端自动同步校验。 |
+| **`PlatformTests`** | `test_platform` | `tests/test_platform.cpp` | **底层跨平台抽象层**：特征字节搜索 (`ByteSearch`)、十六进制编解码 (`Encoding`)、凭据票据存取 (`CredentialStore`)、反作弊白名单常量。 |
+| **`IpcMetadataTests`** | `test_ipc_metadata` | `tests/test_ipc_metadata.cpp` | **Steam IPC 与元数据引擎**：结构偏移量断言（Ownership/PackageInfo 布局）、指令特征扫描 (`PatternLoader`)、IPC 序列化 (`SteamIPC`)、Manifest 解析 (`ManifestClient`)。 |
+| **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：AppID/DLC/Token 脚本生成、启用与停用状态切换、目录扫描。 |
+| **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档引擎**：存档路径探测（userdata / Proton compatdata）、WebDAV 客户端配置。 |
+| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与 Decky 整合**：发布资源定义、SteamOS 安装脚本、Decky 插件规范校验。 |
+| **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：`depotkeys.bin` 二进制加载、二分查找、恶意头防护（数量上限/溢出）。 |
+| **`PicsTokenTests`** | `test_pics_token` | `tests/test_pics_token.cpp` | **PICS 令牌注入器**：eMsg 8903 报文改写（令牌注入/覆盖/已正确则跳过）、无关字段逐字节保留、畸形输入安全拒绝。 |
+
+> 已知局限：部分套件存在恒真断言（如 constexpr 常量与字面量比较），行为级覆盖将在阶段 7 增强
+> （重点：LuaConfig 双缓冲并发、ManifestClient 缓存 TTL、ApiRouter 输入净化）。
 
 ---
 
-## 二、 运行测试命令
+## 二、运行测试命令
 
 ### 1. 运行完整测试套件 (CTest)
 
 ```bash
-# 进入构建目录
-cd build
-
-# 执行全部测试，并输出详细日志
-ctest --output-on-failure -C Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure -C Release
 ```
 
 ### 2. 独立运行指定功能模块测试
 
-在 `build/bin/`（或 Windows `build/bin/Release/`）中可以直接执行对应的模块可执行文件：
+在 `build/bin/` 下直接执行：
 
 ```bash
-# 1. 运行平台抽象测试
-./build/bin/test_platform
-
-# 2. 运行 IPC 与特征测试
-./build/bin/test_ipc_metadata
-
-# 3. 运行脚本管理器测试
-./build/bin/test_script_manager
-
-# 4. 运行云存档测试
-./build/bin/test_cloud_save
-
-# 5. 运行打包与 Decky 插件集成测试
-./build/bin/test_packaging_integration
-
-# 6. 运行 Depot 密钥库测试
-./build/bin/test_depot_keys
+./build/bin/test_platform               # 平台抽象层
+./build/bin/test_ipc_metadata           # IPC 与元数据引擎
+./build/bin/test_script_manager         # 脚本生命周期
+./build/bin/test_cloud_save             # 云存档与 WebDAV
+./build/bin/test_packaging_integration  # 打包与 Decky 规范
+./build/bin/test_depot_keys             # Depot 密钥库
+./build/bin/test_pics_token             # PICS 令牌注入器
 ```
 
 ---
 
-## 三、 测试设计规范
+## 三、测试设计规范
 
-1. **完全自包含（Self-Contained）**：测试不依赖外部第三方测试框架（如 GTest / Catch2），采用断言驱动（`assert`）以极致轻量的方式运行，秒级编译与执行。
-2. **跨平台兼容**：临时文件与目录统一使用 `std::filesystem::temp_directory_path()` 动态获取，防止在 Windows / Linux / macOS 上出现硬编码路径权限问题。
-3. **零外部网络强制依赖**：网络测试模块均内置本地兜底逻辑或模式解析验证，在离线与 CI 隔离环境下稳定通过。
+1. **完全自包含**：不依赖 GTest / Catch2 等外部框架，`assert` 驱动，编译与执行均为秒级。
+2. **跨平台兼容**：临时文件统一使用 `std::filesystem::temp_directory_path()`，避免硬编码路径权限问题。
+3. **零网络强制依赖**：网络相关模块内置本地兜底或纯解析验证，CI 隔离环境稳定通过。
+
+## 四、提交前质检
+
+除单元测试外，提交前必须运行项目自带静态质检工具：
+
+```bash
+python tools/check_code.py --fix
+```
+
+自动完成：标准 include 完整性校验、括号/预处理器配平检查、全量 C++ 文件 clang-format。
+（上游参考目录 `source/` 已排除在检查与构建之外。）
