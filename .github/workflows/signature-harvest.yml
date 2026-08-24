@@ -84,6 +84,11 @@ jobs:
           pip install pefile
           python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/windows
 
+      - name: Sync upstream pattern database
+        shell: pwsh
+        run: |
+          python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows --sub steamclient --sub steamui
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         with:

@@ -41,6 +41,17 @@ inline constexpr const char* kManifestDownloadBase = "https://manifest.opensteam
 } // namespace Manifest
 
 // ==============================================================================
+// 2b. 远程签名数据库 (PatternLoader 运行时拉取, depotkeys.bin 同款分发模型)
+//     路径格式: <base>/<platform-dir>/<sha256>.toml
+// ==============================================================================
+namespace SignatureDb {
+inline constexpr const char* kJsDelivrBase =
+    "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/signatures";
+inline constexpr const char* kRawBase =
+    "https://raw.githubusercontent.com/arisvia/omni-steam/main/signatures";
+} // namespace SignatureDb
+
+// ==============================================================================
 // 3. 成就与统计数据同步服务
 // ==============================================================================
 namespace Stats {

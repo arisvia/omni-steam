@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
 #include "Utils/Metadata/SymbolTable.h"
@@ -164,10 +165,38 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
     spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
 }
 
+// Applies a parsed signature document ([functions] table of name -> rva).
+size_t ApplyParsedSignatures(const toml::parse_result& parsed, uintptr_t moduleBase) {
+    size_t applied = 0;
+    if (auto* functions = parsed["functions"].as_table()) {
+        for (const auto& [name, node] : *functions) {
+            uint64_t rva = 0;
+            if (auto text = node.value<std::string>()) {
+                try {
+                    rva = std::stoull(*text, nullptr, 0);
+                } catch (...) {
+                    continue;
+                }
+            } else if (auto number = node.value<int64_t>()) {
+                rva = static_cast<uint64_t>(*number);
+            }
+            if (rva == 0 || rva > (512ull << 20))
+                continue;
+            g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
+            ++applied;
+        }
+    }
+    return applied;
+}
+
+bool DeclaresMatchingHash(const toml::parse_result& parsed, const std::string& moduleHash) {
+    auto declaredHash = parsed["binary_sha256"].value<std::string>();
+    return declaredHash && (moduleHash.empty() || *declaredHash == moduleHash);
+}
+
 // Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
 // (see .github/workflows/signature-harvest.yml). Each file declares the
 // SHA256 of the binary it was harvested from; only matching files apply.
-// Priority: local RVA cache > signature TOML > pattern scan.
 void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBase, const std::string& moduleHash) {
     if (moduleBase == 0)
         return;
@@ -188,36 +217,63 @@ void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBa
             continue;
         }
 
-        auto declaredHash = parsed["binary_sha256"].value<std::string>();
-        if (!declaredHash || (!moduleHash.empty() && *declaredHash != moduleHash))
+        if (!DeclaresMatchingHash(parsed, moduleHash))
             continue;
 
-        size_t countBefore = g_resolvedAddresses.size();
-        if (auto* functions = parsed["functions"].as_table()) {
-            for (const auto& [name, node] : *functions) {
-                uint64_t rva = 0;
-                if (auto text = node.value<std::string>()) {
-                    try {
-                        rva = std::stoull(*text, nullptr, 0);
-                    } catch (...) {
-                        continue;
-                    }
-                } else if (auto number = node.value<int64_t>()) {
-                    rva = static_cast<uint64_t>(*number);
-                }
-                if (rva == 0 || rva > (512ull << 20))
-                    continue;
-                g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
-            }
-        }
-
-        appliedFunctions += g_resolvedAddresses.size() - countBefore;
+        appliedFunctions += ApplyParsedSignatures(parsed, moduleBase);
         ++appliedFiles;
     }
 
     if (appliedFiles > 0) {
         spdlog::info("PatternLoader: Applied {} external signature files ({} functions) from {}", appliedFiles,
                      appliedFunctions, signaturesDir);
+    }
+}
+
+std::string GetSignaturePlatformDir() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+    return "windows-x64";
+#elif defined(OMNI_PLATFORM_MACOS)
+    return "macos-universal";
+#else
+#if defined(OMNI_ARCH_X86)
+    return "linux-i386";
+#else
+    return "linux-x64";
+#endif
+#endif
+}
+
+// Runtime remote fallback: fetches a fresh signature document from the CDN
+// mirrors when local sources cannot resolve every registered target. This is
+// what makes Windows pattern breakage self-healing across Steam updates.
+void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) {
+    if (moduleHash.empty() || moduleBase == 0)
+        return;
+
+    const std::string platformDir = GetSignaturePlatformDir();
+    const std::string shortHash = moduleHash.substr(0, 16);
+
+    const char* bases[] = {OmniEndpoints::SignatureDb::kJsDelivrBase, OmniEndpoints::SignatureDb::kRawBase};
+    const char* fileNames[] = {moduleHash.c_str(), shortHash.c_str()};
+
+    for (const char* base : bases) {
+        for (const char* fileName : fileNames) {
+            std::string url = std::string(base) + "/" + platformDir + "/" + fileName + ".toml";
+            auto resp = OmniPlatform::Http::Get(url, 5000);
+            if (resp.statusCode != 200 || resp.body.empty())
+                continue;
+
+            toml::parse_result parsed = toml::parse(resp.body);
+            if (!parsed.succeeded() || !DeclaresMatchingHash(parsed, moduleHash))
+                continue;
+
+            size_t applied = ApplyParsedSignatures(parsed, moduleBase);
+            if (applied > 0) {
+                spdlog::info("PatternLoader: Fetched {} signatures from {}", applied, url);
+                return;
+            }
+        }
     }
 }
 
@@ -322,7 +378,13 @@ void Initialize(const std::string& /*unused*/) {
     //    (zero-maintenance path; adapts to any client update automatically)
     ResolveViaSymbolTable(modName, moduleBase);
 
-    // 4. Hash changed or first run: Perform one-time dynamic pattern scan
+    // 4. If registered targets are still missing (e.g. patterns broke after a
+    //    Steam update), try the remote signature database before scanning
+    if (g_resolvedAddresses.size() < g_patterns.size()) {
+        FetchRemoteSignatures(moduleHash, moduleBase);
+    }
+
+    // 5. Hash changed or first run: Perform one-time dynamic pattern scan
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
                  moduleHash);
     for (const auto& [name, entry] : g_patterns) {
@@ -339,7 +401,7 @@ void Initialize(const std::string& /*unused*/) {
         }
     }
 
-    // 5. Save resolved RVAs to local cache for instant future launches
+    // 6. Save resolved RVAs to local cache for instant future launches
     SaveRvaCache(cacheFile, moduleBase);
 }
 

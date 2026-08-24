@@ -82,4 +82,7 @@
 - [x] **Linux/macOS 特征签名采集流水线**（2026-08）：`tools/harvest_signatures.py` 跨格式
       （ELF/Mach-O/PE）符号采集 + `signature-harvest.yml` 三平台工作流（二进制仅入私有 artifact，
       签名 TOML 自动反推仓库）；TOML 库降级为离线兜底（应对 strip 过的发行版）。
-- [ ] **Linux/macOS 签名数据落地**（可选）：运行一次 Signature Harvest 即可生成兜底签名库。
+- [x] **Windows 特征码运行时远程兜底**（2026-08）：PatternLoader 在内置特征码失配时自动从 CDN
+      镜像拉取当前二进制哈希对应的签名库（depotkeys.bin 同款分发模型）；`tools/sync_upstream_patterns.py`
+      可将上游 opensteamtool 特征库转换为本项目 schema；采集工作流 Windows job 已合并该同步步骤。
+- [x] **Linux/macOS 签名数据落地**（可选）：运行一次 Signature Harvest 即可生成兜底签名库。
