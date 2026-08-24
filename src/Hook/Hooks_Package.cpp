@@ -239,7 +239,7 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             }
             pOwnership->ExistInPackageNums = kSteamDefaultInjectedPackageCount;
             pOwnership->bOwnsLicense = true;
-            pOwnership->bFreeLicense = false;
+            pOwnership->bFreeLicense = true;
             pOwnership->bBorrowed = false;
             pOwnership->bFamilyShared = false;
         }
