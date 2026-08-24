@@ -24,6 +24,11 @@ url = "opensteamtool"
 # 自动发现已拥有游戏的所有 DLC 并一并注入 Package 0 (依赖 Steam Store API)
 auto_unlock = true
 
+[stats]
+# 成就/统计数据供体 SteamID 解析服务 (stats.opensteamtool.com/<appid>)
+# 优先级: Lua setStatSteamid > 本地持久缓存 > 本 API
+enable_api = true
+
 [lua]
 # ------------------------------------------------------------------------------
 # Lua 脚本监听目录配置 (支持递归扫描子目录)

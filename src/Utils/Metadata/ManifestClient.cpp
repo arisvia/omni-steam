@@ -54,15 +54,20 @@ void LoadDiskCacheLocked() {
     in.read(reinterpret_cast<char*>(&count), sizeof(count));
     constexpr uint32_t kMagic = 0x4D524351; // "QCRM"
     constexpr uint32_t kVersion = 1;
-    if (magic != kMagic || version != kVersion || count == 0 || count > kMaxCacheEntries)
+    if (magic != kMagic || version != kVersion)
         return;
 
-    for (uint32_t i = 0; i < count && in.good(); ++i) {
+    // Header count is advisory - appended entries beyond it must stay
+    // visible, so drain the record stream until EOF.
+    while (in.good() && g_positiveCache.size() < kMaxCacheEntries) {
         uint64_t gid = 0, code = 0;
         in.read(reinterpret_cast<char*>(&gid), sizeof(gid));
         in.read(reinterpret_cast<char*>(&code), sizeof(code));
-        if (gid != 0 && code != 0)
+        if (!in.good())
+            break;
+        if (gid != 0 && code != 0) {
             g_positiveCache.emplace(gid, code);
+        }
     }
     spdlog::info("ManifestClient: Loaded {} cached manifest request codes", g_positiveCache.size());
 }

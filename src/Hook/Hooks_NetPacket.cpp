@@ -451,7 +451,9 @@ void HandleGetUserStatsResponse(uint64_t jobId, const uint8_t* pHdr, uint32_t cb
     auto pruned = ProtoFields::WithoutFields(pBody, cbBody, {4});
     if (!pruned)
         return;
-    ProtoFields::AppendVarintField(*pruned, 2, static_cast<uint64_t>(k_EResultOK));
+    // NOTE: CPlayer_GetUserStats_Response carries no eresult field - the
+    // result lives in the CM proto header, patched below. Field 2 here is
+    // crc_stats and must be left untouched.
 
     std::vector<uint8_t> newHdr(pHdr, pHdr + cbHdr);
     newHdr.push_back(kProtoTagEresultVarint);

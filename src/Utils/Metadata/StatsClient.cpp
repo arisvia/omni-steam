@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
@@ -37,6 +38,13 @@ std::string DiskCachePath() {
     return (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "stats_steamids.bin").generic_string();
 }
 
+// File layout: [magic u32][version u32][count u32]{appId u32, steamId u64}*
+// Appends extend the record stream beyond the declared count; readers accept
+// trailing records so appended entries are visible without consolidation.
+constexpr uint32_t kDiskMagic = 0x53535449; // "ITSS"
+constexpr uint32_t kDiskVersion = 1;
+constexpr size_t kMaxFileSizeBytes = kMaxCacheEntries * 12 + 12;
+
 void LoadDiskCacheLocked() {
     if (g_diskLoaded)
         return;
@@ -50,20 +58,51 @@ void LoadDiskCacheLocked() {
     in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
     in.read(reinterpret_cast<char*>(&version), sizeof(version));
     in.read(reinterpret_cast<char*>(&count), sizeof(count));
-    constexpr uint32_t kMagic = 0x53535449; // "ITSS"
-    constexpr uint32_t kVersion = 1;
-    if (magic != kMagic || version != kVersion || count == 0 || count > kMaxCacheEntries)
+    if (magic != kDiskMagic || version != kDiskVersion)
         return;
 
-    for (uint32_t i = 0; i < count && in.good(); ++i) {
+    while (in.good() && g_cache.size() < kMaxCacheEntries) {
         uint32_t appId = 0;
         uint64_t steamId = 0;
         in.read(reinterpret_cast<char*>(&appId), sizeof(appId));
         in.read(reinterpret_cast<char*>(&steamId), sizeof(steamId));
+        if (!in.good())
+            break;
         if (appId != 0 && steamId != 0) {
             g_cache.emplace(appId, steamId);
         }
     }
+}
+
+void AppendRecord(uint32_t appId, uint64_t steamId) {
+    std::string path = DiskCachePath();
+    std::error_code ec;
+    bool needsRewrite = !fs::exists(path, ec) || fs::file_size(path, ec) > kMaxFileSizeBytes;
+
+    if (needsRewrite) {
+        std::vector<std::pair<uint32_t, uint64_t>> entries;
+        for (const auto& [id, sid] : g_cache) {
+            entries.emplace_back(id, sid);
+        }
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out)
+            return;
+        uint32_t count = static_cast<uint32_t>(entries.size());
+        out.write(reinterpret_cast<const char*>(&kDiskMagic), sizeof(kDiskMagic));
+        out.write(reinterpret_cast<const char*>(&kDiskVersion), sizeof(kDiskVersion));
+        out.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (const auto& [id, sid] : entries) {
+            out.write(reinterpret_cast<const char*>(&id), sizeof(id));
+            out.write(reinterpret_cast<const char*>(&sid), sizeof(sid));
+        }
+        return;
+    }
+
+    std::ofstream out(path, std::ios::binary | std::ios::app);
+    if (!out)
+        return;
+    out.write(reinterpret_cast<const char*>(&appId), sizeof(appId));
+    out.write(reinterpret_cast<const char*>(&steamId), sizeof(steamId));
 }
 
 } // namespace
@@ -84,16 +123,8 @@ void StoreSteamId(uint32_t appId, uint64_t steamId) {
         g_cache[appId] = steamId;
     }
     try {
-        std::string path = DiskCachePath();
-        fs::create_directories(fs::path(path).parent_path());
-        std::ofstream out(path, std::ios::binary | std::ios::app);
-        if (!out)
-            return;
-        uint32_t magic = 0x53535449, version = 1;
-        out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
-        out.write(reinterpret_cast<const char*>(&version), sizeof(version));
-        out.write(reinterpret_cast<const char*>(&appId), sizeof(appId));
-        out.write(reinterpret_cast<const char*>(&steamId), sizeof(steamId));
+        fs::create_directories(fs::path(DiskCachePath()).parent_path());
+        AppendRecord(appId, steamId);
     } catch (...) {
     }
 }
