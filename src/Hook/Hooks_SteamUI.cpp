@@ -12,14 +12,12 @@
 
 namespace {
 
-#pragma pack(push, 1)
 struct CSteamApp {
     uint32_t nAppID;
     uint32_t AppStateFlags;
     uint32_t OwnershipFlags;
     uint32_t PurchasedTime;
 };
-#pragma pack(pop)
 
 HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* pApp) {
     if (pApp && (LuaConfig::HasApp(pApp->nAppID) || LuaConfig::HasDepot(pApp->nAppID))) {
