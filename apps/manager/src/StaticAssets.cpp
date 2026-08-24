@@ -962,7 +962,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             } else {
                 alert('写入解锁脚本失败');
             }
-
+        }
         async function loadScripts() {
             try {
                 const res = await fetch('/api/scripts');
