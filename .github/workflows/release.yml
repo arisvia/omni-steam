@@ -1,15 +1,9 @@
 name: Release OmniSteam
 
+# Releases are cut exclusively by pushing a version tag (v1.2.3 ...);
+# regular commits to main are covered by ci.yml instead.
 on:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
-      - 'assets/**'
-      - 'depotkeys.bin'
     tags:
       - "v*"
   workflow_dispatch:
