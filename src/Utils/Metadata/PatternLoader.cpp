@@ -7,6 +7,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -165,8 +166,27 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
     spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
 }
 
+// toml++ exposes a dual API: with exceptions enabled parse() returns a plain
+// table, with them disabled it returns a parse_result wrapper carrying
+// success state. Normalize both behind std::optional so call sites never
+// depend on the build's exception mode.
+std::optional<toml::table> ParseTomlDocument(const std::string& source, bool fromFile) {
+#if TOML_EXCEPTIONS
+    try {
+        return fromFile ? std::optional(toml::parse_file(source)) : std::optional(toml::parse(source));
+    } catch (...) {
+        return std::nullopt;
+    }
+#else
+    toml::parse_result parsed = fromFile ? toml::parse_file(source) : toml::parse(source);
+    if (!parsed.succeeded())
+        return std::nullopt;
+    return std::move(parsed.table());
+#endif
+}
+
 // Applies a parsed signature document ([functions] table of name -> rva).
-size_t ApplyParsedSignatures(const toml::parse_result& parsed, uintptr_t moduleBase) {
+size_t ApplyParsedSignatures(const toml::table& parsed, uintptr_t moduleBase) {
     size_t applied = 0;
     if (auto* functions = parsed["functions"].as_table()) {
         for (const auto& [name, node] : *functions) {
@@ -189,7 +209,7 @@ size_t ApplyParsedSignatures(const toml::parse_result& parsed, uintptr_t moduleB
     return applied;
 }
 
-bool DeclaresMatchingHash(const toml::parse_result& parsed, const std::string& moduleHash) {
+bool DeclaresMatchingHash(const toml::table& parsed, const std::string& moduleHash) {
     auto declaredHash = parsed["binary_sha256"].value<std::string>();
     return declaredHash && (moduleHash.empty() || *declaredHash == moduleHash);
 }
@@ -211,16 +231,16 @@ void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBa
         if (!entry.is_regular_file() || entry.path().extension() != ".toml")
             continue;
 
-        toml::parse_result parsed = toml::parse_file(entry.path().string());
-        if (!parsed.succeeded()) {
+        auto parsed = ParseTomlDocument(entry.path().string(), true);
+        if (!parsed) {
             spdlog::warn("PatternLoader: Skipping malformed signature file {}", entry.path().filename().string());
             continue;
         }
 
-        if (!DeclaresMatchingHash(parsed, moduleHash))
+        if (!DeclaresMatchingHash(*parsed, moduleHash))
             continue;
 
-        appliedFunctions += ApplyParsedSignatures(parsed, moduleBase);
+        appliedFunctions += ApplyParsedSignatures(*parsed, moduleBase);
         ++appliedFiles;
     }
 
@@ -264,11 +284,11 @@ void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) 
             if (resp.statusCode != 200 || resp.body.empty())
                 continue;
 
-            toml::parse_result parsed = toml::parse(resp.body);
-            if (!parsed.succeeded() || !DeclaresMatchingHash(parsed, moduleHash))
+            auto parsed = ParseTomlDocument(resp.body, false);
+            if (!parsed || !DeclaresMatchingHash(*parsed, moduleHash))
                 continue;
 
-            size_t applied = ApplyParsedSignatures(parsed, moduleBase);
+            size_t applied = ApplyParsedSignatures(*parsed, moduleBase);
             if (applied > 0) {
                 spdlog::info("PatternLoader: Fetched {} signatures from {}", applied, url);
                 return;
