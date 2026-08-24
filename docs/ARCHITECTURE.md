@@ -135,7 +135,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | Stats 成就统计上报 | 前置依赖成就伪造子系统（eMsg 818/819）；供体 SteamID 解析可参照上游 StatsClient | 规划中 |
-| D | Linux/macOS 签名库 | 无验证过的 steamclient.so/dylib 特征码，Hook 主动休眠防止挂错地址 | 征集签名中 |
+| D | Linux/macOS 签名库 | 采集流水线已就绪（`signature-harvest.yml` + `tools/harvest_signatures.py`），运行工作流即可生成签名库并自动入库；PatternLoader 按 SHA256 键控消费 | 待首次采集 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地 | ✅ 2026-08 完成 |
 
 ## 6. 目录导览
