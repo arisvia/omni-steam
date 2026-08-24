@@ -8,6 +8,7 @@
 #include <mutex>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <tomlplusplus/toml.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -159,6 +160,63 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
     spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
 }
 
+// Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
+// (see .github/workflows/signature-harvest.yml). Each file declares the
+// SHA256 of the binary it was harvested from; only matching files apply.
+// Priority: local RVA cache > signature TOML > pattern scan.
+void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBase, const std::string& moduleHash) {
+    if (moduleBase == 0)
+        return;
+
+    std::error_code ec;
+    if (!fs::exists(signaturesDir, ec))
+        return;
+
+    size_t appliedFiles = 0;
+    size_t appliedFunctions = 0;
+    for (const auto& entry : fs::directory_iterator(signaturesDir, ec)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".toml")
+            continue;
+
+        toml::parse_result parsed = toml::parse_file(entry.path().string());
+        if (!parsed.succeeded()) {
+            spdlog::warn("PatternLoader: Skipping malformed signature file {}", entry.path().filename().string());
+            continue;
+        }
+
+        auto declaredHash = parsed["binary_sha256"].value<std::string>();
+        if (!declaredHash || (!moduleHash.empty() && *declaredHash != moduleHash))
+            continue;
+
+        size_t countBefore = g_resolvedAddresses.size();
+        if (auto* functions = parsed["functions"].as_table()) {
+            for (const auto& [name, node] : *functions) {
+                uint64_t rva = 0;
+                if (auto text = node.value<std::string>()) {
+                    try {
+                        rva = std::stoull(*text, nullptr, 0);
+                    } catch (...) {
+                        continue;
+                    }
+                } else if (auto number = node.value<int64_t>()) {
+                    rva = static_cast<uint64_t>(*number);
+                }
+                if (rva == 0 || rva > (512ull << 20))
+                    continue;
+                g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
+            }
+        }
+
+        appliedFunctions += g_resolvedAddresses.size() - countBefore;
+        ++appliedFiles;
+    }
+
+    if (appliedFiles > 0) {
+        spdlog::info("PatternLoader: Applied {} external signature files ({} functions) from {}", appliedFiles,
+                     appliedFunctions, signaturesDir);
+    }
+}
+
 } // namespace
 
 void Initialize(const std::string& /*unused*/) {
@@ -188,10 +246,15 @@ void Initialize(const std::string& /*unused*/) {
         return;
     }
 
-    // 2. Hash changed or first run: Perform one-time dynamic pattern scan
+    // 2. Merge harvested signature TOMLs shipped with the deployment
+    LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
+
+    // 3. Hash changed or first run: Perform one-time dynamic pattern scan
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
                  moduleHash);
     for (const auto& [name, entry] : g_patterns) {
+        if (g_resolvedAddresses.count(name))
+            continue;
         uintptr_t found = OmniPlatform::ByteSearch::FindPatternInModule(entry.moduleName, entry.pattern);
         if (found != 0) {
             uintptr_t finalAddr = found + entry.offset;
@@ -203,7 +266,7 @@ void Initialize(const std::string& /*unused*/) {
         }
     }
 
-    // 3. Save resolved RVAs to local cache for instant future launches
+    // 4. Save resolved RVAs to local cache for instant future launches
     SaveRvaCache(cacheFile, moduleBase);
 }
 

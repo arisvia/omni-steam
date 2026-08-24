@@ -30,6 +30,13 @@ if [ -d "${PROJECT_ROOT}/build" ]; then
     echo "✓ Generated ${LINUX_TAR}"
 fi
 
+# 1b. Ship harvested signature TOMLs alongside the release so CoreInstaller
+# can deploy them into the runtime cache for PatternLoader.
+if [ -d "${PROJECT_ROOT}/signatures" ]; then
+    cp -r "${PROJECT_ROOT}/signatures" "${DIST_DIR}/signatures"
+    echo "✓ Included signatures database in dist/"
+fi
+
 # 2. Package Decky Loader Plugin ZIP for Steam Deck
 if [ -d "${PROJECT_ROOT}/plugins/decky-omnisteam" ]; then
     DECKY_ZIP="${DIST_DIR}/decky-omnisteam-v${VERSION}.zip"
