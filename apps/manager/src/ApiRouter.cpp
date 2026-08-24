@@ -19,6 +19,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
+#include <tomlplusplus/toml.hpp>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -157,6 +158,24 @@ bool ValidateRequestOrigin(const std::string& request) {
     return true;
 }
 
+// Optional shared-secret gate: when [webui] token is set in omnisteam.toml,
+// every request must carry "X-Omni-Token: <token>".
+bool ValidateAccessToken(const std::string& request) {
+    static const std::string requiredToken = [] {
+        try {
+            auto tbl = toml::parse_file(ConfigManager::GetConfigFilePath());
+            return tbl["webui"]["token"].value_or(std::string{});
+        } catch (...) {
+            return std::string{};
+        }
+    }();
+    if (requiredToken.empty())
+        return true;
+
+    std::string provided = GetRequestHeader(request, "X-Omni-Token");
+    return !provided.empty() && provided == requiredToken;
+}
+
 } // namespace
 
 std::string ApiRouter::HandleRequest(const std::string& request) {
@@ -164,6 +183,11 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
     if (!ValidateRequestOrigin(request)) {
         spdlog::warn("ApiRouter: Rejected request with non-local Host/Origin header");
         return MakeHttpResponse(403, "text/plain", "403 Forbidden");
+    }
+
+    // 0b. Optional shared-secret gate ([webui] token in omnisteam.toml)
+    if (!ValidateAccessToken(request)) {
+        return MakeHttpResponse(401, "text/plain", "401 Unauthorized");
     }
 
     // 1. Static HTML Root

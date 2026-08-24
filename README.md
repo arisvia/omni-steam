@@ -111,6 +111,7 @@ omnisteam backup [AppID]        # 云存档备份 / restore <AppID> 还原
 | :--- | :--- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、全链路数据流、模块明细、已知断点 |
 | [docs/INJECTION_STRATEGY.md](docs/INJECTION_STRATEGY.md) | 各平台注入方案对比与实施状态 |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | 与 GreenLuma / OpenSteamTool / SmokeAPI 等同类项目的对比分析 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 开发路线图与当前进度 |
 | [docs/TESTING.md](docs/TESTING.md) | 测试体系与模块映射 |
 

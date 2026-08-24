@@ -6,6 +6,9 @@ name: Signature Harvest
 # Generated signature TOMLs are pushed back to the repository automatically.
 
 on:
+  schedule:
+    # Every Monday 03:00 UTC - keeps signature DB current with Steam client updates
+    - cron: '0 3 * * 1'
   workflow_dispatch:
     inputs:
       push_signatures:
@@ -143,7 +146,8 @@ jobs:
     name: Collect & Push Signatures
     needs: [harvest-linux, harvest-windows, harvest-macos]
     runs-on: ubuntu-latest
-    if: ${{ always() && !failure() && !cancelled() && inputs.push_signatures }}
+    # Manual runs honour the toggle; scheduled runs push by default.
+    if: ${{ always() && !failure() && !cancelled() && (inputs.push_signatures != false) }}
     steps:
       - uses: actions/checkout@v7
         with:

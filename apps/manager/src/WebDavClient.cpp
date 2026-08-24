@@ -1,6 +1,7 @@
 #include "WebDavClient.h"
 
 #include <cstdint>
+#include <cstring>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
@@ -64,7 +65,8 @@ std::wstring BuildRemotePath(const std::wstring& basePath, const std::string& su
 }
 
 WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& remotePath, const wchar_t* method,
-                              const void* bodyData = nullptr, size_t bodySize = 0) {
+                              const void* bodyData = nullptr, size_t bodySize = 0,
+                              const wchar_t* extraHeader = nullptr) {
     WebDavResponse resp;
     ParsedUrl base = ParseUrl(config.serverUrl);
     if (base.host.empty()) {
@@ -90,6 +92,9 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
     DWORD flags = base.isHttps ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hRequest =
         WinHttpOpenRequest(hConnect, method, fullPath.c_str(), nullptr, nullptr, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (extraHeader) {
+        WinHttpAddRequestHeaders(hRequest, extraHeader, static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
+    }
     if (!config.username.empty()) {
         std::wstring user = Utf8ToWide(config.username);
         std::wstring pass = Utf8ToWide(config.password);
@@ -142,6 +147,10 @@ WebDavResponse WebDavClient::Delete(const WebDavConfig& config, const std::strin
     return WinHttpRequest(config, remotePath, L"DELETE");
 }
 
+WebDavResponse WebDavClient::PropFind(const WebDavConfig& config, const std::string& remotePath) {
+    return WinHttpRequest(config, remotePath, L"PROPFIND", nullptr, 0, L"Depth: 1\r\n");
+}
+
 } // namespace Manager
 
 #else
@@ -172,72 +181,76 @@ void SetupAuth(CURL* curl, const WebDavConfig& config) {
         std::string userpwd = config.username + ":" + config.password;
         curl_easy_setopt(curl, CURLOPT_USERPWD, userpwd.c_str());
     }
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 }
-} // namespace
 
-WebDavResponse WebDavClient::MkCol(const WebDavConfig& config, const std::string& remotePath) {
+enum class WebDavMethod { MkCol, Put, Get, Delete, PropFind };
+
+const char* MethodName(WebDavMethod method) {
+    switch (method) {
+        case WebDavMethod::MkCol:
+            return "MKCOL";
+        case WebDavMethod::Put:
+            return "PUT";
+        case WebDavMethod::Get:
+            return "GET";
+        case WebDavMethod::Delete:
+            return "DELETE";
+        case WebDavMethod::PropFind:
+            return "PROPFIND";
+    }
+    return "GET";
+}
+
+struct UploadCtx {
+    const std::vector<uint8_t>* data;
+    size_t pos;
+};
+
+size_t ReadCallback(char* dest, size_t size, size_t nmemb, void* userdata) {
+    auto* ctx = static_cast<UploadCtx*>(userdata);
+    size_t want = size * nmemb;
+    size_t left = ctx->data->size() - ctx->pos;
+    size_t count = want < left ? want : left;
+    std::memcpy(dest, ctx->data->data() + ctx->pos, count);
+    ctx->pos += count;
+    return count;
+}
+
+WebDavResponse Perform(WebDavMethod method, const WebDavConfig& config, const std::string& remotePath,
+                       const std::vector<uint8_t>* uploadData = nullptr) {
     WebDavResponse resp;
     CURL* curl = curl_easy_init();
-    if (!curl)
+    if (!curl) {
+        resp.error = "curl init failed";
         return resp;
-
-    std::string url = BuildFullUrl(config, remotePath);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "MKCOL");
-    SetupAuth(curl, config);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        long code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        resp.statusCode = static_cast<int>(code);
-    } else {
-        resp.error = curl_easy_strerror(res);
     }
 
-    curl_easy_cleanup(curl);
-    return resp;
-}
-
-WebDavResponse WebDavClient::UploadFile(const WebDavConfig& config, const std::string& remotePath,
-                                        const std::vector<uint8_t>& data) {
-    WebDavResponse resp;
-    CURL* curl = curl_easy_init();
-    if (!curl)
-        return resp;
-
     std::string url = BuildFullUrl(config, remotePath);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, reinterpret_cast<const char*>(data.data()));
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, data.size());
-    SetupAuth(curl, config);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        long code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        resp.statusCode = static_cast<int>(code);
-    } else {
-        resp.error = curl_easy_strerror(res);
-    }
-
-    curl_easy_cleanup(curl);
-    return resp;
-}
-
-WebDavResponse WebDavClient::DownloadFile(const WebDavConfig& config, const std::string& remotePath) {
-    WebDavResponse resp;
-    CURL* curl = curl_easy_init();
-    if (!curl)
-        return resp;
-
-    std::string url = BuildFullUrl(config, remotePath);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, MethodName(method));
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
     SetupAuth(curl, config);
 
+    curl_slist* headers = nullptr;
+    UploadCtx uploadCtx{uploadData, 0};
+    if (method == WebDavMethod::PropFind) {
+        headers = curl_slist_append(headers, "Depth: 1");
+    }
+    if (method == WebDavMethod::Put && uploadData) {
+        headers = curl_slist_append(headers, "Expect:");
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, ReadCallback);
+        curl_easy_setopt(curl, CURLOPT_READDATA, &uploadCtx);
+        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(uploadData->size()));
+    }
+    if (headers) {
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+
     CURLcode res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
         long code = 0;
@@ -247,32 +260,34 @@ WebDavResponse WebDavClient::DownloadFile(const WebDavConfig& config, const std:
         resp.error = curl_easy_strerror(res);
     }
 
+    if (headers) {
+        curl_slist_free_all(headers);
+    }
     curl_easy_cleanup(curl);
     return resp;
 }
 
+} // namespace
+
+WebDavResponse WebDavClient::MkCol(const WebDavConfig& config, const std::string& remotePath) {
+    return Perform(WebDavMethod::MkCol, config, remotePath);
+}
+
+WebDavResponse WebDavClient::UploadFile(const WebDavConfig& config, const std::string& remotePath,
+                                        const std::vector<uint8_t>& data) {
+    return Perform(WebDavMethod::Put, config, remotePath, &data);
+}
+
+WebDavResponse WebDavClient::DownloadFile(const WebDavConfig& config, const std::string& remotePath) {
+    return Perform(WebDavMethod::Get, config, remotePath);
+}
+
 WebDavResponse WebDavClient::Delete(const WebDavConfig& config, const std::string& remotePath) {
-    WebDavResponse resp;
-    CURL* curl = curl_easy_init();
-    if (!curl)
-        return resp;
+    return Perform(WebDavMethod::Delete, config, remotePath);
+}
 
-    std::string url = BuildFullUrl(config, remotePath);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-    SetupAuth(curl, config);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        long code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        resp.statusCode = static_cast<int>(code);
-    } else {
-        resp.error = curl_easy_strerror(res);
-    }
-
-    curl_easy_cleanup(curl);
-    return resp;
+WebDavResponse WebDavClient::PropFind(const WebDavConfig& config, const std::string& remotePath) {
+    return Perform(WebDavMethod::PropFind, config, remotePath);
 }
 
 } // namespace Manager
