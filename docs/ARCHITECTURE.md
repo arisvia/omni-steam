@@ -102,7 +102,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | 模块 | 职责 | 关键实现点 |
 | :--- | :--- | :--- |
 | `Hooks_Package` | 所有权与许可证 | CheckAppOwnership / GetPackageInfo / CUtlMemoryGrow / MarkLicenseAsChanged；原子化并发防护；反作弊白名单优先短路 |
-| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（含越界防护）；追加字段式报文改写；32 槽互斥包池 |
+| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入 |
+| `PicsTokenInjector` | PICS 令牌 | eMsg 8903 请求中为 addtoken 配置的 App 追加/覆盖 access_token，其余字段逐字节保留 |
 | `Hooks_Decryption` | Depot 密钥 | 大小写不敏感零分配快速拒绝，仅在命中 decryptionkey 时分配 |
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳 |
@@ -131,7 +132,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 
 | # | 断点 | 说明 | 现状 |
 | :- | :--- | :--- | :--- |
-| A | `addtoken` 访问令牌 | Lua 已收集 access token，但尚无消费者（参考上游做法应注入 PICS ProductInfoRequest eMsg 8903） | 规划中 |
+| A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | `addinject` DLL 注入 | `ProcessInjector` 已实现并编译，但无调用方接线（需在 SpawnProcess 后获取游戏 PID） | 规划中 |
 | C | Stats 成就统计上报 | 配置项 `[stats] enable_api` 与端点常量已备，无实现 | 规划中 |
 | D | Linux/macOS 签名库 | 无验证过的 steamclient.so/dylib 特征码，Hook 主动休眠防止挂错地址 | 征集签名中 |

@@ -63,8 +63,9 @@
 
 按优先级排序（详细背景见 ARCHITECTURE.md §5）：
 
-- [ ] **PICS 访问令牌注入**：消费 `addtoken` 收集的 access token，参考上游在 eMsg 8903
-      CMsgClientPICSProductInfoRequest 中回填（当前令牌已收集但无消费者）。
+- [x] **PICS 访问令牌注入**（2026-08）：新增 `PicsTokenInjector` 模块消费 `addtoken` 收集的 access token，
+      拦截 eMsg 8903 CMsgClientPICSProductInfoRequest，对已解锁且配置了令牌的 App 条目以追加字段方式
+      覆盖 access_token（保留其余字段）；配套 `PicsTokenTests` 单元套件。
 - [ ] **addinject 接线**：SpawnProcess 后获取游戏 PID，调用既有 `ProcessInjector` 完成 DLL 注入链路。
 - [ ] **Linux/macOS 特征签名库**：逆向提取 `steamclient.so/dylib` 差异化特征码（或引入上游同款
       "远程 TOML + RVA" 分发机制），点亮非 Windows 平台解锁功能。

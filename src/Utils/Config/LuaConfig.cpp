@@ -39,6 +39,10 @@ LuaData& MutableActive() {
     return g_slots[g_activeSlot];
 }
 
+namespace LuaConfig {
+void SetAccessToken(uint32_t appId, const std::string& token);
+}
+
 int* RegistryTargetKey() {
     static int key = 0;
     return &key;
@@ -84,9 +88,7 @@ static int Lua_AddToken(lua_State* L) {
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
     const char* token = lua_tostring(L, 2);
     if (token) {
-        auto* target = TargetFromRegistry(L);
-        std::lock_guard<std::mutex> lock(g_luaMutex);
-        target->accessTokens[appId] = token;
+        SetAccessToken(appId, token);
         spdlog::info("Lua: addtoken for app {}", appId);
     }
     return 0;
@@ -311,6 +313,16 @@ std::string GetAccessToken(uint32_t appId) {
     const LuaData& active = g_slots[g_activeSlot];
     auto it = active.accessTokens.find(appId);
     return it != active.accessTokens.end() ? it->second : "";
+}
+
+void SetAccessToken(uint32_t appId, const std::string& token) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    LuaData& active = g_slots[g_activeSlot];
+    if (token.empty()) {
+        active.accessTokens.erase(appId);
+    } else {
+        active.accessTokens[appId] = token;
+    }
 }
 
 std::unordered_set<uint32_t> GetUnlockedApps() {

@@ -29,6 +29,7 @@ inline constexpr uint32_t k_EMsgClientGetLegacyGameKeyResponse = 785;
 inline constexpr uint32_t k_EMsgClientGamesPlayed = 742;
 inline constexpr uint32_t k_EMsgClientGamesPlayedWithDataBlob = 5410;
 inline constexpr uint32_t k_EMsgClientRequestEncryptedAppTicketResponse = 5527;
+inline constexpr uint32_t k_EMsgClientPICSProductInfoRequest = 8903;
 
 // Synthetic purchase timestamp injected into AppOverview so unlocked titles
 // appear instantly and persist in the library UI.

@@ -248,6 +248,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Metadata/DlcStore.cpp
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
+    src/Utils/Metadata/PicsTokenInjector.cpp
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
@@ -356,6 +357,11 @@ if(BUILD_TESTS)
     target_include_directories(test_depot_keys PRIVATE apps/manager/src)
     target_link_libraries(test_depot_keys PRIVATE OmniPlatform)
     add_test(NAME DepotKeyTests COMMAND test_depot_keys)
+
+    # 7. PICS Access Token Injector (addtoken -> eMsg 8903)
+    add_executable(test_pics_token tests/test_pics_token.cpp src/Utils/Metadata/PicsTokenInjector.cpp src/Utils/Config/LuaConfig.cpp)
+    target_link_libraries(test_pics_token PRIVATE OmniPlatform ${LUA_LIB_TARGET})
+    add_test(NAME PicsTokenTests COMMAND test_pics_token)
 endif()
 
 # ---------------------------------------------------------------------------

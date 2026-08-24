@@ -22,6 +22,7 @@ Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路与 Manager �
   - `ConfigStore_GetBinary` 回填 Depot AES-256 解密密钥；
   - `GetManifestRequestCode` 拦截 + **持久化正缓存 / 10 分钟负缓存**，eresult=OK 追加字段式注入（保留原始报文全部字段）；
   - Legacy CD-Key（eMsg 730 → 本地合成 785）；`-onlinefix` AppID 480 伪装与控制器/覆盖层还原；
+  - PICS 访问令牌注入（`addtoken` → eMsg 8903，追加字段式覆盖、保留原始报文）；
   - steamui `FillInAppOverview` 合成购买时间戳保证库内即时可见与永久留存。
 - **反作弊安全白名单 (`AntiCheatGuard`)**：CS2 / Dota 2 / TF2 / Apex 等 30+ 竞技游戏自动识别并透明直通原生逻辑。
 - **内核级热重载**：双缓冲快照机制——读端永远看到完整配置，Lua 目录递归监视秒级生效且所有权判定无瞬断窗口。

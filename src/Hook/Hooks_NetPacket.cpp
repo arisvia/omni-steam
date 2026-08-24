@@ -18,6 +18,7 @@
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/ManifestClient.h"
 #include "Utils/Metadata/PatternLoader.h"
+#include "Utils/Metadata/PicsTokenInjector.h"
 
 #include "Hook/HookMacros.h"
 #include "Hook/Hooks_Misc.h"
@@ -271,6 +272,26 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                         std::lock_guard<std::mutex> lock(g_ManifestMutex);
                         g_ManifestFutures[jobid_source] = task.share();
                     }
+                }
+            }
+        } else if (eMsg == k_EMsgClientPICSProductInfoRequest && cbBody > 0 && cubData <= kMaxPacketSize) {
+            // Inject configured access tokens into PICS product info requests so
+            // addtoken-protected depots resolve without "token required" failures.
+            std::vector<uint8_t> patchedBody;
+            if (PicsTokenInjector::PatchProductInfoRequest(pBody, cbBody, patchedBody)) {
+                size_t totalSize = sizeof(MsgHdr) + cbHdr + patchedBody.size();
+                if (uint8_t* poolBuf = AcquirePacketSlot(totalSize)) {
+                    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
+                    outHdr->eMsg = eMsg | kMsgHdrProtoFlag;
+                    outHdr->headerLength = cbHdr;
+                    std::memcpy(poolBuf + sizeof(MsgHdr), pHdr, cbHdr);
+                    std::memcpy(poolBuf + sizeof(MsgHdr) + cbHdr, patchedBody.data(), patchedBody.size());
+
+                    spdlog::info("Hooks_NetPacket: Injected access tokens into PICS request ({} -> {} bytes)", cbBody,
+                                 patchedBody.size());
+                    return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf,
+                                                                               static_cast<uint32_t>(totalSize))
+                                                    : false;
                 }
             }
         }
