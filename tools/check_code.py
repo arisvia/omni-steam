@@ -50,7 +50,7 @@ CHECK_RULES = [
 
 IGNORED_DIRS = {
     'build', '.git', '.cache', 'dist', 'packages', 'node_modules',
-    '.vs', 'out', 'bin', 'obj', 'third_party', 'vendor'
+    '.vs', 'out', 'bin', 'obj', 'third_party', 'vendor', 'source'
 }
 
 CPP_TOKEN_PATTERN = re.compile(
