@@ -74,10 +74,10 @@ bool ForEachFunction(const std::string& moduleName, const SymbolCallback& callba
                 continue; // defined-in-section functions only
             if ((sym.n_type & N_STAB) != 0)
                 continue;
-            if (sym.n_value == 0 || sym.n_strx == 0)
+            if (sym.n_value == 0 || sym.n_un.n_strx == 0)
                 continue;
 
-            const char* raw = stringTable + sym.n_strx;
+            const char* raw = stringTable + sym.n_un.n_strx;
             if (!raw || !*raw)
                 continue;
 
