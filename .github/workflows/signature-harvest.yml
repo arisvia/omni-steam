@@ -124,6 +124,9 @@ jobs:
         run: |
           pip install pefile capstone
           python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows --sub steamclient --sub steamui
+        # A brand-new Steam build may not be anchored upstream yet; that is
+        # informational, not a failure.
+        continue-on-error: true
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
@@ -196,8 +199,9 @@ jobs:
     name: Collect & Push Signatures
     needs: [harvest-linux, harvest-windows, harvest-macos]
     runs-on: ubuntu-latest
-    # Manual runs honour the toggle; scheduled runs push by default.
-    if: ${{ always() && !failure() && !cancelled() && (inputs.push_signatures != false) }}
+    # Push whatever platforms succeeded; a single failed platform must not
+    # discard the others' harvest. Manual runs honour the toggle.
+    if: ${{ !cancelled() && (inputs.push_signatures != false) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -212,6 +216,10 @@ jobs:
 
       - name: Stage into repository tree
         run: |
+          if ! find signatures-collected -name '*.toml' | grep -q .; then
+            echo "No signature TOMLs collected from any platform"
+            exit 0
+          fi
           STAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           {
             echo "# OmniSteam Signature Database"

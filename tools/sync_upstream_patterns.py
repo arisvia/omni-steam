@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Anchor-based pattern derivation from the official Steam binary.
 
-Upstream opensteamtool publishes per-version *anchors* keyed by the SHA256 of
-the Steam binary (name -> RVA [+ reference sig]):
+Upstream publishes per-version *anchors* keyed by the SHA256 of the Steam
+binary in the dedicated signature repository (branch `pattern`, files at the
+repository root):
 
-    https://cdn.jsdelivr.net/gh/<owner>/<repo>@<ref>/pattern/<sub>/<sha256>.toml
+    https://cdn.jsdelivr.net/gh/OpenSteam001/steam-monitor@pattern/<sub>/<sha256>.toml
 
 The anchors only say WHERE a function lives. This script then works directly
 on the locally downloaded official Steam binary:
@@ -15,15 +16,14 @@ on the locally downloaded official Steam binary:
   3. verifies upstream reference signatures against the actual bytes and
      drops any that do not match.
 
-Everything is emitted in our unified schema for PatternLoader / the runtime
-remote fallback. If the binary hash has no upstream entry yet, nothing can be
-anchored - Windows lacks symbols, so ground truth cannot be conjured from a
-naked binary; that is precisely why Linux/macOS use runtime symbol resolution
-instead.
+A binary whose hash is not yet in the upstream database yields zero anchors;
+that is an EXPECTED state right after a Steam update (exit code 0, notice
+printed) - Windows keeps working through built-in patterns until upstream
+catches up.
 
 Usage:
   python tools/sync_upstream_patterns.py --binary <dll> --out <dir> \
-      [--sub steamclient] [--owner OpenSteam001] [--repo OpenSteamTool] [--ref main]
+      [--sub steamclient] [--owner OpenSteam001] [--repo steam-monitor] [--ref pattern]
 """
 
 from __future__ import annotations
@@ -201,10 +201,10 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--sub", action="append", default=[],
-                        help="upstream subdirectory under pattern/ (repeatable)")
+                        help="upstream subdirectory at the repository root (repeatable)")
     parser.add_argument("--owner", default="OpenSteam001")
-    parser.add_argument("--repo", default="OpenSteamTool")
-    parser.add_argument("--ref", default="main")
+    parser.add_argument("--repo", default="steam-monitor")
+    parser.add_argument("--ref", default="pattern")
     parser.add_argument("--skip-derivation", action="store_true",
                         help="do not regenerate patterns from the local binary")
     args = parser.parse_args()
@@ -212,8 +212,8 @@ def main() -> int:
     subs = args.sub or ["steamclient"]
     digest = sha256_file(args.binary)
     mirrors = [
-        f"https://cdn.jsdelivr.net/gh/{args.owner}/{args.repo}@{args.ref}/pattern",
-        f"https://raw.githubusercontent.com/{args.owner}/{args.repo}/{args.ref}/pattern",
+        f"https://cdn.jsdelivr.net/gh/{args.owner}/{args.repo}@{args.ref}",
+        f"https://raw.githubusercontent.com/{args.owner}/{args.repo}/{args.ref}",
     ]
 
     md = None
@@ -281,8 +281,11 @@ def main() -> int:
             merged[canonical] = converted
 
     if not merged:
-        print("[sync] nothing harvested; no output written")
-        return 1
+        # Expected right after a Steam client update: upstream has not
+        # anchored the new binary yet. Not an error - Windows stays on
+        # built-in patterns until upstream catches up.
+        print("[sync] no upstream anchors for this binary yet; skipping")
+        return 0
 
     lines = [
         "# OmniSteam signatures - anchored by upstream DB, derived from the official binary",
