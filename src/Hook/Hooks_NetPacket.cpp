@@ -223,134 +223,6 @@ bool ParseManifestRequest(const uint8_t* pBody, uint32_t cbBody, uint32_t& appId
     return depotId != 0 && manifestId != 0;
 }
 
-HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, uint8_t* pubData, uint32_t cubData) {
-    // 1. Intercept non-proto Legacy CD-Key Request (eMsg 730)
-    if (pubData && cubData >= sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKey)) {
-        const auto* reqHdr = reinterpret_cast<const ExtendedMsgHdr*>(pubData);
-        if (!(reqHdr->eMsg & kMsgHdrProtoFlag) && reqHdr->eMsg == k_EMsgClientGetLegacyGameKey) {
-            const auto* reqBody = reinterpret_cast<const MsgClientGetLegacyGameKey*>(pubData + sizeof(ExtendedMsgHdr));
-            AppId_t appId = reqBody->m_unAppId;
-
-            if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
-                std::string syntheticKey = "OMNI-STEAM-FREE-PLAY-KEY";
-                uint32_t cchKey = static_cast<uint32_t>(syntheticKey.size() + 1);
-                uint32_t totalSize = sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse) + cchKey;
-
-                if (totalSize <= kMaxPacketSize) {
-                    std::vector<uint8_t> respPkt(totalSize);
-                    auto* respHdr = reinterpret_cast<ExtendedMsgHdr*>(respPkt.data());
-                    *respHdr = *reqHdr;
-                    respHdr->eMsg = k_EMsgClientGetLegacyGameKeyResponse;
-                    respHdr->targetJobID = reqHdr->sourceJobID;
-                    respHdr->sourceJobID = 0;
-
-                    auto* respBody =
-                        reinterpret_cast<MsgClientGetLegacyGameKeyResponse*>(respPkt.data() + sizeof(ExtendedMsgHdr));
-                    respBody->m_unAppId = appId;
-                    respBody->m_eResult = k_EResultOK;
-                    respBody->m_cchKey = cchKey;
-                    std::memcpy(respPkt.data() + sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse),
-                                syntheticKey.c_str(), cchKey);
-
-                    {
-                        std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
-                        g_LegacyKeyQueue.push_back(std::move(respPkt));
-                    }
-                    spdlog::info("Hooks_NetPacket: Intercepted LegacyKey request for AppID {}, synthesized CD-Key "
-                                 "response (suppressing real send)",
-                                 appId);
-                    return true;
-                }
-            }
-        }
-    }
-
-    // 2. Intercept Protobuf Service Method calls (eMsg 151)
-    uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
-    const uint8_t *pHdr = nullptr, *pBody = nullptr;
-
-    if (UnpackRaw(pubData, cubData, eMsg, pHdr, cbHdr, pBody, cbBody)) {
-        if (eMsg == k_EMsgServiceMethodCallFromClient) {
-            uint64_t jobid_source = 0, jobid_target = 0;
-            std::string target_job_name;
-            ParseProtoHeader(pHdr, cbHdr, jobid_source, jobid_target, target_job_name);
-
-            if (target_job_name == "ContentServerDirectory.GetManifestRequestCode#1") {
-                uint32_t appId = 0, depotId = 0;
-                uint64_t manifestId = 0;
-                if (ParseManifestRequest(pBody, cbBody, appId, depotId, manifestId)) {
-                    spdlog::info("Hooks_NetPacket: Intercepted GetManifestRequestCode request (Depot: {}, GID: {}, "
-                                 "JobId: {})",
-                                 depotId, manifestId, jobid_source);
-
-                    uint64_t cached = ManifestClient::GetCachedRequestCode(manifestId);
-                    if (cached != 0) {
-                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
-                        g_ManifestInstantCodes[jobid_source] = cached;
-                    } else if (!ManifestClient::IsNegativeCached(manifestId)) {
-                        auto task = std::async(std::launch::async, [manifestId]() -> uint64_t {
-                            uint64_t code = 0;
-                            ManifestClient::FetchManifestRequestCode(manifestId, &code);
-                            return code;
-                        });
-                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
-                        g_ManifestFutures[jobid_source] = task.share();
-                    }
-                }
-            } else if (target_job_name == "Player.GetUserStats#1") {
-                std::vector<uint8_t> patched;
-                AppId_t appId = 0;
-                if (TryPatchGetUserStatsRequest(pBody, cbBody, patched, &appId)) {
-                    RememberStatsJob(jobid_source, appId);
-                    uint32_t newSize = 0;
-                    if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
-                        spdlog::info("Hooks_NetPacket: Spoofed GetUserStats request for AppID {} (donor SteamID)",
-                                     appId);
-                        return oBBuildAndAsyncSendFrame
-                                   ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
-                                   : false;
-                    }
-                }
-            }
-        } else if (eMsg == k_EMsgClientGetUserStats && cbBody > 0 && cubData <= kMaxPacketSize) {
-            std::vector<uint8_t> patched;
-            AppId_t appId = 0;
-            if (TryPatchGetUserStatsLegacyRequest(pBody, cbBody, patched, &appId)) {
-                uint32_t newSize = 0;
-                if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
-                    spdlog::info("Hooks_NetPacket: Patched CMsgClientGetUserStats for AppID {} "
-                                 "(schema_local_version=-1, donor SteamID)",
-                                 appId);
-                    return oBBuildAndAsyncSendFrame
-                               ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
-                               : false;
-                }
-            }
-        } else if (eMsg == k_EMsgClientPICSProductInfoRequest && cbBody > 0 && cubData <= kMaxPacketSize) {
-            // Inject configured access tokens into PICS product info requests so
-            // addtoken-protected depots resolve without "token required" failures.
-            std::vector<uint8_t> patchedBody;
-            if (PicsTokenInjector::PatchProductInfoRequest(pBody, cbBody, patchedBody)) {
-                size_t totalSize = sizeof(MsgHdr) + cbHdr + patchedBody.size();
-                if (uint8_t* poolBuf = AcquirePacketSlot(totalSize)) {
-                    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
-                    outHdr->eMsg = eMsg | kMsgHdrProtoFlag;
-                    outHdr->headerLength = cbHdr;
-                    std::memcpy(poolBuf + sizeof(MsgHdr), pHdr, cbHdr);
-                    std::memcpy(poolBuf + sizeof(MsgHdr) + cbHdr, patchedBody.data(), patchedBody.size());
-
-                    spdlog::info("Hooks_NetPacket: Injected access tokens into PICS request ({} -> {} bytes)", cbBody,
-                                 patchedBody.size());
-                    return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf,
-                                                                               static_cast<uint32_t>(totalSize))
-                                                    : false;
-                }
-            }
-        }
-    }
-    return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, pubData, cubData) : false;
-}
-
 // Assembles a replacement frame into the packet pool. eMsg carries the
 // proto flag already; header bytes are preserved verbatim.
 uint8_t* BuildPooledFrame(uint32_t eMsgWithFlag, const uint8_t* pHdr, uint32_t cbHdr,
@@ -497,6 +369,134 @@ void HandleGetUserStatsLegacyResponse(const uint8_t* pHdr, uint32_t cbHdr, const
         pPacket->m_cubData = newSize;
         spdlog::info("Hooks_NetPacket: Spoofed GetUserStats legacy response for AppID {}", appId);
     }
+}
+
+HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, uint8_t* pubData, uint32_t cubData) {
+    // 1. Intercept non-proto Legacy CD-Key Request (eMsg 730)
+    if (pubData && cubData >= sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKey)) {
+        const auto* reqHdr = reinterpret_cast<const ExtendedMsgHdr*>(pubData);
+        if (!(reqHdr->eMsg & kMsgHdrProtoFlag) && reqHdr->eMsg == k_EMsgClientGetLegacyGameKey) {
+            const auto* reqBody = reinterpret_cast<const MsgClientGetLegacyGameKey*>(pubData + sizeof(ExtendedMsgHdr));
+            AppId_t appId = reqBody->m_unAppId;
+
+            if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
+                std::string syntheticKey = "OMNI-STEAM-FREE-PLAY-KEY";
+                uint32_t cchKey = static_cast<uint32_t>(syntheticKey.size() + 1);
+                uint32_t totalSize = sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse) + cchKey;
+
+                if (totalSize <= kMaxPacketSize) {
+                    std::vector<uint8_t> respPkt(totalSize);
+                    auto* respHdr = reinterpret_cast<ExtendedMsgHdr*>(respPkt.data());
+                    *respHdr = *reqHdr;
+                    respHdr->eMsg = k_EMsgClientGetLegacyGameKeyResponse;
+                    respHdr->targetJobID = reqHdr->sourceJobID;
+                    respHdr->sourceJobID = 0;
+
+                    auto* respBody =
+                        reinterpret_cast<MsgClientGetLegacyGameKeyResponse*>(respPkt.data() + sizeof(ExtendedMsgHdr));
+                    respBody->m_unAppId = appId;
+                    respBody->m_eResult = k_EResultOK;
+                    respBody->m_cchKey = cchKey;
+                    std::memcpy(respPkt.data() + sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse),
+                                syntheticKey.c_str(), cchKey);
+
+                    {
+                        std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
+                        g_LegacyKeyQueue.push_back(std::move(respPkt));
+                    }
+                    spdlog::info("Hooks_NetPacket: Intercepted LegacyKey request for AppID {}, synthesized CD-Key "
+                                 "response (suppressing real send)",
+                                 appId);
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. Intercept Protobuf Service Method calls (eMsg 151)
+    uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
+    const uint8_t *pHdr = nullptr, *pBody = nullptr;
+
+    if (UnpackRaw(pubData, cubData, eMsg, pHdr, cbHdr, pBody, cbBody)) {
+        if (eMsg == k_EMsgServiceMethodCallFromClient) {
+            uint64_t jobid_source = 0, jobid_target = 0;
+            std::string target_job_name;
+            ParseProtoHeader(pHdr, cbHdr, jobid_source, jobid_target, target_job_name);
+
+            if (target_job_name == "ContentServerDirectory.GetManifestRequestCode#1") {
+                uint32_t appId = 0, depotId = 0;
+                uint64_t manifestId = 0;
+                if (ParseManifestRequest(pBody, cbBody, appId, depotId, manifestId)) {
+                    spdlog::info("Hooks_NetPacket: Intercepted GetManifestRequestCode request (Depot: {}, GID: {}, "
+                                 "JobId: {})",
+                                 depotId, manifestId, jobid_source);
+
+                    uint64_t cached = ManifestClient::GetCachedRequestCode(manifestId);
+                    if (cached != 0) {
+                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
+                        g_ManifestInstantCodes[jobid_source] = cached;
+                    } else if (!ManifestClient::IsNegativeCached(manifestId)) {
+                        auto task = std::async(std::launch::async, [manifestId]() -> uint64_t {
+                            uint64_t code = 0;
+                            ManifestClient::FetchManifestRequestCode(manifestId, &code);
+                            return code;
+                        });
+                        std::lock_guard<std::mutex> lock(g_ManifestMutex);
+                        g_ManifestFutures[jobid_source] = task.share();
+                    }
+                }
+            } else if (target_job_name == "Player.GetUserStats#1") {
+                std::vector<uint8_t> patched;
+                AppId_t appId = 0;
+                if (TryPatchGetUserStatsRequest(pBody, cbBody, patched, &appId)) {
+                    RememberStatsJob(jobid_source, appId);
+                    uint32_t newSize = 0;
+                    if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
+                        spdlog::info("Hooks_NetPacket: Spoofed GetUserStats request for AppID {} (donor SteamID)",
+                                     appId);
+                        return oBBuildAndAsyncSendFrame
+                                   ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
+                                   : false;
+                    }
+                }
+            }
+        } else if (eMsg == k_EMsgClientGetUserStats && cbBody > 0 && cubData <= kMaxPacketSize) {
+            std::vector<uint8_t> patched;
+            AppId_t appId = 0;
+            if (TryPatchGetUserStatsLegacyRequest(pBody, cbBody, patched, &appId)) {
+                uint32_t newSize = 0;
+                if (uint8_t* poolBuf = BuildPooledFrame(eMsg | kMsgHdrProtoFlag, pHdr, cbHdr, patched, &newSize)) {
+                    spdlog::info("Hooks_NetPacket: Patched CMsgClientGetUserStats for AppID {} "
+                                 "(schema_local_version=-1, donor SteamID)",
+                                 appId);
+                    return oBBuildAndAsyncSendFrame
+                               ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
+                               : false;
+                }
+            }
+        } else if (eMsg == k_EMsgClientPICSProductInfoRequest && cbBody > 0 && cubData <= kMaxPacketSize) {
+            // Inject configured access tokens into PICS product info requests so
+            // addtoken-protected depots resolve without "token required" failures.
+            std::vector<uint8_t> patchedBody;
+            if (PicsTokenInjector::PatchProductInfoRequest(pBody, cbBody, patchedBody)) {
+                size_t totalSize = sizeof(MsgHdr) + cbHdr + patchedBody.size();
+                if (uint8_t* poolBuf = AcquirePacketSlot(totalSize)) {
+                    auto* outHdr = reinterpret_cast<MsgHdr*>(poolBuf);
+                    outHdr->eMsg = eMsg | kMsgHdrProtoFlag;
+                    outHdr->headerLength = cbHdr;
+                    std::memcpy(poolBuf + sizeof(MsgHdr), pHdr, cbHdr);
+                    std::memcpy(poolBuf + sizeof(MsgHdr) + cbHdr, patchedBody.data(), patchedBody.size());
+
+                    spdlog::info("Hooks_NetPacket: Injected access tokens into PICS request ({} -> {} bytes)", cbBody,
+                                 patchedBody.size());
+                    return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf,
+                                                                               static_cast<uint32_t>(totalSize))
+                                                    : false;
+                }
+            }
+        }
+    }
+    return oBBuildAndAsyncSendFrame ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, pubData, cubData) : false;
 }
 
 void HandleManifestResponse(uint64_t jobid_target, CNetPacket* pPacket, const uint8_t* pHdr, uint32_t cbHdr,

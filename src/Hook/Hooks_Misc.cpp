@@ -13,6 +13,7 @@
 #include "OmniPlatform/OmniPlatform.h"
 #include "OmniPlatform/SteamTypes.h"
 
+#include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/PatternLoader.h"
 #include "Utils/Process/ProcessInjector.h"
 
@@ -57,7 +58,7 @@ void ScheduleGameInjection(AppId_t appId, const char* exePath) {
                     continue;
                 if (!ClaimPid(pid))
                     return;
-                ProcessInjector::InjectForApp(appId, pid);
+                Process::ProcessInjector::InjectForApp(appId, pid);
                 return;
             }
             OmniPlatform::Thread::Sleep(200);

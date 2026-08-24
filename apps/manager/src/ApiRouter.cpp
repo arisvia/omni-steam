@@ -19,7 +19,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
-#include <tomlplusplus/toml.hpp>
+#include <toml++/toml.hpp>
 
 #include "OmniPlatform/OmniPlatform.h"
 

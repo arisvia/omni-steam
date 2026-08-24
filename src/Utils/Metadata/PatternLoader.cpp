@@ -10,7 +10,7 @@
 #include <set>
 #include <spdlog/spdlog.h>
 #include <string>
-#include <tomlplusplus/toml.hpp>
+#include <toml++/toml.hpp>
 #include <unordered_map>
 #include <vector>
 

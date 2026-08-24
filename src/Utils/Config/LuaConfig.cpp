@@ -40,11 +40,6 @@ LuaData& MutableActive() {
     return g_slots[g_activeSlot];
 }
 
-namespace LuaConfig {
-void SetAccessToken(uint32_t appId, const std::string& token);
-void SetStatSteamId(uint32_t appId, const std::string& steamId);
-} // namespace LuaConfig
-
 int* RegistryTargetKey() {
     static int key = 0;
     return &key;
@@ -90,7 +85,7 @@ static int Lua_AddToken(lua_State* L) {
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
     const char* token = lua_tostring(L, 2);
     if (token) {
-        SetAccessToken(appId, token);
+        LuaConfig::SetAccessToken(appId, token);
         spdlog::info("Lua: addtoken for app {}", appId);
     }
     return 0;
@@ -140,7 +135,7 @@ static int Lua_SetStatSteamId(lua_State* L) {
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
     const char* steamId = lua_tostring(L, 2);
     if (steamId) {
-        SetStatSteamId(appId, steamId);
+        LuaConfig::SetStatSteamId(appId, steamId);
         spdlog::info("Lua: setStatSteamid for app {}", appId);
     }
     return 0;
