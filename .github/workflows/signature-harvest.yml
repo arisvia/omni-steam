@@ -87,6 +87,7 @@ jobs:
       - name: Sync upstream pattern database
         shell: pwsh
         run: |
+          pip install pefile capstone
           python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows --sub steamclient --sub steamui
 
       - name: Upload binaries artifact (private, 7 days)

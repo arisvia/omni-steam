@@ -26,9 +26,24 @@ signatures/
 2. 三个平台 job 分别获取官方 Steam 客户端、提取 `steamclient` 库、运行采集脚本：
    - 二进制本体仅上传为 **私有 artifact（7 天过期）**，不入库
    - 生成的 `<sha256>.toml` 签名文件自动提交回本目录
+
+### Windows 特征码的"锚点→派生→验证"流程
+
+Windows 无符号表，函数位置真值无法凭空获得（鸡生蛋问题）。工作流的做法：
+
+1. **锚点**：按二进制 SHA256 探测上游 opensteamtool 特征库是否已收录该版本
+   （只取 name→RVA 对应关系，即"函数在哪"这一事实）；
+2. **派生**：用 Capstone 在**我们下载的官方二进制**上从锚点 RVA 反汇编，
+   重新生成特征码——相对跳转、RIP 相对寻址等易变操作数自动通配；
+3. **验证**：上游参考特征码在真实字节流中全文匹配校验，失配则丢弃
+   （保留 RVA，因为哈希键控文件里 RVA 本身已足以定位）。
+
+因此入库的特征码全部源自 Valve 官方字节流，上游仅提供定位线索。
+
 3. 发布打包时 `scripts/package-release.sh` 将本目录随 dist 分发
 4. Manager `CoreInstaller::InstallCore` 部署到 `<cache>/signatures/`
-5. Core 启动时 `PatternLoader` 按上述优先级逐级解析
+5. Core 启动时 `PatternLoader` 按上述优先级逐级解析；运行时还会在内置
+   特征码全部失配时主动拉取 `<base>/<platform>/<sha256>.toml` 远程兜底。
 
 ## 文件格式
 
