@@ -38,7 +38,8 @@ struct DepotKeyRecord {
 std::mutex g_storeMutex;
 bool g_initialized = false;
 std::vector<DepotKeyRecord> g_records;
-const char* kRemoteDepotKeysUrl = OmniEndpoints::GitHub::kDepotKeysBin;
+
+constexpr uint32_t kMaxRecordCount = 5000000;
 
 bool ParseBinaryContent(const uint8_t* data, size_t size) {
     if (size < sizeof(DepotKeyHeader)) {
@@ -57,15 +58,24 @@ bool ParseBinaryContent(const uint8_t* data, size_t size) {
         return false;
     }
 
-    size_t expectedSize = sizeof(DepotKeyHeader) + header->count * sizeof(DepotKeyRecord);
-    if (size < expectedSize) {
+    if (header->count > kMaxRecordCount) {
+        spdlog::warn("DepotKeyStore: Implausible record count {}, rejecting payload", header->count);
+        return false;
+    }
+
+    const uint64_t expectedSize =
+        static_cast<uint64_t>(sizeof(DepotKeyHeader)) + static_cast<uint64_t>(header->count) * sizeof(DepotKeyRecord);
+    if (static_cast<uint64_t>(size) < expectedSize) {
         spdlog::warn("DepotKeyStore: Buffer size {} smaller than expected payload {}", size, expectedSize);
         return false;
     }
 
     g_records.resize(header->count);
     const auto* recordsData = reinterpret_cast<const DepotKeyRecord*>(data + sizeof(DepotKeyHeader));
-    std::memcpy(g_records.data(), recordsData, header->count * sizeof(DepotKeyRecord));
+    std::memcpy(g_records.data(), recordsData, static_cast<size_t>(header->count) * sizeof(DepotKeyRecord));
+
+    std::sort(g_records.begin(), g_records.end(),
+              [](const DepotKeyRecord& a, const DepotKeyRecord& b) { return a.depot_id < b.depot_id; });
 
     return true;
 }

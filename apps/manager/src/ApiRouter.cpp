@@ -61,10 +61,27 @@ std::string MakeHttpResponse(int statusCode, const std::string& contentType, con
     oss << "HTTP/1.1 " << statusText << "\r\n"
         << "Content-Type: " << contentType << "; charset=utf-8\r\n"
         << "Content-Length: " << body.length() << "\r\n"
+        << "Cache-Control: no-store\r\n"
         << "Connection: close\r\n\r\n"
         << body;
     return oss.str();
 }
+
+bool ParseUint32Safe(const std::string& text, uint32_t& out) {
+    if (text.empty())
+        return false;
+    try {
+        unsigned long value = std::stoul(text);
+        if (value > 0xFFFFFFFFul)
+            return false;
+        out = static_cast<uint32_t>(value);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+constexpr const char* kKeepPasswordMarker = "__OMNI_KEEP__";
 
 } // namespace
 
@@ -257,22 +274,25 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
-                auto details = SteamApi::GetAppDetails(appId);
-                UnlockGameSpec spec;
-                spec.appId = appId;
-                spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
-                spec.dlcAppIds = details.dlcAppIds;
-                dlcCount = spec.dlcAppIds.size();
+                uint32_t parsed = 0;
+                if (ParseUint32Safe(m[1].str(), parsed)) {
+                    appId = parsed;
+                    auto details = SteamApi::GetAppDetails(appId);
+                    UnlockGameSpec spec;
+                    spec.appId = appId;
+                    spec.gameName = details.name.empty() ? ("App_" + std::to_string(appId)) : details.name;
+                    spec.dlcAppIds = details.dlcAppIds;
+                    dlcCount = spec.dlcAppIds.size();
 
-                auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
-                for (const auto& [depotId, keyHex] : matchedKeys) {
-                    if (depotId == appId) {
-                        spec.depotKeyHex = keyHex;
+                    auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
+                    for (const auto& [depotId, keyHex] : matchedKeys) {
+                        if (depotId == appId) {
+                            spec.depotKeyHex = keyHex;
+                        }
+                        spec.depotKeys[depotId] = keyHex;
                     }
-                    spec.depotKeys[depotId] = keyHex;
+                    ScriptManager::SaveGameUnlock(spec);
                 }
-                ScriptManager::SaveGameUnlock(spec);
             }
         }
         std::ostringstream json;
@@ -321,7 +341,8 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
              << "\"enabled\":" << (cfg.cloudEnabled ? "true" : "false") << ","
              << "\"serverUrl\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavServerUrl) << "\","
              << "\"username\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavUsername) << "\","
-             << "\"password\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavPassword) << "\","
+             << "\"password\":\"\","
+             << "\"passwordSet\":" << (!cfg.webdavPassword.empty() ? "true" : "false") << ","
              << "\"remoteRoot\":\"" << OmniPlatform::Encoding::EscapeJson(cfg.webdavRemoteRoot) << "\""
              << "}";
         return MakeHttpResponse(200, "application/json", json.str());
@@ -347,8 +368,12 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
                 cfg.webdavServerUrl = m[1].str();
             if (std::regex_search(body, m, userRegex))
                 cfg.webdavUsername = m[1].str();
-            if (std::regex_search(body, m, passRegex))
-                cfg.webdavPassword = m[1].str();
+            if (std::regex_search(body, m, passRegex)) {
+                std::string incoming = m[1].str();
+                if (incoming != kKeepPasswordMarker) {
+                    cfg.webdavPassword = incoming;
+                }
+            }
             if (std::regex_search(body, m, rootRegex))
                 cfg.webdavRemoteRoot = m[1].str();
 
@@ -403,7 +428,7 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+                ParseUint32Safe(m[1].str(), appId);
             }
         }
         auto cfg = ConfigManager::ReadConfig();
@@ -428,7 +453,7 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             std::regex idRegex("\"appId\"\\s*:\\s*(\\d+)");
             std::smatch m;
             if (std::regex_search(body, m, idRegex)) {
-                appId = static_cast<uint32_t>(std::stoul(m[1].str()));
+                ParseUint32Safe(m[1].str(), appId);
             }
         }
         auto cfg = ConfigManager::ReadConfig();

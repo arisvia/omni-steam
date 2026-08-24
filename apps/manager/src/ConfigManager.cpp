@@ -12,6 +12,44 @@
 namespace fs = std::filesystem;
 namespace Manager {
 
+namespace {
+
+std::string EscapeTomlString(const std::string& value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (char c : value) {
+        switch (c) {
+            case '\\':
+                out.append("\\\\");
+                break;
+            case '"':
+                out.append("\\\"");
+                break;
+            case '\n':
+                out.append("\\n");
+                break;
+            case '\r':
+                out.append("\\r");
+                break;
+            case '\t':
+                out.append("\\t");
+                break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04X", static_cast<unsigned>(static_cast<unsigned char>(c)));
+                    out.append(buf);
+                } else {
+                    out.push_back(c);
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 std::string ConfigManager::GetConfigFilePath() {
     if (fs::exists("omnisteam.toml")) {
         return "omnisteam.toml";
@@ -72,24 +110,37 @@ bool ConfigManager::SaveConfig(const ConfigDto& dto) {
         if (!parentDir.empty())
             fs::create_directories(parentDir);
 
-        std::ofstream out(path, std::ios::trunc);
-        if (!out)
-            return false;
+        std::string tempPath = path + ".tmp";
+        {
+            std::ofstream out(tempPath, std::ios::trunc);
+            if (!out)
+                return false;
 
-        out << "# OmniSteam Configuration (Managed by OmniSteam Manager)\n\n";
-        out << "[log]\nlevel = \"" << dto.logLevel << "\"\nfile_output = true\n\n";
-        out << "[manifest]\nurl = \"" << dto.manifestUrl << "\"\n\n";
-        out << "[stats]\nenable_api = " << (dto.statsEnableApi ? "true" : "false") << "\n\n";
-        out << "[lua]\npaths = [\n";
-        for (const auto& p : dto.luaPaths) {
-            out << "    \"" << p << "\",\n";
+            out << "# OmniSteam Configuration (Managed by OmniSteam Manager)\n\n";
+            out << "[log]\nlevel = \"" << EscapeTomlString(dto.logLevel) << "\"\nfile_output = true\n\n";
+            out << "[manifest]\nurl = \"" << EscapeTomlString(dto.manifestUrl) << "\"\n\n";
+            out << "[stats]\nenable_api = " << (dto.statsEnableApi ? "true" : "false") << "\n\n";
+            out << "[lua]\npaths = [\n";
+            for (const auto& p : dto.luaPaths) {
+                out << "    \"" << EscapeTomlString(p) << "\",\n";
+            }
+            out << "]\n\n";
+            out << "[cloud]\nenabled = " << (dto.cloudEnabled ? "true" : "false") << "\n";
+            out << "webdav_server_url = \"" << EscapeTomlString(dto.webdavServerUrl) << "\"\n";
+            out << "webdav_username = \"" << EscapeTomlString(dto.webdavUsername) << "\"\n";
+            out << "webdav_password = \"" << EscapeTomlString(dto.webdavPassword) << "\"\n";
+            out << "webdav_remote_root = \"" << EscapeTomlString(dto.webdavRemoteRoot) << "\"\n";
+            out.flush();
         }
-        out << "]\n\n";
-        out << "[cloud]\nenabled = " << (dto.cloudEnabled ? "true" : "false") << "\n";
-        out << "webdav_server_url = \"" << dto.webdavServerUrl << "\"\n";
-        out << "webdav_username = \"" << dto.webdavUsername << "\"\n";
-        out << "webdav_password = \"" << dto.webdavPassword << "\"\n";
-        out << "webdav_remote_root = \"" << dto.webdavRemoteRoot << "\"\n";
+
+        std::error_code ec;
+        fs::rename(tempPath, path, ec);
+        if (ec) {
+            fs::copy_file(tempPath, path, fs::copy_options::overwrite_existing, ec);
+            if (ec)
+                return false;
+            fs::remove(tempPath, ec);
+        }
 
         spdlog::info("ConfigManager: Config saved successfully to {}", path);
         return true;

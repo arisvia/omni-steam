@@ -237,6 +237,10 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
 #endif
                 int unpackResult = std::system(unpackCmd.c_str());
                 spdlog::info("CoreInstaller: Archive extraction executed (result: {})", unpackResult);
+                if (unpackResult != 0) {
+                    return {false, "下载成功但解压失败（缺少 tar 或归档损坏）。请手动解压 " + tempPackage +
+                                       " 到 Steam 目录。"};
+                }
                 return {true, "已成功从远程下载并解压部署 OmniSteam Core 引擎到 Steam 目录！"};
             }
         }

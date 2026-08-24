@@ -31,6 +31,7 @@ class ScriptManager {
 public:
     static std::vector<std::string> GetCandidateLuaDirectories();
     static std::string GetDefaultLuaDirectory();
+    static bool IsManagedScriptPath(const std::string& filePath);
     static std::string GenerateLuaScript(const UnlockGameSpec& spec);
     static bool SaveGameUnlock(const UnlockGameSpec& spec, const std::string& targetDir = "");
     static bool EnsureAppManifest(uint32_t appId, const std::string& appName = "");
