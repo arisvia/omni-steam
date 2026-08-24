@@ -1,0 +1,8 @@
+# OmniSteam harvested signatures - DO NOT EDIT MANUALLY
+# Source binary : steamclient.so
+# SHA256        : abd32eb3d963afb1b137c8a0e856a3f85e1d35cd50c1429e386fa238b0298ab7
+# Harvested by  : tools/harvest_signatures.py (elf backend)
+binary_sha256 = "abd32eb3d963afb1b137c8a0e856a3f85e1d35cd50c1429e386fa238b0298ab7"
+
+[functions]
+# (no uniquely-resolved functions)

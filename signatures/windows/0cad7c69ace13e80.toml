@@ -1,0 +1,8 @@
+# OmniSteam harvested signatures - DO NOT EDIT MANUALLY
+# Source binary : steamui.dll
+# SHA256        : 0cad7c69ace13e802be17beb06df299f7f733f01b4450a74bc68709494b21ddb
+# Harvested by  : tools/harvest_signatures.py (pe backend)
+binary_sha256 = "0cad7c69ace13e802be17beb06df299f7f733f01b4450a74bc68709494b21ddb"
+
+[functions]
+# (no uniquely-resolved functions)

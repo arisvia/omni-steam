@@ -1,0 +1,8 @@
+# OmniSteam harvested signatures - DO NOT EDIT MANUALLY
+# Source binary : steamclient.dylib
+# SHA256        : 42776e12adaa3114dac4b64fc4fff182cb03d44b2e94d29a48f103ffafc79428
+# Harvested by  : tools/harvest_signatures.py (macho backend)
+binary_sha256 = "42776e12adaa3114dac4b64fc4fff182cb03d44b2e94d29a48f103ffafc79428"
+
+[functions]
+# (no uniquely-resolved functions)
