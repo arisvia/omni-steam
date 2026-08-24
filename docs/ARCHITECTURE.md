@@ -137,7 +137,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
 | D | Linux/macOS 签名库 | **运行时符号解析已落地**（`SymbolTable` 遍历模块自身符号数据，零维护自适应）；TOML 兜底库可经 `signature-harvest.yml` 采集生成 | 主路径就绪，兜底待采集 |
-| E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地 | ✅ 2026-08 完成 |
+| E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
+| F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
 
 ## 6. 目录导览
 

@@ -410,33 +410,6 @@ std::string Hash::Sha256File(const std::string& filePath) {
     return Sha256(buffer);
 }
 
-std::string Hash::Md5(const std::vector<uint8_t>& data) {
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_MD5_ALGORITHM, nullptr, 0) != 0) {
-        return "";
-    }
-
-    DWORD hashObjectSize = 0, dataLen = 0;
-    BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PBYTE>(&hashObjectSize), sizeof(DWORD), &dataLen, 0);
-    std::vector<uint8_t> hashObject(hashObjectSize);
-
-    DWORD hashLength = 0;
-    BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PBYTE>(&hashLength), sizeof(DWORD), &dataLen, 0);
-    std::vector<uint8_t> hash(hashLength);
-
-    BCRYPT_HASH_HANDLE hHash = nullptr;
-    if (BCryptCreateHash(hAlg, &hHash, hashObject.data(), hashObjectSize, nullptr, 0, 0) == 0) {
-        if (!data.empty()) {
-            BCryptHashData(hHash, const_cast<PUCHAR>(data.data()), static_cast<ULONG>(data.size()), 0);
-        }
-        BCryptFinishHash(hHash, hash.data(), hashLength, 0);
-        BCryptDestroyHash(hHash);
-    }
-
-    BCryptCloseAlgorithmProvider(hAlg, 0);
-    return Encoding::BytesToHex(hash.data(), hash.size());
-}
-
 bool CredentialStore::WriteTicket(uint32_t appId, const std::string& ticketName, const std::string& hexValue) {
     HKEY hKey;
     std::string subKey = "Software\\Valve\\Steam\\Apps\\" + std::to_string(appId);

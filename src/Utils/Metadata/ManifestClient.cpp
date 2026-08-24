@@ -194,11 +194,6 @@ UpstreamResult QuerySteamRun(const std::string& gidStr) {
 
 } // namespace
 
-void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
-    g_negativeCache.clear();
-}
-
 ManifestDownloadResult RequestManifest(uint32_t depotId, uint64_t manifestId, const std::string& upstreamEndpoint) {
     ManifestDownloadResult res;
     res.depotId = depotId;

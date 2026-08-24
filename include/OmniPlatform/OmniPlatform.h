@@ -21,10 +21,6 @@ std::string WideToUtf8(std::wstring_view wide);
 std::wstring Utf8ToWide(std::string_view utf8);
 } // namespace Encoding
 
-namespace Numbers {
-uint64_t ParseUInt64(std::string_view str);
-uint32_t ParseUInt32(std::string_view str);
-} // namespace Numbers
 class Detour {
 public:
     static bool BeginTransaction();
@@ -96,7 +92,6 @@ class Hash {
 public:
     static std::string Sha256(const std::vector<uint8_t>& data);
     static std::string Sha256File(const std::string& filePath);
-    static std::string Md5(const std::vector<uint8_t>& data);
 };
 
 class Process {

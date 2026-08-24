@@ -106,18 +106,6 @@ HOOK_FUNC(OptedInMask, int64_t, void* pThis, AppId_t appId) {
 
 namespace Hooks_Misc {
 
-bool IsOnlineFixActive() {
-    return g_OnlineFixRealAppId.load() != 0;
-}
-
-AppId_t GetOnlineFixRealAppId() {
-    return g_OnlineFixRealAppId.load();
-}
-
-void SetOnlineFixRealAppId(AppId_t appId) {
-    g_OnlineFixRealAppId.store(appId);
-}
-
 void Install() {
     uintptr_t fnSpawn = PatternLoader::GetFunctionAddress("SpawnProcess");
     if (fnSpawn) {

@@ -598,6 +598,30 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
         </div>
     </div>
     <script>
+        // Optional shared-secret gate: when the server enables [webui] token,
+        // remember it in localStorage and attach it to every request. A 401
+        // prompts for the token once and retries.
+        (function() {
+            const originalFetch = window.fetch.bind(window);
+            window.fetch = function(input, init) {
+                init = init || {};
+                const token = localStorage.getItem('omniToken');
+                if (token) {
+                    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+                    if (!headers.has('X-Omni-Token')) headers.set('X-Omni-Token', token);
+                    init.headers = headers;
+                }
+                return originalFetch(input, init).then(res => {
+                    if (res.status === 401 && !localStorage.getItem('omniTokenAsked')) {
+                        localStorage.setItem('omniTokenAsked', '1');
+                        const t = prompt('本服务器已启用访问令牌，请输入 [webui] token:');
+                        localStorage.removeItem('omniTokenAsked');
+                        if (t) { localStorage.setItem('omniToken', t); return window.fetch(input, init); }
+                    }
+                    return res;
+                });
+            };
+        })();
         const I18N = {
             zh: {
                 langToggle: "🌐 EN",

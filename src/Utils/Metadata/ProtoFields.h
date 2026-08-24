@@ -183,4 +183,15 @@ inline void AppendFixed64Field(std::vector<uint8_t>& body, uint32_t field, uint6
     }
 }
 
+// Appends a length-delimited field from raw submessage/bytes payload.
+inline void AppendBytesField(std::vector<uint8_t>& body, uint32_t field, const uint8_t* data, size_t size) {
+    WriteVarint(body, (static_cast<uint64_t>(field) << 3) | WireLengthDelim);
+    WriteVarint(body, size);
+    body.insert(body.end(), data, data + size);
+}
+
+inline void AppendBytesField(std::vector<uint8_t>& body, uint32_t field, const std::vector<uint8_t>& payload) {
+    AppendBytesField(body, field, payload.data(), payload.size());
+}
+
 } // namespace ProtoFields

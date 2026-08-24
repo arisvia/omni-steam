@@ -21,6 +21,5 @@ uint64_t GetCachedRequestCode(uint64_t manifestGid);
 bool IsNegativeCached(uint64_t manifestGid);
 void StoreRequestCode(uint64_t manifestGid, uint64_t code);
 void MarkRequestCodeFailed(uint64_t manifestGid);
-void Shutdown();
 
 } // namespace ManifestClient

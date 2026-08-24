@@ -16,6 +16,7 @@
 | **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与 Decky 整合**：发布资源定义、SteamOS 安装脚本、Decky 插件规范校验。 |
 | **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：`depotkeys.bin` 二进制加载、二分查找、恶意头防护（数量上限/溢出）。 |
 | **`PicsTokenTests`** | `test_pics_token` | `tests/test_pics_token.cpp` | **PICS 令牌注入器**：eMsg 8903 报文改写（令牌注入/覆盖/已正确则跳过）、无关字段逐字节保留、畸形输入安全拒绝。 |
+| **`StatsProtoTests`** | `test_stats_proto` | `tests/test_stats_proto.cpp` | **protobuf 字段操作库**：varint 往返（含负数 10 字节编码）、fixed64 读取、追加覆盖语义、repeated 字段剥离、畸形输入安全拒绝。 |
 
 > 已知局限：部分套件存在恒真断言（如 constexpr 常量与字面量比较），行为级覆盖将在阶段 7 增强
 > （重点：LuaConfig 双缓冲并发、ManifestClient 缓存 TTL、ApiRouter 输入净化）。

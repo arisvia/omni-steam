@@ -53,7 +53,8 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure -C Release
 ```
 测试套件覆盖：`PlatformTests`、`IpcMetadataTests`、`ScriptManagerTests`、`CloudSaveTests`、
-`PackagingIntegrationTests`、`DepotKeyTests`（详见 [docs/TESTING.md](docs/TESTING.md)）。
+`PackagingIntegrationTests`、`DepotKeyTests`、`PicsTokenTests`、`StatsProtoTests`
+（详见 [docs/TESTING.md](docs/TESTING.md)）。
 
 提交前请运行质检工具（include 完整性 + 括号配平 + clang-format 自动修复）：
 ```bash

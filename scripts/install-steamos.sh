@@ -13,6 +13,9 @@ HOME_DIR="${HOME:-/home/deck}"
 OMNI_CONFIG_DIR="${HOME_DIR}/.config/omnisteam"
 OMNI_LUA_DIR="${OMNI_CONFIG_DIR}/lua"
 OMNI_BIN_DIR="${HOME_DIR}/.local/share/omnisteam"
+# Must match Paths::GetCacheDirectory() on Linux (XDG_CACHE_HOME/omnisteam)
+OMNI_CACHE_DIR="${XDG_CACHE_HOME:-${HOME_DIR}/.cache}/omnisteam"
+OMNI_CACHE_SIGNATURES="${OMNI_CACHE_DIR}/signatures"
 
 # 1. Create XDG config & runtime directories
 mkdir -p "${OMNI_LUA_DIR}"
@@ -38,6 +41,14 @@ if [ ! -f "${OMNI_CONFIG_DIR}/omnisteam.toml" ]; then
         cp "${PROJECT_ROOT}/omnisteam.example.toml" "${OMNI_CONFIG_DIR}/omnisteam.toml"
         echo "✓ Created default configuration at ${OMNI_CONFIG_DIR}/omnisteam.toml"
     fi
+fi
+
+# 3b. Deploy harvested signature TOMLs so PatternLoader can resolve
+#     functions even if runtime symbol resolution is unavailable.
+if [ -d "${PROJECT_ROOT}/signatures" ]; then
+    mkdir -p "${OMNI_CACHE_SIGNATURES}"
+    find "${PROJECT_ROOT}/signatures" -name '*.toml' -exec cp {} "${OMNI_CACHE_SIGNATURES}/" \;
+    echo "✓ Deployed signature database to ${OMNI_CACHE_SIGNATURES}"
 fi
 
 # 4. Integrate into Steam launch environment (User Level)
