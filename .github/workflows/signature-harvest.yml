@@ -15,6 +15,17 @@ on:
         description: 'Push harvested signature TOMLs back to the repository'
         type: boolean
         default: true
+  push:
+    branches: [main]
+    paths:
+      # Pipeline code changed -> re-harvest against the latest clients.
+      - '.github/workflows/signature-harvest.yml'
+      - 'tools/harvest_signatures.py'
+      - 'tools/derive_signatures.py'
+      - 'tools/sync_upstream_patterns.py'
+      # Manually dropped anchor TOMLs ("放入即生效") re-validate and redistribute.
+      - 'signatures/**'
+# The collect-and-push commit uses [skip ci], so the bot never re-triggers itself.
 
 permissions:
   contents: write
