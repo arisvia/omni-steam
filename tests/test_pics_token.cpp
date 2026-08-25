@@ -170,29 +170,17 @@ int main() {
     std::cout << "Running OmniSteam PICS Token Injector Tests...\n";
     const char* current = "startup";
     try {
-        struct Guard {
-            const char* name;
-            explicit Guard(const char* n) : name(n) { std::cout << "[RUN ] " << name << "\n"; }
-            ~Guard() { std::cout << "[DONE] " << name << "\n"; }
-        } guard;
-
         current = "TestNoTokensMeansNoPatch";
-        Guard g1(current);
         TestNoTokensMeansNoPatch();
         current = "TestMalformedBodyRejected";
-        Guard g2(current);
         TestMalformedBodyRejected();
         current = "TestTokenInjectedForConfiguredApp";
-        Guard g3(current);
         TestTokenInjectedForConfiguredApp();
         current = "TestExistingTokenOverridden";
-        Guard g4(current);
         TestExistingTokenOverridden();
         current = "TestCorrectTokenLeftUntouched";
-        Guard g5(current);
         TestCorrectTokenLeftUntouched();
         current = "TestUnrelatedFieldsPreserved";
-        Guard g6(current);
         TestUnrelatedFieldsPreserved();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[EXCEPTION] in %s: %s\n", current, e.what());
