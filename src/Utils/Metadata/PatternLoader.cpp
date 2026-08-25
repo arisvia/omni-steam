@@ -398,13 +398,9 @@ void Initialize(const std::string& /*unused*/) {
     //    (zero-maintenance path; adapts to any client update automatically)
     ResolveViaSymbolTable(modName, moduleBase);
 
-    // 4. If registered targets are still missing (e.g. patterns broke after a
-    //    Steam update), try the remote signature database before scanning
-    if (g_resolvedAddresses.size() < g_patterns.size()) {
-        FetchRemoteSignatures(moduleHash, moduleBase);
-    }
-
-    // 5. Hash changed or first run: Perform one-time dynamic pattern scan
+    // 4. One-time dynamic pattern scan for whatever is still unresolved.
+    //    Runs BEFORE any network access: on a healthy client this resolves
+    //    everything locally and no HTTP request is ever issued.
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
                  moduleHash);
     for (const auto& [name, entry] : g_patterns) {
@@ -419,6 +415,12 @@ void Initialize(const std::string& /*unused*/) {
         } else {
             spdlog::warn("PatternLoader: Failed to find pattern for {} in {}", name, entry.moduleName);
         }
+    }
+
+    // 5. Only when built-in patterns actually failed (Steam update broke
+    //    them) ask the remote signature database for the current hash.
+    if (g_resolvedAddresses.size() < g_patterns.size()) {
+        FetchRemoteSignatures(moduleHash, moduleBase);
     }
 
     // 6. Save resolved RVAs to local cache for instant future launches
