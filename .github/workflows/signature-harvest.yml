@@ -69,6 +69,15 @@ jobs:
       - name: Harvest signatures
         run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/linux
 
+      - name: Derive signatures via string xrefs
+        run: |
+          # String-xref derivation is version-agnostic: probe strings survive
+          # recompiles and .eh_frame_hdr gives exact containing functions, so
+          # this re-derives anchors on EVERY new client with no reference.
+          for f in $(find steam-dist -name 'steamclient*.so' | sort); do
+            python3 tools/derive_signatures.py --binary "$f" --out signatures-out/linux || true
+          done
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         with:

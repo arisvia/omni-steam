@@ -262,9 +262,26 @@ class Image:
         self.data = path.read_bytes()
         self.base = 0
         self.sections: list[tuple[int, int, int]] = []  # (va, size, file_offset)
+        self.section_names: list[str] = []  # parallel to self.sections
+        self.func_starts: list[int] = []  # sorted function-start VAs (exact boundary table)
 
     def finish(self) -> None:
         self.sections.sort()
+
+    def section_by_name(self, name: str) -> tuple[int, int, int] | None:
+        for n, s in zip(self.section_names, self.sections):
+            if n == name:
+                return s
+        return None
+
+    def containing_function(self, va: int) -> int | None:
+        """Exact function start for va via the format's boundary table, or None."""
+        import bisect
+
+        if not self.func_starts:
+            return None
+        i = bisect.bisect_right(self.func_starts, va) - 1
+        return self.func_starts[i] if i >= 0 else None
 
     def va_to_offset(self, va: int) -> int | None:
         for sva, size, off in self.sections:
@@ -279,7 +296,14 @@ class Image:
         return None
 
     def text(self) -> tuple[int, bytes]:
-        """Largest executable section (heuristic: .text is by far the biggest)."""
+        """Executable code section: prefer the canonical '__text'/'.text' name,
+        fall back to the largest section."""
+        for want in ("__text", ".text"):
+            s = self.section_by_name(want)
+            if s:
+                off = self.va_to_offset(s[0])
+                if off is not None:
+                    return s[0], self.data[off : off + s[1]]
         best = max(self.sections, key=lambda s: s[1])
         off = self.va_to_offset(best[0])
         return best[0], (self.data[off : off + best[1]] if off is not None else b"")
@@ -298,10 +322,18 @@ def parse_pe(path: Path) -> Image:
     sec_off = opt_off + opt_size
     for i in range(num_sections):
         off = sec_off + i * 40
+        name = d[off : off + 8].rstrip(b"\x00").decode(errors="ignore")
         vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", d, off + 8)
         if rawsize > 0:
             img.sections.append((img.base + vaddr, min(vsize, rawsize), rawptr))
+            img.section_names.append(name)
     img.finish()
+    # x64 exception table (.pdata): sorted RUNTIME_FUNCTION [begin, end, unwind].
+    pdata = img.section_by_name(".pdata")
+    if pdata:
+        va, size, off = pdata
+        n = size // 12
+        img.func_starts = sorted(struct.unpack_from("<I", img.data, off + i * 12)[0] + img.base for i in range(n))
     return img
 
 
@@ -316,42 +348,64 @@ def parse_elf(path: Path) -> Image:
         e_shentsize = struct.unpack_from(end + "H", d, 0x3A)[0]
         e_shnum = struct.unpack_from(end + "H", d, 0x3C)[0]
         e_shstrndx = struct.unpack_from(end + "H", d, 0x3E)[0]
+        shentsize = e_shentsize
 
-        def shdr(i: int) -> tuple[int, int, int, int]:
-            off = e_shoff + i * e_shentsize
-            _, typ, flags, addr, offset, size = struct.unpack_from(end + "IIQQQQ", d, off)
-            return typ, flags, addr, offset, size
-
-        _, _, _, str_off, str_size = shdr(e_shstrndx)
-
-        def sname(noff: int) -> str:
-            endn = d.index(b"\x00", str_off + noff)
-            return d[str_off + noff : endn].decode(errors="ignore")
-
-        for i in range(e_shnum):
-            typ, flags, addr, offset, size = shdr(i)
-            if typ == 8:  # SHT_NOBITS
-                continue
-            if flags & 0x2 or size > (8 << 20):  # ALLOC or large (rodata)
-                img.sections.append((addr, size, offset))
+        def shdr(i: int) -> tuple[int, int, int, int, int]:
+            off = e_shoff + i * shentsize
+            name, typ, flags, addr, offset, size = struct.unpack_from(end + "IIQQQQ", d, off)
+            return name, typ, flags, addr, offset, size
     else:
         e_shoff = struct.unpack_from(end + "I", d, 0x20)[0]
         e_shentsize = struct.unpack_from(end + "H", d, 0x2E)[0]
         e_shnum = struct.unpack_from(end + "H", d, 0x30)[0]
         e_shstrndx = struct.unpack_from(end + "H", d, 0x32)[0]
+        shentsize = e_shentsize
 
-        def shdr32(i: int) -> tuple[int, int, int, int, int]:
-            off = e_shoff + i * e_shentsize
-            _, typ, flags, addr, offset, size = struct.unpack_from(end + "IIIIII", d, off)
-            return typ, flags, addr, offset, size
+        def shdr(i: int) -> tuple[int, int, int, int, int, int]:
+            off = e_shoff + i * shentsize
+            name, typ, flags, addr, offset, size = struct.unpack_from(end + "IIIIII", d, off)
+            return name, typ, flags, addr, offset, size
 
-        for i in range(e_shnum):
-            typ, flags, addr, offset, size = shdr32(i)
-            if typ == 8:
-                continue
-            if flags & 0x2 or size > (8 << 20):
-                img.sections.append((addr, size, offset))
+    str_sh = shdr(e_shstrndx)
+    str_off, str_size = str_sh[4], str_sh[5]
+
+    def sname(noff: int) -> str:
+        endn = d.index(b"\x00", str_off + noff)
+        return d[str_off + noff : endn].decode(errors="ignore")
+
+    eh_hdr = None
+    for i in range(e_shnum):
+        name, typ, flags, addr, offset, size = shdr(i)
+        if typ == 8:  # SHT_NOBITS
+            img.section_names.append(sname(name))
+            img.sections.append((addr, 0, offset))
+            continue
+        nm = sname(name)
+        img.section_names.append(nm)
+        if flags & 0x2 or size > (8 << 20):  # ALLOC or large (rodata)
+            img.sections.append((addr, size, offset))
+        if nm == ".eh_frame_hdr":
+            eh_hdr = (addr, size, offset)
     img.finish()
+
+    # .eh_frame_hdr binary-search table: exact function start list.
+    # Layout: version(1) eh_frame_ptr_enc(1) fde_count_enc(1) table_enc(1)
+    #         eh_frame_ptr(enc) fde_count(u32) pairs(int32 init_loc, int32 fde)
+    # Encodings are almost universally pcrel/sdata4 for the pointer and
+    # datarel/sdata4 for the table; verify and bail otherwise.
+    if eh_hdr and eh_hdr[1] >= 12:
+        va, size, off = eh_hdr
+        ver = d[off]
+        fde_count_enc, table_enc = d[off + 2], d[off + 3]
+        if ver == 1 and fde_count_enc == 0x03 and table_enc == 0x3B:  # udata4 / datarel|sdata4
+            fde_count = struct.unpack_from("<I", d, off + 8)[0]
+            tbl = off + 12
+            if fde_count and tbl + fde_count * 8 <= off + size:
+                starts = set()
+                for i in range(fde_count):
+                    loc = struct.unpack_from("<i", d, tbl + i * 8)[0]
+                    starts.add(va + loc)
+                img.func_starts = sorted(starts)
     return img
 
 
@@ -369,15 +423,48 @@ def parse_macho(path: Path) -> Image:
         d = img.data
     ncmds = struct.unpack_from("<I", d, 16)[0]
     off = 32
+    func_starts_data = None
     for _ in range(ncmds):
         cmd, size = struct.unpack_from("<II", d, off)
         if cmd == 0x19:  # LC_SEGMENT_64
             vmaddr, vmsize, fileoff, filesize = struct.unpack_from("<QQQQ", d, off + 16)
             if filesize > 0:
                 img.sections.append((vmaddr, filesize, fileoff))
+                img.section_names.append(d[off + 8 : off + 24].rstrip(b"\x00").decode(errors="ignore"))
+            nsects = struct.unpack_from("<I", d, off + 64)[0]
+            for s in range(nsects):
+                so = off + 72 + s * 80
+                sectname = d[so : so + 16].rstrip(b"\x00").decode(errors="ignore")
+                saddr, ssize = struct.unpack_from("<QQ", d, so + 32)
+                soffset = struct.unpack_from("<I", d, so + 48)[0]
+                if ssize > 0:
+                    img.sections.append((saddr, ssize, soffset))
+                    img.section_names.append(sectname)
+        elif cmd == 0x26:  # LC_FUNCTION_STARTS
+            dataoff, datasize = struct.unpack_from("<II", d, off + 8)
+            func_starts_data = d[dataoff : dataoff + datasize]
         off += size
     img.base = min((s[0] for s in img.sections), default=0)
     img.finish()
+    if func_starts_data:
+        # The blob is a plain ULEB128 delta stream (no count prefix); deltas
+        # accumulate from the image base.
+        va, starts = img.base, []
+        pos = 0
+        while pos < len(func_starts_data):
+            delta = 0
+            shift = 0
+            while pos < len(func_starts_data):
+                b = func_starts_data[pos]
+                pos += 1
+                delta |= (b & 0x7F) << shift
+                shift += 7
+                if not b & 0x80:
+                    break
+            va += delta
+            if va:
+                starts.append(va)
+        img.func_starts = sorted(set(starts))
     return img
 
 
@@ -465,7 +552,9 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
                 xrefs = find_xrefs(text_va, text, sva, is64)
                 probe_report.append({"probe": probe, "string_va": hex(sva), "xrefs": len(xrefs)})
                 for x in xrefs:
-                    start = recover_function_start(text_va, text, x, is64)
+                    # Exact boundary table (eh_frame_hdr/.pdata/LC_FUNCTION_STARTS)
+                    # when available; padding-walk heuristic as fallback.
+                    start = img.containing_function(x) or recover_function_start(text_va, text, x, is64)
                     if start is not None:
                         starts.add(start)
         if len(starts) == 1:
