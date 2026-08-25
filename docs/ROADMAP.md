@@ -78,8 +78,6 @@
       POST/PUT/DELETE Origin 回环校验（阻断浏览器 CSRF，非浏览器客户端不受影响）。
 - [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
       校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
-- [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
-      校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
 - [x] **Linux/macOS 运行时符号解析**（2026-08）：新增 `SymbolTable` 跨平台符号表枚举
       （ELF 节区解析含 32/64 位、Mach-O LC_SYMTAB 内存遍历、PE 导出表），PatternLoader 直接从
       目标模块自身符号数据解析 hook 目标；模糊匹配歧义自动跳过防止挂错地址。
@@ -95,3 +93,13 @@
 - [ ] **Linux/macOS 锚点数据源**（当前阻塞项）：官方客户端已 strip，采集与符号路线均拿不到内部函数
       位置；需通过 VM 逆向提取差异化特征码/RVA 后手写 `signatures/<平台>/<哈希>.toml`
       （放入即生效），或推动上游 steam-monitor 扩展非 Windows 锚点。
+- [x] **上游对齐 + 第二轮加固**（2026-08）：结构布局改为 `offsetof` 静态断言自证
+      （移除与真实客户端布局相悖的手工 `SteamOffsets` 表）；移除未经验证的 `CUser+0x1E4`
+      SteamId32 写入；`LuaConfig` addtoken/setStat 改走 staging 槽（热重载不再丢 token）；
+      `SteamIPC.BufferReader` 溢出安全 + 截断可检测；ManifestClient 磁盘缓存全程持锁；
+      hook 挂载真实结果登记（core_status.json 不再假绿）；注册表票据动态尺寸读取；
+      WebUI 全量 HTML 转义 + 修复 I18N `en:` 块缺失导致的整页脚本失效；WebServer POSIX
+      `shutdown()` 唤醒 accept。
+- [x] **特征码采集按架构分桶**（2026-08）：`harvest_signatures.py` 按 ELF 类/机器码输出
+      `linux-x64` / `linux-i386` 规范目录（此前 32 位 steamclient.so 的签名被错误归入
+      linux-x64，i386 端 PatternLoader 永远 404）；collect 步骤直接透传规范目录。

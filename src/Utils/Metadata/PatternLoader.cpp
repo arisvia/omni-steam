@@ -210,8 +210,12 @@ size_t ApplyParsedSignatures(const toml::table& parsed, uintptr_t moduleBase) {
 }
 
 bool DeclaresMatchingHash(const toml::table& parsed, const std::string& moduleHash) {
+    if (moduleHash.empty())
+        return false; // fail-closed: never apply signatures when we could not
+                      // hash the loaded module (a wrong-address hook is worse
+                      // than a dormant one)
     auto declaredHash = parsed["binary_sha256"].value<std::string>();
-    return declaredHash && (moduleHash.empty() || *declaredHash == moduleHash);
+    return declaredHash && *declaredHash == moduleHash;
 }
 
 // Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
@@ -378,7 +382,10 @@ void Initialize(const std::string& /*unused*/) {
     std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
 
     if (moduleHash.empty()) {
-        spdlog::warn("PatternLoader: Target module {} not ready, will scan on-demand", modName);
+        // Module missing OR Sha256File failed (locked/inaccessible binary).
+        // Without a hash we cannot key the RVA cache nor validate external
+        // signatures, and a wrong-address hook is worse than a dormant one.
+        spdlog::warn("PatternLoader: Target module {} not hashable, falling back to on-demand pattern scan", modName);
         return;
     }
 

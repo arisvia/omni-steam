@@ -11,7 +11,7 @@
 | 平台覆盖 | Win ✅ / Linux·macOS 🟡 | Win 为主 | Win | 跟随游戏 API | 全平台 |
 | 配置方式 | Lua + TOML + Web 面板 | Lua + 远程签名 TOML | ini | JSON | ini |
 | DLC 自动发现 | ✅ Store API 实时抓取 | 部分 | ❌ | 部分 | ❌ |
-| Depot 密钥库 | ✅ 内置 17.5 万+ CDN 同步 | 社区分发 | ❌ | ❌ | ❌ |
+| Depot 密钥库 | ✅ 内置 23万+ CDN 同步 | 社区分发 | ❌ | ❌ | ❌ |
 | 成就/统计伪造 | ✅ 双协议 + 供体 SteamID | ✅ CloudRedirect | ❌ | ✅ | 本地存档模拟 |
 | 云存档管理 | ✅ WebDAV 版本化备份还原 | ✅ 重定向 | ❌ | ❌ | ❌ |
 | 管理界面 | Web 仪表盘 + CLI + Decky 插件 | CLI 为主 | 无 GUI 托管 | 无 | 无 |

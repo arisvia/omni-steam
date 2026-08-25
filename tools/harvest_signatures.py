@@ -170,8 +170,8 @@ def collect_symbols_pe(binary: Path) -> tuple[dict[str, int], list[str]]:
 def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     data_sha = sha256_file(binary)
     detected = kind or detect_kind(binary)
-    print(f"[harvest] {binary.name} sha256={data_sha} kind={detected}")
-
+    out_dir = out_dir / platform_dir(binary, detected)
+    print(f"[harvest] {binary.name} sha256={data_sha} kind={detected} platform={out_dir.name}")
     notes: list[str] = []
     if detected == "elf":
         raw = collect_symbols_elf(binary)
@@ -249,6 +249,32 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
         if name not in resolved:
             print(f"[harvest]   UNRESOLVED: {name}")
     return 0
+
+
+def platform_dir(binary: Path, kind: str) -> str:
+    """Canonical platform directory consumed by PatternLoader's remote tier
+    (see PatternLoader::GetSignaturePlatformDir) and by the collect step of
+    signature-harvest.yml. Linux must be split by architecture: the 32-bit
+    ubuntu12_32 steamclient.so has its own binary hash and its own TOML
+    namespace (signatures/linux-i386/), otherwise i386 clients would 404."""
+    if kind == "pe":
+        return "windows-x64"
+    if kind == "macho":
+        return "macos-universal"
+    if kind == "elf":
+        import struct
+
+        with binary.open("rb") as fh:
+            ident = fh.read(20)
+        if len(ident) >= 19:
+            ei_class, ei_machine = ident[4], struct.unpack_from("<H", ident, 18)[0]
+            if ei_class == 2:
+                return "linux-x64"
+            if ei_class == 1 and ei_machine in (3, 40, 8):  # EM_386 / EM_ARM / EM_MIPS
+                return "linux-i386"
+            if ei_class == 2 or ei_class == 1:
+                return "linux-x64"
+    return "unknown"
 
 
 def detect_kind(binary: Path) -> str:

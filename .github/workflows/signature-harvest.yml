@@ -221,24 +221,24 @@ jobs:
             exit 0
           fi
           STAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          # Canonical platform ids expected by PatternLoader's remote tier
-          declare -A CANON=( [linux]=linux-x64 [macos]=macos-universal [windows]=windows-x64 )
+          # harvest_signatures.py already emits canonical platform dirs
+          # (windows-x64 / linux-x64 / linux-i386 / macos-universal) matching
+          # PatternLoader::GetSignaturePlatformDir.
           {
             echo "# OmniSteam Signature Database"
             echo "# Regenerated from official Steam clients on ${STAMP}"
             echo "# Consumed by PatternLoader via cache/signatures/ (deployed by CoreInstaller)"
             echo ""
             for f in $(find signatures-collected -name '*.toml' | sort); do
-              raw=$(dirname "$f" | xargs basename)
-              platform=${CANON[$raw]:-$raw}
-              if grep -q 'rva' "$f"; then
-                mkdir -p "signatures/${platform}"
-                cp "$f" "signatures/${platform}/"
-                echo "- signatures/${platform}/$(basename "$f")"
-              else
-                echo "- skipped empty: $f"
-              fi
-            done
+            platform=$(dirname "$f" | xargs basename)
+            if grep -q 'rva' "$f"; then
+              mkdir -p "signatures/${platform}"
+              cp "$f" "signatures/${platform}/"
+              echo "- signatures/${platform}/$(basename "$f")"
+            else
+              echo "- skipped empty: $f"
+            fi
+          done
           } > signatures/README.md
           cat signatures/README.md
 

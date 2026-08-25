@@ -36,7 +36,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
  ① /api/search ──► Steam Store API
  ② /api/unlock ──► SteamApi.GetAppDetails
         │             DepotKeyStore.FindDepotKeysForApp
-        │             (本地 depotkeys.bin, 175k+ 条, CDN 自动同步)
+        │             (本地 depotkeys.bin, 230k+ 条, CDN 自动同步)
         ▼
  ③ ScriptManager.SaveGameUnlock
         ├── <luaDir>/<appid>.lua          ───┐
@@ -109,7 +109,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳 |
 | `Hooks_Misc` | OnlineFix 与 DLL 注入 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入（基线快照 + PID 认领去重 + WOW64 拒绝） |
 | `Hooks_IPC` | 占位透传 | 当前无实际逻辑（预留扩展点） |
-| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → **运行时符号表**（Linux/macOS 零维护路径）→ 本地签名 TOML → **远程签名库拉取**（内置特征码失配时触发）→ 内置特征码扫描；含 RVA 合理性校验与歧义跳过 |
+| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → **运行时符号表**（Linux/macOS 零维护路径）→ 本地签名 TOML → **远程签名库拉取**（内置特征码失配时触发，按 `windows-x64`/`linux-x64`/`linux-i386`/`macos-universal` 规范目录寻址）→ 内置特征码扫描；含 RVA 合理性校验与歧义跳过；结构布局由 `offsetof` 静态断言自证 |
 | `SymbolTable` | 符号枚举 | ELF 节区解析（32/64 位，dynsym+symtab）/ Mach-O LC_SYMTAB 内存遍历 / PE 导出表；`__cxa_demangle` 反修饰 |
 | `LuaConfig` | 解锁规则存储 | **双缓冲快照**：读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
 | `DlcStore` | DLC 元数据 | Steam API 异步发现 + 本地二进制缓存（锁外写盘、原子替换） |
@@ -123,7 +123,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `ApiRouter` | REST 路由；Host/Origin 回环校验（DNS 重绑定 / CSRF 防护）；可选 `[webui] token` 共享密钥门（`X-Omni-Token` 头，未配置不启用）；所有数值解析防溢出崩溃；密码永不回显（`passwordSet` + `__OMNI_KEEP__` 保持机制）；脚本路径操作经受管目录校验 |
 | `StaticAssets` | 单文件嵌入式仪表盘（搜索/一键解锁/脚本管理/云存档/Doctor） |
 | `ScriptManager` | Lua 生成（字符串转义防注入）、appmanifest 预创建、启用/停用/删除（路径白名单双重校验） |
-| `DepotKeyStore` | 17.5万+ 密钥：多路径加载 → CDN 四镜像后台更新 → config.vdf 补录；32 位安全算术 + 数量上限 + 强制排序保证二分正确 |
+| `DepotKeyStore` | 23万+ 密钥：多路径加载 → CDN 四镜像后台更新 → config.vdf 补录；32 位安全算术 + 数量上限 + 强制排序保证二分正确 |
 | `CoreInstaller` | 本地产物部署或 Release/Nightly 下载解压（校验解压退出码）；心跳状态机（PID 存活检测清理陈旧状态） |
 | `CloudSaveManager` + `SavePathResolver` + `WebDavClient` | 存档探测（userdata/compatdata）→ 时间戳版本化 WebDAV 备份/还原 |
 | `Doctor` | 系统自检报告（Steam 进程/安装状态/密钥库/网络） |
@@ -136,7 +136,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **首次实采证实：官方客户端的 steamclient 库已被 strip**（无内部符号），运行时符号表与采集器均空手（5 个 TOML 全空已清理）。点亮路径收敛为两条：① 从 steam-monitor 上游获取 Linux/macOS 锚点（当前仅 Windows）；② 本地 VM 逆向提取差异化特征码 | 待锚点数据源 |
+| D | Linux/macOS 签名库 | **首次实采证实：官方客户端的 steamclient 库已被 strip**（无内部符号），运行时符号表与采集器均空手。点亮路径两条：① 从 steam-monitor 上游获取 Linux/macOS 锚点（当前仅 Windows）；② 本地 VM 逆向提取差异化特征码。采集流水线已按架构分桶（`linux-x64`/`linux-i386`/`macos-universal`），锚点数据一到 i386 立即可用 | 待锚点数据源 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
 
@@ -153,6 +153,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 ├─ plugins/decky-omnisteam/  Steam Deck Decky Loader 插件
 ├─ scripts/                  Linux/SteamOS 安装与启动脚本
 ├─ tests/                    六个 CTest 套件（见 TESTING.md）
-├─ tools/                    check_code.py 质检、depot_key_tool.py 密钥工具
+├─ tools/                    check_code.py 质检、depot_key_tool.py / process_issue_key.py 密钥工具、
+│                            harvest_signatures.py 三平台签名采集（按架构分桶）、
+│                            sync_upstream_patterns.py 上游锚点同步（锚点→派生→验证）
 └─ source/                   上游参考源码（仅本地参考，不入库/不参与构建）
 ```
