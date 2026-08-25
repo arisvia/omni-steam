@@ -4,6 +4,7 @@
 #include <atomic>
 #include <bcrypt.h>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -426,18 +427,23 @@ bool CredentialStore::WriteTicket(uint32_t appId, const std::string& ticketName,
 std::string CredentialStore::ReadTicket(uint32_t appId, const std::string& ticketName) {
     HKEY hKey;
     std::string subKey = "Software\\Valve\\Steam\\Apps\\" + std::to_string(appId);
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, subKey.c_str(), 0, KEY_QUERY_VALUE, &hKey) == ERROR_SUCCESS) {
-        char buf[2048] = {0};
-        DWORD bufSize = sizeof(buf);
-        DWORD type = REG_SZ;
-        if (RegQueryValueExA(hKey, ticketName.c_str(), nullptr, &type, reinterpret_cast<LPBYTE>(buf), &bufSize) ==
-            ERROR_SUCCESS) {
-            RegCloseKey(hKey);
-            return std::string(buf);
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, subKey.c_str(), 0, KEY_QUERY_VALUE, &hKey) != ERROR_SUCCESS)
+        return "";
+
+    std::string result;
+    DWORD bufSize = 0;
+    DWORD type = REG_SZ;
+    // First query the real value size - app tickets routinely exceed 2 KB and
+    // a fixed buffer would silently truncate (and corrupt) the credential.
+    if (RegQueryValueExA(hKey, ticketName.c_str(), nullptr, &type, nullptr, &bufSize) == ERROR_SUCCESS && bufSize > 0) {
+        std::vector<char> buf(bufSize, '\0');
+        if (RegQueryValueExA(hKey, ticketName.c_str(), nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()),
+                             &bufSize) == ERROR_SUCCESS) {
+            result.assign(buf.data(), strnlen(buf.data(), bufSize));
         }
-        RegCloseKey(hKey);
     }
-    return "";
+    RegCloseKey(hKey);
+    return result;
 }
 
 std::string CredentialStore::GetStoragePath() {

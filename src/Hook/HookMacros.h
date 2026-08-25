@@ -1,4 +1,6 @@
 #pragma once
+#include "HookManager.h"
+
 #include <cstdint>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -16,7 +18,9 @@
 #define ATTACH_HOOK(addr, name)                                                                                        \
     do {                                                                                                               \
         o##name = reinterpret_cast<name##_t>(addr);                                                                    \
-        OmniPlatform::Detour::Attach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(h##name));            \
+        bool attached_ = (addr) != 0 && OmniPlatform::Detour::Attach(reinterpret_cast<void**>(&o##name),               \
+                                                                     reinterpret_cast<void*>(h##name));                \
+        HookManager::SetHookActive(#name, attached_);                                                                  \
     } while (0)
 
 #define DETACH_HOOK(addr, name)                                                                                        \

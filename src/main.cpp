@@ -48,9 +48,12 @@ void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t 
                 << "  \"commit\": \"" << OMNISTEAM_GIT_COMMIT << "\",\n"
                 << "  \"targetModule\": \"" << targetModule << "\",\n"
                 << "  \"hooks\": {\n"
-                << "    \"CheckAppOwnership\": true,\n"
-                << "    \"ConfigStore_GetBinary\": true,\n"
-                << "    \"IPCProcessMessage\": true\n"
+                << "    \"CheckAppOwnership\": " << (HookManager::IsHookActive("CheckAppOwnership") ? "true" : "false")
+                << ",\n"
+                << "    \"ConfigStore_GetBinary\": "
+                << (HookManager::IsHookActive("ConfigStoreGetBinary") ? "true" : "false") << ",\n"
+                << "    \"IPCProcessMessage\": " << (HookManager::IsHookActive("IPCProcessMessage") ? "true" : "false")
+                << "\n"
                 << "  },\n"
                 << "  \"luaFilesCount\": " << luaCount << ",\n"
                 << "  \"timestamp\": " << now << "\n"

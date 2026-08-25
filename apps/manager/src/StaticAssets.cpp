@@ -663,6 +663,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 statusActive: "已启用",
                 statusDisabled: "已停用"
             },
+            en: {
                 langToggle: "🌐 中文",
                 cloudBtn: "☁️ Cloud Saves",
                 steamOnline: "Steam: Online",
@@ -886,15 +887,15 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 data.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'list-row';
-                    const thumbHtml = item.tinyImage ? 
-                        `<div class="game-art-box"><img class="game-art" src="${item.tinyImage}" onerror="this.parentElement.innerHTML='<span style=\\'font-size:11px;color:var(--text-sub)\\'>🎮</span>'"></div>` :
+                    const thumbHtml = item.tinyImage ?
+                        `<div class="game-art-box"><img class="game-art" src="${escapeHtml(item.tinyImage)}" onerror="this.parentElement.innerHTML='<span style=\\'font-size:11px;color:var(--text-sub)\\'>🎮</span>'"></div>` :
                         `<div class="game-art-box"><span style="font-size:11px;color:var(--text-sub)">🎮</span></div>`;
-                    
+
                     div.innerHTML = `
                         <div class="row-main" onclick="viewGameDetails(${item.appId})" style="cursor:pointer;">
                             ${thumbHtml}
                             <div class="row-text">
-                                <span class="row-title" title="${item.name}">${item.name}</span>
+                                <span class="row-title" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
                                 <span class="row-desc">AppID: ${item.appId}</span>
                             </div>
                         </div>
@@ -949,7 +950,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                     data.dlcList.forEach(dlc => {
                         const tag = document.createElement('div');
                         tag.className = 'dlc-chip';
-                        tag.innerHTML = `<span>${dlc.name}</span> <span class="version-chip" style="font-size:10px;">${dlc.dlcId}</span>`;
+                        tag.innerHTML = `<span>${escapeHtml(dlc.name)}</span> <span class="version-chip" style="font-size:10px;">${dlc.dlcId}</span>`;
                         dlcContainer.appendChild(tag);
                     });
                 } else {
@@ -996,6 +997,9 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             } catch (e) {}
         }
 
+        function escapeHtml(v) {
+            return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
         function renderScripts(scripts) {
             const container = document.getElementById('scriptList');
             container.innerHTML = '';
@@ -1019,8 +1023,8 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 div.innerHTML = `
                     <div class="row-main">
                         <div class="row-text">
-                            <span class="row-title" title="${s.fullPath}">${displayName}</span>
-                            <span class="row-desc">${subText} | <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${statusText}</strong></span>
+                            <span class="row-title" title="${escapeHtml(s.fullPath)}">${escapeHtml(displayName)}</span>
+                            <span class="row-desc">${escapeHtml(subText)} | <strong style="color:${s.enabled ? 'var(--success)' : 'var(--text-sub)'}">${statusText}</strong></span>
                         </div>
                     </div>
                     <div class="btn-group">

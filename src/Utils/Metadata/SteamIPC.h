@@ -33,20 +33,29 @@ struct BufferReader {
 
     BufferReader(const void* buf, size_t s) : data(reinterpret_cast<const uint8_t*>(buf)), size(s) {}
 
-    bool HasMore(size_t bytes = 1) const { return offset + bytes <= size; }
+    bool HasMore(size_t bytes = 1) const {
+        return offset <= size && bytes <= size - offset; // overflow-safe
+    }
+
+    template <typename T> bool Read(T* out) {
+        if (!HasMore(sizeof(T))) {
+            *out = T{};
+            return false;
+        }
+        std::memcpy(out, data + offset, sizeof(T));
+        offset += sizeof(T);
+        return true;
+    }
 
     template <typename T> T Read() {
-        if (!HasMore(sizeof(T)))
-            return T{};
         T val;
-        std::memcpy(&val, data + offset, sizeof(T));
-        offset += sizeof(T);
+        Read(&val);
         return val;
     }
 
     std::vector<uint8_t> ReadBytes(size_t count) {
         if (!HasMore(count))
-            count = size > offset ? size - offset : 0;
+            count = size - offset;
         std::vector<uint8_t> bytes(data + offset, data + offset + count);
         offset += count;
         return bytes;

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -42,29 +43,21 @@ void TestManifestClientResolution() {
 }
 void TestSteamStructureInvariants() {
     // 1. Verify Enum Value Invariants
-    assert(static_cast<uint32_t>(EPackageStatus::Available) == 3);
+    assert(static_cast<uint32_t>(EPackageStatus::Available) == 0);
     assert(static_cast<uint32_t>(EAppReleaseState::Released) == 4);
     assert(kSteamDefaultBasePackageId == 0);
     assert(kSteamDefaultInjectedPackageCount == 1);
     assert(k_iCallback_LicensesUpdated == 125);
 
-    // 2. Verify 64-bit SteamClient Structure Offsets Invariants
-    assert(SteamOffsets::Ownership64::kExistInPackageNums == 0x14);
-    assert(SteamOffsets::Ownership64::kReleaseState == 0x1C);
-    assert(SteamOffsets::Ownership64::kOwnsLicense == 0x28);
-    assert(SteamOffsets::Ownership64::kIsSubscribed == 0x30);
-    assert(SteamOffsets::PackageInfo64::kStatus == 0x18);
-    assert(SteamOffsets::PackageInfo64::kAppIdVecElements == 0x40);
-    assert(SteamOffsets::PackageInfo64::kAppIdVecSize == 0x50);
-    assert(SteamOffsets::PackageInfo64::kDepotIdVecElements == 0x60);
-    assert(SteamOffsets::PackageInfo64::kDepotIdVecSize == 0x70);
-
-    // 3. Verify 32-bit Legacy Structure Offsets Invariants
-    assert(SteamOffsets::Ownership32::kReleaseState == 0x04);
-    assert(SteamOffsets::Ownership32::kExistInPackageNums == 0x08);
-    assert(SteamOffsets::Ownership32::kOwnsLicense == 0x0C);
-    assert(SteamOffsets::Ownership32::kFreeLicense == 0x0D);
-    assert(SteamOffsets::Ownership32::kIsSubscribed == 0x10);
+    // 2. Verify structure layout invariants (compile-time asserts live in
+    //    SteamTypes.h; runtime mirrors them so drift fails loudly here too).
+    assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14);
+    assert(offsetof(AppOwnership, bOwnsLicense) == 0x24);
+    assert(offsetof(AppOwnership, bFreeLicense) == 0x28);
+    assert(offsetof(PackageInfo, Status) == 0x18);
+    assert(offsetof(PackageInfo, AppIdVec) == 0x40);
+    assert(offsetof(PackageInfo, DepotIdVec) == 0x58);
+    assert(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
 
     std::cout << "[PASS] TestSteamStructureInvariants\n";
 }

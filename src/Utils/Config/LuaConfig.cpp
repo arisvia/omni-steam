@@ -84,8 +84,10 @@ static int Lua_AddToken(lua_State* L) {
         return 0;
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
     const char* token = lua_tostring(L, 2);
-    if (token) {
-        LuaConfig::SetAccessToken(appId, token);
+    if (token && *token) {
+        auto* target = TargetFromRegistry(L);
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        target->accessTokens[appId] = token;
         spdlog::info("Lua: addtoken for app {}", appId);
     }
     return 0;
@@ -134,9 +136,11 @@ static int Lua_SetStatSteamId(lua_State* L) {
         return 0;
     uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
     const char* steamId = lua_tostring(L, 2);
-    if (steamId) {
-        LuaConfig::SetStatSteamId(appId, steamId);
-        spdlog::info("Lua: setStatSteamid for app {}", appId);
+    if (steamId && *steamId) {
+        auto* target = TargetFromRegistry(L);
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        target->statSteamIds[appId] = steamId;
+        spdlog::info("Lua: setStat for app {}", appId);
     }
     return 0;
 }

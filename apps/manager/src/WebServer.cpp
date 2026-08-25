@@ -196,9 +196,10 @@ void WebServer::Stop() {
 
     g_serverRunning.store(false);
     if (g_listenSocket != INVALID_SOCKET) {
-#if defined(OMNI_PLATFORM_WINDOWS)
+        // shutdown() is required on every platform: close() alone does not wake
+        // a thread blocked in accept() reliably (POSIX leaves it implementation
+        // defined), which would hang the join() below forever.
         shutdown(g_listenSocket, SD_BOTH);
-#endif
         closesocket(g_listenSocket);
         g_listenSocket = INVALID_SOCKET;
     }

@@ -77,23 +77,20 @@ void AppendDiskCache(uint64_t gid, uint64_t code) {
         std::string path = GetDiskCachePath();
         fs::create_directories(fs::path(path).parent_path());
 
+        // Serialize probe + rewrite + append under g_cacheMutex so concurrent
+        // callers can never interleave header rewrites with raw 16-byte appends.
+        std::lock_guard<std::mutex> lock(g_cacheMutex);
         bool rewrite = false;
-        {
-            std::ifstream probe(path, std::ios::binary | std::ios::ate);
-            if (probe) {
-                std::streamsize size = probe.tellg();
-                rewrite = (size <= 0) || (size > static_cast<std::streamsize>(kMaxCacheEntries) * 16 + 12);
-            } else {
-                rewrite = true;
-            }
+        std::ifstream probe(path, std::ios::binary | std::ios::ate);
+        if (probe) {
+            std::streamsize size = probe.tellg();
+            rewrite = (size <= 0) || (size > static_cast<std::streamsize>(kMaxCacheEntries) * 16 + 12);
+        } else {
+            rewrite = true;
         }
 
         if (rewrite) {
-            std::vector<std::pair<uint64_t, uint64_t>> entries;
-            {
-                std::lock_guard<std::mutex> lock(g_cacheMutex);
-                entries.assign(g_positiveCache.begin(), g_positiveCache.end());
-            }
+            std::vector<std::pair<uint64_t, uint64_t>> entries(g_positiveCache.begin(), g_positiveCache.end());
             std::ofstream out(path, std::ios::binary | std::ios::trunc);
             if (!out)
                 return;

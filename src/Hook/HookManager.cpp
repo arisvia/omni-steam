@@ -1,6 +1,9 @@
 #include "HookManager.h"
 
+#include <mutex>
 #include <spdlog/spdlog.h>
+#include <string>
+#include <unordered_map>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -33,6 +36,22 @@ void Install();
 void Uninstall();
 } // namespace Hooks_SteamUI
 namespace HookManager {
+
+namespace {
+std::mutex g_statusMutex;
+std::unordered_map<std::string, bool> g_hookStatus;
+} // namespace
+
+void SetHookActive(const char* name, bool active) {
+    std::lock_guard<std::mutex> lock(g_statusMutex);
+    g_hookStatus[name] = active;
+}
+
+bool IsHookActive(const char* name) {
+    std::lock_guard<std::mutex> lock(g_statusMutex);
+    auto it = g_hookStatus.find(name);
+    return it != g_hookStatus.end() && it->second;
+}
 
 void InstallHooks() {
     OmniPlatform::Detour::BeginTransaction();

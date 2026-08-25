@@ -157,56 +157,6 @@ enum class EAppReleaseState : uint32_t {
 
 enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable = 2, Invalid = 3 };
 // ==============================================================================
-// Steam Client Verified Structure Offsets (Windows x64 / Linux / macOS vs 32-bit)
-// ==============================================================================
-namespace SteamOffsets {
-
-namespace CUser64 {
-inline constexpr size_t kAccountId = 0x1E4;
-} // namespace CUser64
-
-namespace Ownership64 {
-inline constexpr size_t kPackageId = 0x00;
-inline constexpr size_t kExistInPackageNums = 0x14;
-inline constexpr size_t kReleaseState = 0x1C;
-inline constexpr size_t kExistInPackageNumsFallback = 0x20;
-inline constexpr size_t kOwnsLicense = 0x28;
-inline constexpr size_t kIsSubscribed = 0x30;
-inline constexpr size_t kActiveFlag1 = 0x32;
-inline constexpr size_t kActiveFlag2 = 0x33;
-inline constexpr size_t kActiveFlag3 = 0x34;
-} // namespace Ownership64
-
-namespace Ownership32 {
-inline constexpr size_t kPackageId = 0x00;
-inline constexpr size_t kReleaseState = 0x04;
-inline constexpr size_t kExistInPackageNums = 0x08;
-inline constexpr size_t kOwnsLicense = 0x0C;
-inline constexpr size_t kFreeLicense = 0x0D;
-inline constexpr size_t kIsSubscribed = 0x10;
-} // namespace Ownership32
-
-namespace PackageInfo64 {
-inline constexpr size_t kPackageId = 0x00;
-inline constexpr size_t kStatus = 0x18;
-inline constexpr size_t kAppIdVecElements = 0x40;
-inline constexpr size_t kAppIdVecSize = 0x50;
-inline constexpr size_t kDepotIdVecElements = 0x60;
-inline constexpr size_t kDepotIdVecSize = 0x70;
-} // namespace PackageInfo64
-
-namespace PackageInfo32 {
-inline constexpr size_t kPackageId = 0x00;
-inline constexpr size_t kStatus = 0x0C;
-inline constexpr size_t kAppIdVecSize = 0x1C;
-inline constexpr size_t kAppIdVecElements = 0x20;
-inline constexpr size_t kDepotIdVecElements = 0x28;
-inline constexpr size_t kDepotIdVecSize = 0x30;
-} // namespace PackageInfo32
-
-} // namespace SteamOffsets
-
-// ==============================================================================
 // Steam Client Ownership & License Structures
 // ==============================================================================
 struct AppOwnership {
@@ -252,3 +202,16 @@ struct PackageInfo {
     CUtlVector<AppId_t> AppIdVec;     // 0x40
     CUtlVector<DepotId_t> DepotIdVec; // 0x58
 };
+// ==============================================================================
+// Structure Layout Invariants (self-verifying; replaces hand-maintained offset
+// tables that drifted from the real client layout — see upstream Structs.h)
+// ==============================================================================
+#include <cstddef>
+static_assert(offsetof(PackageInfo, Status) == 0x18, "PackageInfo::Status offset drifted");
+static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "PackageInfo::AppIdVec offset drifted");
+static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "PackageInfo::DepotIdVec offset drifted");
+static_assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14, "AppOwnership::ExistInPackageNums offset drifted");
+static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x24, "AppOwnership::bOwnsLicense offset drifted");
+static_assert(offsetof(AppOwnership, bFreeLicense) == 0x28, "AppOwnership::bFreeLicense offset drifted");
+static_assert(offsetof(CUtlVector<AppId_t>, m_Size) == 0x10,
+              "CUtlVector layout drifted (must stay 24 bytes, no m_pElements)");
