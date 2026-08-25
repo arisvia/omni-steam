@@ -231,7 +231,9 @@ void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBa
 
     size_t appliedFiles = 0;
     size_t appliedFunctions = 0;
-    for (const auto& entry : fs::directory_iterator(signaturesDir, ec)) {
+    // Deployed layout mirrors the repository/CDN (signatures/<platform>/<hash>.toml),
+    // so iteration must recurse into platform subdirectories.
+    for (const auto& entry : fs::recursive_directory_iterator(signaturesDir, ec)) {
         if (!entry.is_regular_file() || entry.path().extension() != ".toml")
             continue;
 

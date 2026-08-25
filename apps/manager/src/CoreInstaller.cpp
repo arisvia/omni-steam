@@ -102,12 +102,16 @@ void SyncSignatureFiles() {
         std::error_code ec;
         if (!fs::exists(dir, ec))
             continue;
-        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        // Repository layout is signatures/<platform>/<hash16>.toml (matching the
+        // CDN layout PatternLoader's remote tier fetches from), so iteration must
+        // be recursive and preserve the relative platform subdirectory.
+        for (const auto& entry : fs::recursive_directory_iterator(dir, ec)) {
             if (!entry.is_regular_file() || entry.path().extension() != ".toml")
                 continue;
             try {
-                fs::create_directories(targetDir);
-                std::string destination = (fs::path(targetDir) / entry.path().filename()).generic_string();
+                std::string rel = fs::relative(entry.path(), dir).generic_string();
+                std::string destination = (fs::path(targetDir) / rel).generic_string();
+                fs::create_directories(fs::path(destination).parent_path());
                 if (fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing)) {
                     ++copied;
                 }

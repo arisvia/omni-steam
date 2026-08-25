@@ -41,18 +41,15 @@ jobs:
             BOOTSTRAP=$(find root -name 'bootstraplinux*' | head -1)
             [ -n "$BOOTSTRAP" ] && tar -xf "$BOOTSTRAP" -C .
           fi
-          # Fallback/secondary source: steamcmd self-update installs linux32 client files.
-          # Collect every copy but deduplicate by content hash - the bootstrap tar and
-          # steamcmd's home often carry the identical .so, and `cp --parents` used to
-          # zip the same binary twice (once under ./, once under $HOME), doubling the
-          # artifact size.
-          if ! find . -name 'steamclient*.so' | grep -q .; then
-            echo "Bootstrap lacked steamclient.so; bootstrapping steamcmd..."
-            mkdir -p cmd && cd cmd
-            curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
-            ./steamcmd.sh +quit || true
-            cd ..
-          fi
+          # steamcmd self-updates its own client copies on first run - the ONLY way
+          # to obtain the CURRENT steamclient.so without a graphical session (the
+          # bootstrap tarball shipped in the deb lags behind runtime self-update).
+          # Run it unconditionally, then harvest the updated copies from $HOME;
+          # the hash-dedup collector below keeps one copy per unique content.
+          mkdir -p cmd && cd cmd
+          curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
+          ./steamcmd.sh +quit || true
+          cd ..
           n=0
           declare -A SEEN
           while IFS= read -r f; do
@@ -107,22 +104,51 @@ jobs:
           Write-Host "Steam directory: $dir"
           "STEAM_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-          # First launch triggers the bootstrap download that produces steamclient64.dll
-          $deadline = (Get-Date).AddSeconds(300)
-          while (-not (Test-Path (Join-Path $dir 'steamclient64.dll')) -and (Get-Date) -lt $deadline) {
-            if (Test-Path (Join-Path $dir 'steam.exe') -PathType Leaf) {
-              Start-Process (Join-Path $dir 'steam.exe') -ArgumentList '-silent' -ErrorAction SilentlyContinue
+          # First launch triggers the bootstrap download that produces steamclient64.dll.
+          # The installer itself is ancient - the CURRENT client only arrives through
+          # Steam's runtime self-update, so keep sampling until the binary hash is
+          # stable across consecutive polls (or the deadline hits).
+          $deadline = (Get-Date).AddMinutes(12)
+          $lastHash = ""
+          $stableCount = 0
+          while ((Get-Date) -lt $deadline) {
+            if (-not (Test-Path (Join-Path $dir 'steamclient64.dll'))) {
+              if (Test-Path (Join-Path $dir 'steam.exe') -PathType Leaf) {
+                Start-Process (Join-Path $dir 'steam.exe') -ArgumentList '-silent' -ErrorAction SilentlyContinue
+              }
+              Start-Sleep -Seconds 15
+              continue
+            }
+            $h = (Get-FileHash (Join-Path $dir 'steamclient64.dll') -Algorithm SHA256).Hash
+            if (-not (Test-Path (Join-Path $dir 'ref_steamclient64.dll'))) {
+              # First sample becomes the derivation reference: the installer-era
+              # binary BEFORE runtime self-update replaces it.
+              Copy-Item (Join-Path $dir 'steamclient64.dll') (Join-Path $dir 'ref_steamclient64.dll')
+            }
+            if ($h -eq $lastHash) {
+              $stableCount++
+              if ($stableCount -ge 8) { break }  # 8 x 15s = 2 min unchanged
+            } else {
+              $stableCount = 0
+              $lastHash = $h
             }
             Start-Sleep -Seconds 15
           }
           if (-not (Test-Path (Join-Path $dir 'steamclient64.dll'))) {
-            throw "steamclient64.dll still missing after 300s in $dir"
+            throw "steamclient64.dll still missing after 12 min in $dir"
           }
 
       - name: Locate client libraries
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path steam-dist | Out-Null
+          Copy-Item (Join-Path $env:STEAM_DIR 'steamclient64.dll') steam-dist/
+          if (Test-Path (Join-Path $env:STEAM_DIR 'steamui.dll')) { Copy-Item (Join-Path $env:STEAM_DIR 'steamui.dll') steam-dist/ }
+          if (Test-Path (Join-Path $env:STEAM_DIR 'ref_steamclient64.dll')) {
+            New-Item -ItemType Directory -Force -Path steam-dist-ref | Out-Null
+            Copy-Item (Join-Path $env:STEAM_DIR 'ref_steamclient64.dll') steam-dist-ref/
+          }
+          Get-ChildItem steam-dist, steam-dist-ref
           Copy-Item (Join-Path $env:STEAM_DIR 'steamclient64.dll') steam-dist/
           if (Test-Path (Join-Path $env:STEAM_DIR 'steamui.dll')) { Copy-Item (Join-Path $env:STEAM_DIR 'steamui.dll') steam-dist/ }
           Get-ChildItem steam-dist
@@ -142,12 +168,45 @@ jobs:
         # informational, not a failure.
         continue-on-error: true
 
+      - name: Derive signatures via vtable slot transfer
+        shell: pwsh
+        run: |
+          pip install pefile
+          # Self-loop tier: when upstream has NOT anchored the settled (post-
+          # self-update) client, transfer anchors from the installer-era
+          # reference binary. The reference must itself be anchored upstream -
+          # fetch its TOML by hash; if even the reference is unanchored there
+          # is nothing to transfer from and this is a no-op.
+          $ref = "steam-dist-ref/ref_steamclient64.dll"
+          if (-not (Test-Path $ref)) { Write-Host "no reference binary; skipping"; exit 0 }
+          $refHash = (Get-FileHash $ref -Algorithm SHA256).Hash.ToLower()
+          $toml = "ref-anchor.toml"
+          $ok = $false
+          foreach ($base in @("https://cdn.jsdelivr.net/gh/OpenSteam001/steam-monitor@pattern/steamclient",
+                              "https://raw.githubusercontent.com/OpenSteam001/steam-monitor/pattern/steamclient")) {
+            try {
+              curl.exe -fsSL "$base/$refHash.toml" -o $toml
+              if ((Test-Path $toml) -and ((Get-Item $toml).Length -gt 0)) { $ok = $true; break }
+            } catch {}
+          }
+          if (-not $ok) { Write-Host "reference hash $refHash not anchored upstream; nothing to transfer"; exit 0 }
+          python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --reference-binary $ref --reference-toml $toml --out signatures-out/windows
+        continue-on-error: true
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         with:
           name: steam-binaries-windows
           path: steam-dist/*.dll
           retention-days: 7
+
+      - name: Upload reference binary (private, 90 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-reference-binary-windows
+          path: steam-dist-ref/*.dll
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Upload harvest output
         uses: actions/upload-artifact@v7

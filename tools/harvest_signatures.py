@@ -290,7 +290,7 @@ def detect_kind(binary: Path) -> str:
 
 
 def find_steam_libraries(root: Path) -> list[Path]:
-    patterns = ["steamclient.so", "steamclient64.dll", "steamclient.dylib", "steamui.dll", "steamui.dylib"]
+    patterns = ["steamclient.so", "steamclient64.dll", "steamclient.dylib", "steamui.dll", "steamui.dylib", "steamui.so"]
     found: list[Path] = []
     for dirpath, _dirnames, filenames in os.walk(root):
         for filename in filenames:

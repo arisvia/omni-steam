@@ -90,13 +90,15 @@
       镜像拉取当前二进制哈希对应的签名库（depotkeys.bin 同款分发模型）；`tools/sync_upstream_patterns.py`
       对接上游真实锚点库 `OpenSteam001/steam-monitor@pattern`（锚点→本地官方二进制派生→验证）；
       上游未锚定新版本属预期状态（exit 0），Windows 继续走内置特征码。
-- [ ] **语义锚点自动派生**（当前阻塞项，路线已验证）：实测三平台官方二进制内部符号全部
-      strip（仅公开 `Steam_*` C API），交叉版本特征码亦随重编译全部失效；但语义锚点存活——
-      目标函数相关字符串（`"CheckAppOwnership"`、`"DecryptionKey"` 等）与 RTTI typeinfo
-      （`.?AVCClientUser`/`.?AVCPackageInfo`）均可定位。计划在流水线新增第三级派生：
-      字符串交叉引用 + vtable/typeinfo 图谱 + capstone 前向扫描 → 生成
-      `signatures/<平台>/<哈希>.toml` 自动回推，实现不依赖上游的全自环。
-      （短期兜底：推动上游 steam-monitor 锚定新版，或 VM 逆向手写 TOML，放入即生效。）
+- [x] **语义锚点自动派生 / 自环闭环**（2026-08）：`tools/derive_signatures.py` 实现 vtable
+      槽位迁移——以任一已锚定版本为参照，经 RTTI（MSVC image-relative COL / Itanium
+      type_info）定位同类 vtable，槽位序号跨版本不变即可迁移函数地址；字符串 xref 派生
+      作为辅助层。验证：自环 7/7 与上游锚定值精确一致；跨版本迁移与内置特征码独立命中
+      交叉验证同址（RecvPkt）。工作流接入：Windows 安装期快照参照二进制 + 上游锚点匹配
+      时自动派生并回推仓库；参照二进制以 90 天私有 artifact 持久化供跨 run 使用。
+      CI 采集时效同步修正：Windows 等待运行时自更新收敛（哈希连续 2 分钟稳定），
+      Linux 无条件 steamcmd 自更新后采集（安装器/bootstrap 版本滞后于运行时自更新）。
+      Linux/macOS 迁移仍需一个已锚定参照（上游扩展或 VM 逆向首例）。
 - [x] **上游对齐 + 第二轮加固**（2026-08）：结构布局改为 `offsetof` 静态断言自证
       （移除与真实客户端布局相悖的手工 `SteamOffsets` 表）；移除未经验证的 `CUser+0x1E4`
       SteamId32 写入；`LuaConfig` addtoken/setStat 改走 staging 槽（热重载不再丢 token）；

@@ -136,7 +136,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **2026-08-25 实测（CI 采集的最新三平台二进制）**：三平台内部符号全部 strip（仅剩公开 `Steam_*` C API 导出，linux64 的 `.symtab` 亦只有 1588 个导出符号）；Windows 内置特征码在最新客户端上 **8/10 失效**（仅 BBuildAndAsyncSendFrame/RecvPkt 幸存），上游 steam-monitor 尚未锚定新版 → 最新客户端上 hook 短暂休眠属预期。**第三条点亮路线已验证可行**：语义锚点全部存活——`"CheckAppOwnership"`/`"DecryptionKey"` 等字符串引用 + `.?AVCClientUser`/`.?AVCPackageInfo` 等 RTTI typeinfo 均可在新二进制中定位，可据此做字符串交叉引用/vtable 派生。采集流水线已按架构分桶并修复重复打包 | 待语义派生实现 |
+| D | Linux/macOS 签名库 | **2026-08-25 实测 + 自环打通**：三平台内部符号全部 strip（仅公开 `Steam_*` C API）；Windows 内置特征码在部分客户端版本上大面积失效。**vtable 槽位迁移派生已实现并验证**（`tools/derive_signatures.py`）：以任一已锚定版本为参照，经 RTTI（MSVC image-relative COL / Itanium type_info）定位同类 vtable，槽位序号跨版本不变即可迁移函数地址。自环测试 7/7 与上游锚定值精确一致；跨版本迁移经内置特征码独立命中交叉验证（RecvPkt 两法同址）。流水线已接入：Windows 作业快照安装器版参照二进制 + 上游锚点匹配时自动派生回推 | Windows 已闭环；Linux/macOS 待参照数据源 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
 
