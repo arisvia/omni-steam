@@ -78,16 +78,20 @@
       POST/PUT/DELETE Origin 回环校验（阻断浏览器 CSRF，非浏览器客户端不受影响）。
 - [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
       校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
-- [ ] **Stats 成就统计上报**：前置条件是先实现成就伪造子系统（eMsg 818/819 拦截 + CloudRedirect 同类能力），
-      届时 `stats.opensteamtool.com/{appid}` 供体 SteamID 解析可参照上游 StatsClient 实现。
+- [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
+      校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
 - [x] **Linux/macOS 运行时符号解析**（2026-08）：新增 `SymbolTable` 跨平台符号表枚举
       （ELF 节区解析含 32/64 位、Mach-O LC_SYMTAB 内存遍历、PE 导出表），PatternLoader 直接从
-      目标模块自身符号数据解析 hook 目标——与 Windows 特征码同级的零维护自适应路径；
-      模糊匹配歧义自动跳过防止挂错地址。
+      目标模块自身符号数据解析 hook 目标；模糊匹配歧义自动跳过防止挂错地址。
+      ⚠️ 实采勘误：官方客户端的 steamclient 库已被 strip（首次采集 5 个 TOML 全空证实），
+      该路径仅在未 strip 的发行版上生效。
 - [x] **Linux/macOS 特征签名采集流水线**（2026-08）：`tools/harvest_signatures.py` 跨格式
       （ELF/Mach-O/PE）符号采集 + `signature-harvest.yml` 三平台工作流（二进制仅入私有 artifact，
-      签名 TOML 自动反推仓库）；TOML 库降级为离线兜底（应对 strip 过的发行版）。
+      签名 TOML 自动回推仓库，空结果不产出 TOML）；作为离线兜底层。
 - [x] **Windows 特征码运行时远程兜底**（2026-08）：PatternLoader 在内置特征码失配时自动从 CDN
       镜像拉取当前二进制哈希对应的签名库（depotkeys.bin 同款分发模型）；`tools/sync_upstream_patterns.py`
-      可将上游 opensteamtool 特征库转换为本项目 schema；采集工作流 Windows job 已合并该同步步骤。
-- [x] **Linux/macOS 签名数据落地**（可选）：运行一次 Signature Harvest 即可生成兜底签名库。
+      对接上游真实锚点库 `OpenSteam001/steam-monitor@pattern`（锚点→本地官方二进制派生→验证）；
+      上游未锚定新版本属预期状态（exit 0），Windows 继续走内置特征码。
+- [ ] **Linux/macOS 锚点数据源**（当前阻塞项）：官方客户端已 strip，采集与符号路线均拿不到内部函数
+      位置；需通过 VM 逆向提取差异化特征码/RVA 后手写 `signatures/<平台>/<哈希>.toml`
+      （放入即生效），或推动上游 steam-monitor 扩展非 Windows 锚点。
