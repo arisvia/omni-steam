@@ -136,7 +136,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **首次实采证实：官方客户端的 steamclient 库已被 strip**（无内部符号），运行时符号表与采集器均空手。点亮路径两条：① 从 steam-monitor 上游获取 Linux/macOS 锚点（当前仅 Windows）；② 本地 VM 逆向提取差异化特征码。采集流水线已按架构分桶（`linux-x64`/`linux-i386`/`macos-universal`），锚点数据一到 i386 立即可用 | 待锚点数据源 |
+| D | Linux/macOS 签名库 | **2026-08-25 实测（CI 采集的最新三平台二进制）**：三平台内部符号全部 strip（仅剩公开 `Steam_*` C API 导出，linux64 的 `.symtab` 亦只有 1588 个导出符号）；Windows 内置特征码在最新客户端上 **8/10 失效**（仅 BBuildAndAsyncSendFrame/RecvPkt 幸存），上游 steam-monitor 尚未锚定新版 → 最新客户端上 hook 短暂休眠属预期。**第三条点亮路线已验证可行**：语义锚点全部存活——`"CheckAppOwnership"`/`"DecryptionKey"` 等字符串引用 + `.?AVCClientUser`/`.?AVCPackageInfo` 等 RTTI typeinfo 均可在新二进制中定位，可据此做字符串交叉引用/vtable 派生。采集流水线已按架构分桶并修复重复打包 | 待语义派生实现 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
 

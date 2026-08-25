@@ -41,18 +41,32 @@ jobs:
             BOOTSTRAP=$(find root -name 'bootstraplinux*' | head -1)
             [ -n "$BOOTSTRAP" ] && tar -xf "$BOOTSTRAP" -C .
           fi
-          # Fallback/secondary source: steamcmd self-update installs linux32 client files
+          # Fallback/secondary source: steamcmd self-update installs linux32 client files.
+          # Collect every copy but deduplicate by content hash - the bootstrap tar and
+          # steamcmd's home often carry the identical .so, and `cp --parents` used to
+          # zip the same binary twice (once under ./, once under $HOME), doubling the
+          # artifact size.
           if ! find . -name 'steamclient*.so' | grep -q .; then
             echo "Bootstrap lacked steamclient.so; bootstrapping steamcmd..."
             mkdir -p cmd && cd cmd
             curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
             ./steamcmd.sh +quit || true
             cd ..
-            find "$HOME" -name 'steamclient*.so' -exec cp --parents {} . \; 2>/dev/null || true
           fi
-          COUNT=$(find . "$HOME" -name 'steamclient*.so' 2>/dev/null | wc -l)
-          echo "steamclient.so copies visible: $COUNT"
-          find . -name 'steamclient*.so' -printf '%p\n'
+          n=0
+          declare -A SEEN
+          while IFS= read -r f; do
+            h=$(sha256sum "$f" | cut -d' ' -f1)
+            if [ -z "${SEEN[$h]:-}" ]; then
+              SEEN[$h]=1
+              n=$((n+1))
+              mkdir -p "steam-dist/uniq$n"
+              cp "$f" "steam-dist/uniq$n/$(basename "$f")"
+            fi
+          done < <(find . "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
+          COUNT=$n
+          echo "Unique steamclient.so copies: $COUNT"
+          find steam-dist -name 'steamclient*.so' -printf '%p\n'
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
 
       - name: Harvest signatures
