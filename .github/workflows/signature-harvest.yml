@@ -168,17 +168,21 @@ jobs:
         # informational, not a failure.
         continue-on-error: true
 
-      - name: Derive signatures via vtable slot transfer
+      - name: Derive signatures via committed anchor map
         shell: pwsh
         run: |
           pip install pefile
-          # Self-loop tier: when upstream has NOT anchored the settled (post-
-          # self-update) client, transfer anchors from the installer-era
-          # reference binary. The reference must itself be anchored upstream -
-          # fetch its TOML by hash; if even the reference is unanchored there
-          # is nothing to transfer from and this is a no-op.
+          # Self-loop tier 1: transfer anchors from the committed map (class
+          # RTTI names + vtable slot indices - no Valve bytes, lives in-repo).
+          # Works for ANY new client version with zero network dependency.
+          if (Test-Path "signatures/anchor-map-windows.json") {
+            python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --map signatures/anchor-map-windows.json --out signatures-out/windows
+            exit 0
+          }
+          # Self-loop tier 2 (bootstrap only): no committed map yet - transfer
+          # from the installer-era reference binary if upstream anchored it.
           $ref = "steam-dist-ref/ref_steamclient64.dll"
-          if (-not (Test-Path $ref)) { Write-Host "no reference binary; skipping"; exit 0 }
+          if (-not (Test-Path $ref)) { Write-Host "no committed map and no reference binary; skipping"; exit 0 }
           $refHash = (Get-FileHash $ref -Algorithm SHA256).Hash.ToLower()
           $toml = "ref-anchor.toml"
           $ok = $false
@@ -191,6 +195,8 @@ jobs:
           }
           if (-not $ok) { Write-Host "reference hash $refHash not anchored upstream; nothing to transfer"; exit 0 }
           python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --reference-binary $ref --reference-toml $toml --out signatures-out/windows
+          # Bootstrap the committed map so every future run uses tier 1.
+          python tools/derive_signatures.py --binary $ref --reference-binary $ref --reference-toml $toml --emit-map signatures/anchor-map-windows.json --out signatures-out/windows
         continue-on-error: true
 
       - name: Upload binaries artifact (private, 7 days)

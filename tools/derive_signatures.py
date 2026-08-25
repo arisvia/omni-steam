@@ -207,6 +207,27 @@ def find_vtables_for_typeinfo(img: Image, ti_name: str) -> list[int]:
     return vtables
 
 
+def emit_anchor_map(ref_img: Image, ref_rvas: dict[str, int]) -> dict:
+    """Distill a reference version into a committable anchor map:
+    {name: [[typeinfo_name, slot], ...]}. Contains no Valve bytes - only RTTI
+    class names, slot indices and our canonical function names."""
+    mapping: dict[str, list[list]] = {}
+    for name, rva in sorted(ref_rvas.items()):
+        for ti_name, slot, _vtable in vtable_slots_for_rva(ref_img, rva):
+            if ti_name:
+                mapping.setdefault(name, []).append([ti_name, slot])
+    return {"schema": 1, "anchors": mapping}
+
+
+def transfer_via_map(img: Image, anchor_map: dict) -> dict[str, dict]:
+    """Transfer using a committed anchor map (no reference binary needed)."""
+    refs: list[tuple[str, int, str]] = []
+    for name, pairs in anchor_map.get("anchors", {}).items():
+        for ti_name, slot in pairs:
+            refs.append((name, int(slot), ti_name))
+    return transfer_via_vtable(img, refs)
+
+
 def transfer_via_vtable(img: Image, refs: list[tuple[str, int, str]]) -> dict[str, dict]:
     """Re-derive RVAs on a NEW binary from (name, slot, typeinfo_name) pairs
     observed on a reference version. Vtable ordering is stable across
@@ -466,6 +487,11 @@ def main() -> int:
                         help="anchored reference version for vtable slot transfer")
     parser.add_argument("--reference-toml", type=Path,
                         help="signature TOML (name -> rva) matching --reference-binary")
+    parser.add_argument("--map", type=Path,
+                        help="committed anchor map JSON (no reference binary needed)")
+    parser.add_argument("--emit-map", type=Path,
+                        help="with --reference-binary/--reference-toml: distill the "
+                             "reference into a committable anchor map JSON and exit")
     args = parser.parse_args()
 
     data_head = args.binary.read_bytes()[:4]
@@ -473,13 +499,31 @@ def main() -> int:
         "pe" if data_head.startswith(b"MZ") else "elf" if data_head.startswith(b"\x7fELF") else "macho"
     )
     parser_cls = {"pe": parse_pe, "elf": parse_elf, "macho": parse_macho}[kind]
+
+    # Map emission mode: distill reference into a committable JSON and exit.
+    if args.emit_map:
+        if not (args.reference_binary and args.reference_toml):
+            parser.error("--emit-map requires --reference-binary and --reference-toml")
+        ref_img = parser_cls(args.reference_binary)
+        anchor_map = emit_anchor_map(ref_img, parse_reference_toml(args.reference_toml))
+        args.emit_map.write_text(json.dumps(anchor_map, indent=1), encoding="utf-8")
+        total = sum(len(v) for v in anchor_map["anchors"].values())
+        print(f"[derive] anchor map written: {args.emit_map} ({len(anchor_map['anchors'])} names, {total} slots)")
+        return 0
+
     img = parser_cls(args.binary)
+
 
     digest = sha256_file(args.binary)
     resolved: dict[str, dict] = {}
     details: list = []
 
-    if args.reference_binary and args.reference_toml:
+    if args.map:
+        anchor_map = json.loads(args.map.read_text(encoding="utf-8"))
+        resolved = transfer_via_map(img, anchor_map)
+        details.append({"mode": "committed-anchor-map", "entries": len(anchor_map.get("anchors", {}))})
+        print(f"[derive] transferred {len(resolved)} function(s) from committed anchor map")
+    elif args.reference_binary and args.reference_toml:
         ref_img = parser_cls(args.reference_binary)
         ref_rvas = parse_reference_toml(args.reference_toml)
         slot_map: list[tuple[str, int, str]] = []

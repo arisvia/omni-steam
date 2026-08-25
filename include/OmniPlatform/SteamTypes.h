@@ -204,14 +204,27 @@ struct PackageInfo {
 };
 // ==============================================================================
 // Structure Layout Invariants (self-verifying; replaces hand-maintained offset
-// tables that drifted from the real client layout — see upstream Structs.h)
+// tables that drifted from the real client layout — see upstream Structs.h).
+// Arch-neutral invariants are derived from the structs themselves; absolute
+// anchors are per-architecture (x64 and i386 layouts differ).
 // ==============================================================================
 #include <cstddef>
 static_assert(offsetof(PackageInfo, Status) == 0x18, "PackageInfo::Status offset drifted");
-static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "PackageInfo::AppIdVec offset drifted");
-static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "PackageInfo::DepotIdVec offset drifted");
+static_assert(offsetof(PackageInfo, AppIdVec) == offsetof(PackageInfo, pExtendNodeBegin) + sizeof(void*),
+              "PackageInfo::AppIdVec must directly follow the node pointers");
+static_assert(offsetof(PackageInfo, DepotIdVec) == offsetof(PackageInfo, AppIdVec) + sizeof(CUtlVector<AppId_t>),
+              "PackageInfo::DepotIdVec must directly follow AppIdVec");
+static_assert(offsetof(CUtlVector<AppId_t>, m_Size) == sizeof(CUtlMemory<AppId_t>),
+              "CUtlVector::m_Size must directly follow CUtlMemory (no m_pElements)");
 static_assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14, "AppOwnership::ExistInPackageNums offset drifted");
 static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x24, "AppOwnership::bOwnsLicense offset drifted");
 static_assert(offsetof(AppOwnership, bFreeLicense) == 0x28, "AppOwnership::bFreeLicense offset drifted");
-static_assert(offsetof(CUtlVector<AppId_t>, m_Size) == 0x10,
-              "CUtlVector layout drifted (must stay 24 bytes, no m_pElements)");
+#if defined(OMNI_ARCH_X64)
+static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "x64 PackageInfo::AppIdVec anchor drifted");
+static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "x64 PackageInfo::DepotIdVec anchor drifted");
+static_assert(sizeof(CUtlVector<AppId_t>) == 24, "x64 CUtlVector must stay 24 bytes");
+#elif defined(OMNI_ARCH_X86)
+static_assert(offsetof(PackageInfo, AppIdVec) == 0x38, "x86 PackageInfo::AppIdVec anchor drifted");
+static_assert(offsetof(PackageInfo, DepotIdVec) == 0x48, "x86 PackageInfo::DepotIdVec anchor drifted");
+static_assert(sizeof(CUtlVector<AppId_t>) == 16, "x86 CUtlVector must stay 16 bytes");
+#endif

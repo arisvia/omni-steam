@@ -55,9 +55,15 @@ void TestSteamStructureInvariants() {
     assert(offsetof(AppOwnership, bOwnsLicense) == 0x24);
     assert(offsetof(AppOwnership, bFreeLicense) == 0x28);
     assert(offsetof(PackageInfo, Status) == 0x18);
+#if defined(OMNI_ARCH_X64)
     assert(offsetof(PackageInfo, AppIdVec) == 0x40);
     assert(offsetof(PackageInfo, DepotIdVec) == 0x58);
     assert(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
+#elif defined(OMNI_ARCH_X86)
+    assert(offsetof(PackageInfo, AppIdVec) == 0x38);
+    assert(offsetof(PackageInfo, DepotIdVec) == 0x48);
+    assert(sizeof(CUtlVector<AppId_t>) == 16);
+#endif
 
     std::cout << "[PASS] TestSteamStructureInvariants\n";
 }

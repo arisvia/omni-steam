@@ -1,0 +1,47 @@
+{
+ "schema": 1,
+ "anchors": {
+  "CloseAppCloud": [
+   [
+    ".?AVCUserRemoteStorage@@",
+    24
+   ]
+  ],
+  "ConfigStoreGetBinary": [
+   [
+    ".?AVCConfigStore@@",
+    7
+   ]
+  ],
+  "GetAppDataFromAppInfo": [
+   [
+    ".?AVCUserAppInfo@@",
+    0
+   ]
+  ],
+  "IPCProcessMessage": [
+   [
+    ".?AVCIPCServer@@",
+    16
+   ]
+  ],
+  "LoadDepotDecryptionKey": [
+   [
+    ".?AVCConfigStore@@",
+    7
+   ]
+  ],
+  "OptedInMask": [
+   [
+    ".?AVCSteamController@@",
+    111
+   ]
+  ],
+  "RecvPkt": [
+   [
+    ".?AVCCMInterface@@",
+    3
+   ]
+  ]
+ }
+}
