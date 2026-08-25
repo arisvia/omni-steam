@@ -268,6 +268,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Metadata/ManifestClient.cpp
     src/Utils/Metadata/PatternLoader.cpp
     src/Utils/Metadata/PicsTokenInjector.cpp
+    src/Utils/Metadata/StatsClient.cpp
     ${SYMBOLTABLE_SOURCES}
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp

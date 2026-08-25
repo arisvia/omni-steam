@@ -140,6 +140,23 @@ def run_clang_format(files: List[Path]) -> bool:
     print("[PASS] Clang-Format completed successfully.")
     return True
 
+def check_cmake_coverage(root_dir: str) -> List[str]:
+    """Every .cpp under src/ must be referenced by CMakeLists.txt. Hand-maintained
+    source lists silently drop new files and only fail at link time (e.g. a
+    missing StatsClient.cpp surfaced as undefined symbols on CI)."""
+    cmake = Path(root_dir) / "CMakeLists.txt"
+    if not cmake.exists():
+        return []
+    referenced = set(re.findall(r"src/[\w/]+\.cpp", cmake.read_text(encoding="utf-8")))
+    issues: List[str] = []
+    src_root = Path(root_dir) / "src"
+    for cpp in sorted(src_root.rglob("*.cpp")):
+        rel = cpp.relative_to(root_dir).as_posix()
+        if rel not in referenced:
+            issues.append(rel)
+    return issues
+
+
 def main():
     parser = argparse.ArgumentParser(description="OmniSteam Code Checker & Auto-Healer")
     parser.add_argument('--fix', action='store_true', help="Auto-heal missing headers and format code")
@@ -176,6 +193,10 @@ def main():
             print(f"[MISSING INCLUDES] {file_path.relative_to(root_dir)}: {', '.join(missing)}")
 
     missing_include_count = sum(len(m) for m in files_with_missing_headers.values())
+    cmake_missing = check_cmake_coverage(root_dir)
+    for rel in cmake_missing:
+        print(f"[NOT IN CMAKE] {rel}: source file exists but is never compiled (add to CMakeLists.txt)")
+    cmake_issue_count = len(cmake_missing)
 
     if args.fix and files_with_missing_headers:
         print(f"\n[INFO] Auto-healing missing includes across {len(files_with_missing_headers)} files...")
@@ -187,7 +208,7 @@ def main():
     if args.format or args.fix:
         run_clang_format(cpp_files)
 
-    total_issues = total_syntax_issues + missing_include_count
+    total_issues = total_syntax_issues + missing_include_count + cmake_issue_count
     print("\n" + "=" * 50)
     if total_issues == 0:
         print("🎉 [ALL CHECKS PASSED] 100% include integrity, syntax balance, and cleanliness!")
