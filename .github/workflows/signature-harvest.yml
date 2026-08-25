@@ -25,7 +25,10 @@ on:
       - 'tools/sync_upstream_patterns.py'
       # Manually dropped anchor TOMLs ("放入即生效") re-validate and redistribute.
       - 'signatures/**'
-# The collect-and-push commit uses [skip ci], so the bot never re-triggers itself.
+# Two loop guards: (1) the bot commit message carries [skip ci] which GitHub
+# honours for push triggers; (2) collect-and-push below refuses to run when
+# the triggering commit was authored by the bot itself, so even an edited
+# message cannot create a cycle.
 
 permissions:
   contents: write
@@ -297,7 +300,7 @@ jobs:
   collect-and-push:
     name: Collect & Push Signatures
     needs: [harvest-linux, harvest-windows, harvest-macos]
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && (inputs.push_signatures != false) && github.event.head_commit.author.name != 'omnisteam-signature-bot' }}
     # Push whatever platforms succeeded; a single failed platform must not
     # discard the others' harvest. Manual runs honour the toggle.
     if: ${{ !cancelled() && (inputs.push_signatures != false) }}
