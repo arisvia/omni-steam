@@ -37,7 +37,7 @@ struct ParsedUrl {
 ParsedUrl ParseUrl(const std::string& urlStr) {
     ParsedUrl result;
     std::wstring wUrl = Utf8ToWide(urlStr);
-    URL_COMPONENTS urlComp = {0};
+    URL_COMPONENTS urlComp{};
     urlComp.dwStructSize = sizeof(urlComp);
     urlComp.dwHostNameLength = (DWORD)-1;
     urlComp.dwUrlPathLength = (DWORD)-1;

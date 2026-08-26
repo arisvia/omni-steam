@@ -63,11 +63,13 @@ if(MINGW)
     add_link_options(-static -static-libgcc -static-libstdc++)
 endif()
 
-# Diagnostics: GCC/Clang builds (local MinGW + CI Linux/macOS) get loud by
-# default; MSVC keeps its default warning level to avoid noise explosions.
-if(NOT MSVC)
-    add_compile_options(-Wall -Wextra -Wshadow)
-endif()
+# Helper function to apply strict diagnostics only to first-party targets,
+# preventing third-party FetchContent libraries (capstone, lua, etc.) from flooding logs.
+function(omni_apply_strict_warnings target_name)
+    if(NOT MSVC)
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wshadow)
+    endif()
+endfunction()
 
 # Project Options
 option(ENABLE_LOGGING "Enable debug logging" ON)
@@ -106,10 +108,17 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
     GIT_TAG        097c04d9413c59a58b00d4d1c8d5dc0ac158ffaa # 5.0.1
 )
+set(CAPSTONE_ARCHITECTURE_DEFAULT OFF CACHE BOOL "" FORCE)
+set(CAPSTONE_X86_SUPPORT ON CACHE BOOL "" FORCE)
+set(CAPSTONE_ARM_SUPPORT ON CACHE BOOL "" FORCE)
+set(CAPSTONE_ARM64_SUPPORT ON CACHE BOOL "" FORCE)
 set(CAPSTONE_BUILD_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 set(CAPSTONE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CAPSTONE_BUILD_CSTOOL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(capstone)
+if(TARGET capstone)
+    target_compile_options(capstone PRIVATE -w)
+endif()
 
 # 4. funchook (Build directly with Capstone 5.0 without legacy Capstone 4.0.2 download)
 FetchContent_Declare(
@@ -144,7 +153,7 @@ if(NOT funchook_src_POPULATED)
     endif()
 
     add_library(funchook STATIC ${FUNCHOOK_SOURCES})
-    target_include_directories(funchook PUBLIC 
+    target_include_directories(funchook SYSTEM PUBLIC 
         "${funchook_src_SOURCE_DIR}/include"
         "${capstone_SOURCE_DIR}/include"
     )
@@ -178,7 +187,7 @@ else()
             "${lua_source_SOURCE_DIR}/onelua.c"
         )
         add_library(lua_static STATIC ${LUA_SOURCES})
-        target_include_directories(lua_static PUBLIC "${lua_source_SOURCE_DIR}")
+        target_include_directories(lua_static SYSTEM PUBLIC "${lua_source_SOURCE_DIR}")
         if(UNIX)
             target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX)
         endif()
@@ -257,6 +266,7 @@ else()
 endif()
 
 add_library(OmniPlatform STATIC ${OMNIPLATFORM_SOURCES})
+omni_apply_strict_warnings(OmniPlatform)
 target_link_libraries(OmniPlatform PUBLIC
     funchook
     spdlog::spdlog_header_only
@@ -298,6 +308,7 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_SteamUI.cpp
 )
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
+omni_apply_strict_warnings(omnisteam_core)
 set_target_properties(omnisteam_core PROPERTIES
     OUTPUT_NAME "omnisteam"
     PREFIX "lib"
@@ -345,6 +356,7 @@ set(MANAGER_SOURCES
 )
 
 add_executable(omnisteam_cli ${MANAGER_SOURCES})
+omni_apply_strict_warnings(omnisteam_cli)
 set_target_properties(omnisteam_cli PROPERTIES
     OUTPUT_NAME "omnisteam"
 )

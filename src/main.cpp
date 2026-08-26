@@ -157,7 +157,7 @@ static void InitializeOmniSteam() {
 
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <windows.h>
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID /*lpReserved*/) {
     if (dwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         InitializeOmniSteam();

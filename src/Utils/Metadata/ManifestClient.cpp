@@ -196,8 +196,7 @@ ManifestDownloadResult RequestManifest(uint32_t depotId, uint64_t manifestId, co
     res.depotId = depotId;
     res.manifestId = manifestId;
 
-    std::string baseUrl =
-        upstreamEndpoint.empty() ? std::string(OmniEndpoints::Manifest::kManifestDownloadBase) : upstreamEndpoint;
+    std::string baseUrl = ResolveUpstreamBase(upstreamEndpoint);
     std::string requestUrl = baseUrl + "/manifest/" + std::to_string(depotId) + "/" + std::to_string(manifestId);
     res.requestUrl = requestUrl;
 

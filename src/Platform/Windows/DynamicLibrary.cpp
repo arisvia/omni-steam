@@ -63,7 +63,8 @@ uint32_t DynamicLibrary::GetLastErrorCode() {
 
 bool Memory::Protect(void* address, size_t size, uint32_t newProtect, uint32_t* oldProtect) {
     DWORD oldP = 0;
-    BOOL res = VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldP);
+    DWORD prot = newProtect ? static_cast<DWORD>(newProtect) : PAGE_EXECUTE_READWRITE;
+    BOOL res = VirtualProtect(address, size, prot, &oldP);
     if (oldProtect)
         *oldProtect = oldP;
     return res != FALSE;
@@ -104,7 +105,7 @@ uintptr_t BinaryParser::GetModuleBase(const std::string& moduleName) {
     return reinterpret_cast<uintptr_t>(GetModuleHandleA(moduleName.empty() ? nullptr : moduleName.c_str()));
 }
 
-std::vector<BinaryParser::SectionInfo> BinaryParser::GetSections(const std::string& modulePath) {
+std::vector<BinaryParser::SectionInfo> BinaryParser::GetSections(const std::string& /*modulePath*/) {
     return {};
 }
 
@@ -112,7 +113,7 @@ uint32_t Process::GetCurrentProcessId() {
     return ::GetCurrentProcessId();
 }
 
-std::string Process::GetProcessName(uint32_t pid) {
+std::string Process::GetProcessName(uint32_t /*pid*/) {
     return "steam.exe";
 }
 
