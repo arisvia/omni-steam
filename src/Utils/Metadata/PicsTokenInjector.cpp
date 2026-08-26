@@ -36,9 +36,10 @@ void WriteVarint(std::vector<uint8_t>& buf, uint64_t value) {
 }
 
 uint64_t ResolveConfiguredToken(uint32_t appId) {
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
-        return 0;
-
+    // A configured access token is itself the intent signal: patching is
+    // keyed on token presence, so no additional unlock/depot registration
+    // requirement (the old HasApp/HasDepot gate broke exactly the
+    // token-only configuration the PICS injector exists to serve).
     std::string token = LuaConfig::GetAccessToken(appId);
     if (token.empty() || token.size() > kMaxTokenString)
         return 0;
