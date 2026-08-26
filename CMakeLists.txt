@@ -71,9 +71,7 @@ endif()
 
 # Project Options
 option(ENABLE_LOGGING "Enable debug logging" ON)
-option(BUILD_STATIC_DEPS "Statically link dependencies" ON)
 option(BUILD_TESTS "Build verification test suite" ON)
-
 # Fetch Dependencies
 include(FetchContent)
 
@@ -410,15 +408,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Code Formatting & Static Analysis Targets (Native CMake)
 # ---------------------------------------------------------------------------
-find_program(CLANG_FORMAT_BIN clang-format
-    HINTS
-        "C:/Program Files/LLVM/bin"
-        "C:/Program Files (x86)/LLVM/bin"
-        "/usr/local/opt/llvm/bin"
-        "/opt/homebrew/opt/llvm/bin"
-        "/usr/bin"
-        "/usr/local/bin"
-)
+find_program(CLANG_FORMAT_BIN clang-format)
 if(CLANG_FORMAT_BIN)
     file(GLOB_RECURSE ALL_CXX_SOURCE_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
@@ -436,15 +426,7 @@ if(CLANG_FORMAT_BIN)
     )
 endif()
 
-find_program(CLANG_TIDY_BIN clang-tidy
-    HINTS
-        "C:/Program Files/LLVM/bin"
-        "C:/Program Files (x86)/LLVM/bin"
-        "/usr/local/opt/llvm/bin"
-        "/opt/homebrew/opt/llvm/bin"
-        "/usr/bin"
-        "/usr/local/bin"
-)
+find_program(CLANG_TIDY_BIN clang-tidy)
 if(CLANG_TIDY_BIN)
     add_custom_target(lint
         COMMAND ${CLANG_TIDY_BIN} -p ${CMAKE_BINARY_DIR} ${ALL_CXX_SOURCE_FILES}
