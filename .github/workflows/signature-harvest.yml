@@ -300,10 +300,12 @@ jobs:
   collect-and-push:
     name: Collect & Push Signatures
     needs: [harvest-linux, harvest-windows, harvest-macos]
-    if: ${{ !cancelled() && (inputs.push_signatures != false) && github.event.head_commit.author.name != 'omnisteam-signature-bot' }}
-    # Push whatever platforms succeeded; a single failed platform must not
-    # discard the others' harvest. Manual runs honour the toggle.
-    if: ${{ !cancelled() && (inputs.push_signatures != false) }}
+    # Single `if` (duplicate `if` keys are rejected by GitHub's YAML parser ->
+    # startup_failure for the whole workflow, which also silently disabled the
+    # weekly cron and the push paths filter). Coercion note: `inputs` is only
+    # populated for workflow_dispatch; comparing it to `false` on other events
+    # yields false after GitHub's numeric coercion, so guard on event_name.
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.push_signatures == false) && github.event.head_commit.author.name != 'omnisteam-signature-bot' }}
     steps:
       - uses: actions/checkout@v7
         with:
