@@ -190,13 +190,6 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     if (!pPkg)
         return false;
 
-    // Check package status
-    if (pPkg->Status != EPackageStatus::Available) {
-        spdlog::warn("Hooks_Package: Package 0 status is not Available ({}), skipping injection",
-                     static_cast<int>(pPkg->Status));
-        return false;
-    }
-
     std::lock_guard<std::mutex> lock(g_injectMutex);
     auto desiredApps = CollectDesiredAppIds();
     auto desiredDepots = CollectDesiredDepotIds();
@@ -257,10 +250,6 @@ void UpdateInjectedPackages() {
 
     g_licenseRefreshPending.store(true);
     TryProcessPendingLicenseRefresh();
-}
-
-void NotifyLicensesChanged() {
-    UpdateInjectedPackages();
 }
 
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
@@ -355,9 +344,10 @@ void Install() {
 void Uninstall() {}
 
 void NotifyLicenseChanged() {
-    MarkLicenseAsChangedAndProcessUpdates();
+    UpdateInjectedPackages();
 }
 
+void Uninstall() {}
 void SyncInjectedLicenses() {
     NotifyLicenseChanged();
 }

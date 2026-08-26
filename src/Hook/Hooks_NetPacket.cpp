@@ -111,13 +111,8 @@ std::mutex g_LegacyKeyMutex;
 
 inline uint64_t ReadVarint(const uint8_t*& ptr, const uint8_t* end) {
     uint64_t val = 0;
-    int shift = 0;
-    while (ptr < end && shift < 64) {
-        uint8_t b = *ptr++;
-        val |= static_cast<uint64_t>(b & 0x7F) << shift;
-        if ((b & 0x80) == 0)
-            break;
-        shift += 7;
+    if (!ProtoFields::ReadVarint(ptr, end, val)) {
+        return 0;
     }
     return val;
 }
