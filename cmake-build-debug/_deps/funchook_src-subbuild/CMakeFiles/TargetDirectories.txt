@@ -1,0 +1,3 @@
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/funchook_src-populate.dir
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/edit_cache.dir
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/rebuild_cache.dir

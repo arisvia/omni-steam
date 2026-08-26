@@ -17,6 +17,14 @@ void TestDepotKeyStore() {
     OMNI_CHECK(Manager::DepotKeyStore::HasKey(1));
     OMNI_CHECK(!Manager::DepotKeyStore::HasKey(999999999));
 
+    // Check multi-depot resolution for App 2358720 (Black Myth: Wukong) with DLCs (2672610, 3288260)
+    auto wukongKeys = Manager::DepotKeyStore::FindDepotKeysForApp(2358720, {2672610, 3288260});
+    OMNI_CHECK(!wukongKeys.empty());
+    OMNI_CHECK(wukongKeys.count(2358720) > 0 || wukongKeys.count(2358721) > 0);
+    OMNI_CHECK(wukongKeys.count(2672611) > 0); // DLC 1 Depot
+    OMNI_CHECK(wukongKeys.count(3288261) > 0); // DLC 2 Depot 1
+    OMNI_CHECK(wukongKeys.count(3288262) > 0); // DLC 2 Depot 2
+    std::cout << "[INFO] Verified Black Myth Wukong & DLC Depots matched (" << wukongKeys.size() << " keys)\n";
     std::cout << "[PASS] TestDepotKeyStore (Binary format loaded & Depot 1 verified)\n";
 }
 

@@ -68,12 +68,12 @@ static int Lua_AddAppId(lua_State* L) {
 
     auto* target = TargetFromRegistry(L);
     std::lock_guard<std::mutex> lock(g_luaMutex);
+    target->unlockedApps.insert(appId);
     if (!keyHex.empty()) {
         auto bytes = OmniPlatform::Encoding::HexToBytes(keyHex);
         target->depotKeys[appId] = bytes;
         spdlog::info("Lua: addappid {} with depotKey ({} bytes)", appId, bytes.size());
     } else {
-        target->unlockedApps.insert(appId);
         spdlog::info("Lua: addappid {}", appId);
     }
     return 0;

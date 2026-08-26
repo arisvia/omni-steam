@@ -593,6 +593,43 @@ void HandleEncryptedAppTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const
     spdlog::info("Hooks_NetPacket: Injected EncryptedAppTicket for AppID {} ({} bytes)", appId, ticketBytes.size());
 }
 
+// ---- Denuvo AppOwnershipTicket (eMsg 858) -------------------------------
+// Field numbers: app_id=1(varint), eresult=2(int32), ticket=3(bytes).
+void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody, uint32_t cbBody,
+                                   CNetPacket* pPacket) {
+    auto appIdValue = ProtoFields::GetVarintField(pBody, cbBody, 1);
+    if (!appIdValue || *appIdValue == 0)
+        return;
+    AppId_t appId = static_cast<AppId_t>(*appIdValue);
+    if (!LuaConfig::HasDepot(appId))
+        return;
+
+    auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);
+    if (eresult && *eresult == static_cast<uint64_t>(k_EResultOK))
+        return;
+
+    std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");
+    if (ticketHex.empty())
+        return;
+    std::vector<uint8_t> ticketBytes = OmniPlatform::Encoding::HexToBytes(ticketHex);
+    if (ticketBytes.empty() || ticketBytes.size() > kMaxBodySize)
+        return;
+
+    std::vector<uint8_t> newBody(pBody, pBody + cbBody);
+    ProtoFields::AppendVarintField(newBody, 2, static_cast<uint64_t>(k_EResultOK));
+    ProtoFields::AppendBytesField(newBody, 3, ticketBytes);
+
+    uint32_t newSize = 0;
+    uint8_t* poolBuf =
+        BuildPooledFrame(k_EMsgClientGetAppOwnershipTicketResponse | kMsgHdrProtoFlag, pHdr, cbHdr, newBody, &newSize);
+    if (!poolBuf)
+        return;
+    pPacket->m_pubData = poolBuf;
+    pPacket->m_cubData = newSize;
+    spdlog::info("Hooks_NetPacket: Injected AppOwnershipTicket [858] for AppID {} ({} bytes)", appId,
+                 ticketBytes.size());
+}
+
 HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
     // 1. Drain synthesized Legacy CD-Key responses first
     if (pPacket) {
@@ -639,6 +676,8 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
                 HandleGetUserStatsLegacyResponse(pHdr, cbHdr, pBody, cbBody, pPacket);
             } else if (eMsg == k_EMsgClientRequestEncryptedAppTicketResponse) {
                 HandleEncryptedAppTicketResponse(pHdr, cbHdr, pBody, cbBody, pPacket);
+            } else if (eMsg == k_EMsgClientGetAppOwnershipTicketResponse) {
+                HandleOwnershipTicketResponse(pHdr, cbHdr, pBody, cbBody, pPacket);
             }
         }
     }

@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/funchook_src-populate"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/funchook_src-populate.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/CMakeFiles/funchook_src-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-build.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-download.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-install.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-test.rule"
+		},
+		{
+			"file" : "C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/funchook_src-subbuild/funchook_src-populate-prefix/src/funchook_src-populate-stamp/funchook_src-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"funchook_src-populate"
+		],
+		"name" : "funchook_src-populate"
+	}
+}

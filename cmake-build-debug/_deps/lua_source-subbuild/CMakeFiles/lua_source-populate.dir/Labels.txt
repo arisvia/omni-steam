@@ -1,0 +1,14 @@
+# Target labels
+ lua_source-populate
+# Source files and their labels
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/lua_source-populate
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/lua_source-populate.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/lua_source-populate-complete.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-build.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-configure.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-download.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-install.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-mkdir.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-patch.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-test.rule
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/lua_source-populate-prefix/src/lua_source-populate-stamp/lua_source-populate-update.rule

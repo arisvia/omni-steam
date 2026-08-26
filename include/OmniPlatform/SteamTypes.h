@@ -33,6 +33,7 @@ inline constexpr uint32_t k_EMsgClientRequestEncryptedAppTicketResponse = 5527;
 inline constexpr uint32_t k_EMsgClientPICSProductInfoRequest = 8903;
 inline constexpr uint32_t k_EMsgClientGetUserStats = 818;
 inline constexpr uint32_t k_EMsgClientGetUserStatsResponse = 819;
+inline constexpr uint32_t k_EMsgClientGetAppOwnershipTicketResponse = 858;
 
 // Synthetic purchase timestamp injected into AppOverview so unlocked titles
 // appear instantly and persist in the library UI.

@@ -1,0 +1,3 @@
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/lua_source-populate.dir
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/edit_cache.dir
+C:/Games/Repositories/omni-steam/cmake-build-debug/_deps/lua_source-subbuild/CMakeFiles/rebuild_cache.dir
