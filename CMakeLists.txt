@@ -56,6 +56,13 @@ configure_file(
     @ONLY
 )
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
+# MinGW: statically link the GCC runtime so executables do not depend on
+# libstdc++-6 / libgcc_s_seh / libwinpthread DLLs being on PATH at load
+# time (ctest and bare invocation both failed with 0xc0000135 otherwise).
+if(MINGW)
+    add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
 # Project Options
 option(ENABLE_LOGGING "Enable debug logging" ON)
 option(BUILD_STATIC_DEPS "Statically link dependencies" ON)
@@ -68,6 +75,7 @@ include(FetchContent)
 FetchContent_Declare(
     tomlplusplus
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_SHALLOW    TRUE
     GIT_TAG        v3.4.0
 )
 FetchContent_MakeAvailable(tomlplusplus)
@@ -76,6 +84,7 @@ FetchContent_MakeAvailable(tomlplusplus)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_SHALLOW    TRUE
     GIT_TAG        v1.15.3
 )
 FetchContent_GetProperties(spdlog)
@@ -90,6 +99,7 @@ endif()
 FetchContent_Declare(
     capstone
     GIT_REPOSITORY https://github.com/capstone-engine/capstone.git
+    GIT_SHALLOW    TRUE
     GIT_TAG        5.0.1
 )
 set(CAPSTONE_BUILD_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
@@ -101,6 +111,7 @@ FetchContent_MakeAvailable(capstone)
 FetchContent_Declare(
     funchook_src
     GIT_REPOSITORY https://github.com/kubo/funchook.git
+    GIT_SHALLOW    TRUE
     GIT_TAG        v1.1.3
 )
 FetchContent_GetProperties(funchook_src)
@@ -149,6 +160,7 @@ else()
     FetchContent_Declare(
         lua_source
         GIT_REPOSITORY https://github.com/lua/lua.git
+        GIT_SHALLOW    TRUE
         GIT_TAG        v5.4.7
     )
     FetchContent_GetProperties(lua_source)
