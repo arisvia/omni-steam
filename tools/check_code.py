@@ -65,7 +65,7 @@ def find_cpp_files(root_dir: str) -> List[Path]:
     """Find all C++ source and header files, skipping build/ and temporary directories."""
     cpp_files = []
     for root, dirs, files in os.walk(root_dir):
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith('cmake-build-')]
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith('cmake-build-') and not d.startswith('build-')]
         for f in files:
             if f.endswith(('.cpp', '.h', '.hpp', '.c')):
                 cpp_files.append(Path(root) / f)
