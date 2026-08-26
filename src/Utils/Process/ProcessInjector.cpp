@@ -92,7 +92,8 @@ bool ProcessInjector::InjectModule(uint32_t processId, const std::string& module
         return false;
     }
 
-    auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(GetProcAddress(hKernel32, "LoadLibraryW"));
+    auto pLoadLibraryW =
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(reinterpret_cast<void*>(GetProcAddress(hKernel32, "LoadLibraryW")));
     if (!pLoadLibraryW) {
         VirtualFreeEx(hProcess, pRemoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);

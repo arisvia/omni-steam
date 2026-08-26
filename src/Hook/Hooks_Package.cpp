@@ -347,7 +347,6 @@ void NotifyLicenseChanged() {
     UpdateInjectedPackages();
 }
 
-void Uninstall() {}
 void SyncInjectedLicenses() {
     NotifyLicenseChanged();
 }

@@ -105,10 +105,6 @@ uintptr_t BinaryParser::GetModuleBase(const std::string& moduleName) {
     return reinterpret_cast<uintptr_t>(GetModuleHandleA(moduleName.empty() ? nullptr : moduleName.c_str()));
 }
 
-std::vector<BinaryParser::SectionInfo> BinaryParser::GetSections(const std::string& /*modulePath*/) {
-    return {};
-}
-
 uint32_t Process::GetCurrentProcessId() {
     return ::GetCurrentProcessId();
 }

@@ -51,15 +51,7 @@ public:
 
 class BinaryParser {
 public:
-    struct SectionInfo {
-        std::string name;
-        uintptr_t startAddress;
-        size_t size;
-        uint32_t flags;
-    };
-
     static bool GetModuleTextSection(const std::string& moduleName, uintptr_t& outStart, size_t& outSize);
-    static std::vector<SectionInfo> GetSections(const std::string& modulePath);
     static uintptr_t GetModuleBase(const std::string& moduleName);
 };
 
