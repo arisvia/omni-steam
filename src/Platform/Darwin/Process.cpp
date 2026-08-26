@@ -32,7 +32,7 @@ uint32_t Process::GetCurrentProcessId() {
     return static_cast<uint32_t>(getpid());
 }
 
-std::string Process::GetProcessName(uint32_t pid) {
+std::string Process::GetProcessName(uint32_t /*pid*/) {
     return "steam";
 }
 

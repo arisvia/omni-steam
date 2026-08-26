@@ -7,7 +7,7 @@
 
 namespace OmniPlatform {
 
-bool Memory::Protect(void* address, size_t size, uint32_t newProtect, uint32_t* oldProtect) {
+bool Memory::Protect(void* address, size_t size, uint32_t /*newProtect*/, uint32_t* /*oldProtect*/) {
     vm_prot_t prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
     return vm_protect(mach_task_self(), reinterpret_cast<vm_address_t>(address), size, FALSE, prot) == KERN_SUCCESS;
 }

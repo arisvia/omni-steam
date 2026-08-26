@@ -7,7 +7,7 @@
 
 namespace OmniPlatform {
 
-bool Memory::Protect(void* address, size_t size, uint32_t newProtect, uint32_t* oldProtect) {
+bool Memory::Protect(void* address, size_t size, uint32_t /*newProtect*/, uint32_t* /*oldProtect*/) {
     if (!address || size == 0)
         return false;
     long pageSize = sysconf(_SC_PAGESIZE);

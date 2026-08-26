@@ -1,11 +1,15 @@
+#include <atomic>
 #include <curl/curl.h>
 #include <string>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
+
 namespace OmniPlatform {
 
 namespace {
+static std::atomic<bool> g_httpAllowInsecureTls{false};
+
 size_t WriteCb(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t total = size * nmemb;
     reinterpret_cast<std::string*>(userp)->append(reinterpret_cast<char*>(contents), total);
@@ -13,6 +17,9 @@ size_t WriteCb(void* contents, size_t size, size_t nmemb, void* userp) {
 }
 } // namespace
 
+void Http::SetAllowInsecureTls(bool allowed) {
+    g_httpAllowInsecureTls.store(allowed, std::memory_order_relaxed);
+}
 Http::Response Http::Get(const std::string& url, int timeoutMs) {
     Response res;
     CURL* curl = curl_easy_init();
@@ -25,7 +32,7 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
-    if (IsInsecureTlsAllowed()) {
+    if (g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
@@ -53,17 +60,17 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     std::string headerStr = "Content-Type: " + contentType;
     headers = curl_slist_append(headers, headerStr.c_str());
 
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCb);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
-    if (IsInsecureTlsAllowed()) {
+    if (g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
-    CURLcode code = curl_easy_perform(curl);
     if (code == CURLE_OK) {
         long httpCode = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);

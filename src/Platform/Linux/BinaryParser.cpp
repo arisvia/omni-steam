@@ -58,7 +58,7 @@ uintptr_t BinaryParser::GetModuleBase(const std::string& moduleName) {
     return data.found ? data.baseAddress : 0;
 }
 
-std::vector<BinaryParser::SectionInfo> BinaryParser::GetSections(const std::string& modulePath) {
+std::vector<BinaryParser::SectionInfo> BinaryParser::GetSections(const std::string& /*modulePath*/) {
     return {};
 }
 

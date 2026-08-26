@@ -48,7 +48,7 @@ bool Detour::CommitTransaction() {
     return true;
 }
 
-bool Detour::Detach(void** ppPointer, void* pDetour) {
+bool Detour::Detach(void** /*ppPointer*/, void* /*pDetour*/) {
     std::lock_guard<std::mutex> lock(g_detourMutex);
     if (!g_funchook)
         return false;
