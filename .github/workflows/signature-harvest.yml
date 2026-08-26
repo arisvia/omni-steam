@@ -30,9 +30,12 @@ on:
 # the triggering commit was authored by the bot itself, so even an edited
 # message cannot create a cycle.
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
-
 jobs:
   harvest-linux:
     name: Harvest Linux steamclient.so
