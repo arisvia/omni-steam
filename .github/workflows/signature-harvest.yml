@@ -299,6 +299,7 @@ jobs:
 
   collect-and-push:
     name: Collect & Push Signatures
+    runs-on: ubuntu-latest
     needs: [harvest-linux, harvest-windows, harvest-macos]
     # Single `if` (duplicate `if` keys are rejected by GitHub's YAML parser ->
     # startup_failure for the whole workflow, which also silently disabled the

@@ -52,7 +52,7 @@ string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M:%S UTC" UTC)
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OmniBuildInfo.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/OmniBuildInfo.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/OmniPlatform/OmniBuildInfo.h"
     @ONLY
 )
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -61,6 +61,12 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
 # time (ctest and bare invocation both failed with 0xc0000135 otherwise).
 if(MINGW)
     add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
+# Diagnostics: GCC/Clang builds (local MinGW + CI Linux/macOS) get loud by
+# default; MSVC keeps its default warning level to avoid noise explosions.
+if(NOT MSVC)
+    add_compile_options(-Wall -Wextra -Wshadow)
 endif()
 
 # Project Options
@@ -76,7 +82,7 @@ FetchContent_Declare(
     tomlplusplus
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
     GIT_SHALLOW    TRUE
-    GIT_TAG        v3.4.0
+    GIT_TAG        30172438cee64926dc41fdd9c11fb3ba5b2ba9de # v3.4.0
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
@@ -85,7 +91,7 @@ FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_SHALLOW    TRUE
-    GIT_TAG        v1.15.3
+    GIT_TAG        6fa36017cfd5731d617e1a934f0e5ea9c4445b13 # v1.15.3
 )
 FetchContent_GetProperties(spdlog)
 if(NOT spdlog_POPULATED)
@@ -100,7 +106,7 @@ FetchContent_Declare(
     capstone
     GIT_REPOSITORY https://github.com/capstone-engine/capstone.git
     GIT_SHALLOW    TRUE
-    GIT_TAG        5.0.1
+    GIT_TAG        097c04d9413c59a58b00d4d1c8d5dc0ac158ffaa # 5.0.1
 )
 set(CAPSTONE_BUILD_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 set(CAPSTONE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -112,7 +118,7 @@ FetchContent_Declare(
     funchook_src
     GIT_REPOSITORY https://github.com/kubo/funchook.git
     GIT_SHALLOW    TRUE
-    GIT_TAG        v1.1.3
+    GIT_TAG        88388db3c69e16c1560fee65c6857d75f5ce6fd5 # v1.1.3
 )
 FetchContent_GetProperties(funchook_src)
 if(NOT funchook_src_POPULATED)
@@ -161,7 +167,7 @@ else()
         lua_source
         GIT_REPOSITORY https://github.com/lua/lua.git
         GIT_SHALLOW    TRUE
-        GIT_TAG        v5.4.7
+        GIT_TAG        1ab3208a1fceb12fca8f24ba57d6e13c5bff15e3 # v5.4.7
     )
     FetchContent_GetProperties(lua_source)
     if(NOT lua_source_POPULATED)

@@ -23,3 +23,6 @@ dump*.txt
 
 # Code review tool cache
 .code-review-graph/
+
+# Local depot key database (6MB binary) - fetched from CDN at runtime
+depotkeys.bin
