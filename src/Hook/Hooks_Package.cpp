@@ -56,22 +56,49 @@ RESOLVE_FUNC(MarkLicenseAsChanged, int64_t, void*, uint32_t, bool);
 RESOLVE_FUNC(ProcessPendingLicenseUpdates, bool, void*);
 
 template <typename T> bool GrowAndAppend(CUtlVector<T>* pVec, const std::vector<T>& values) {
-    if (values.empty())
+    if (!pVec || values.empty())
         return true;
-    if (!oCUtlMemoryGrow) {
-        spdlog::warn("Hooks_Package: oCUtlMemoryGrow not ready, cannot grow");
-        return false;
-    }
+
     const int oldSize = pVec->m_Size;
     const int numToAdd = static_cast<int>(values.size());
-    if (!oCUtlMemoryGrow(pVec, numToAdd)) {
-        spdlog::warn("Hooks_Package: CUtlMemoryGrow returned null, cannot append {} entries", numToAdd);
+    const int neededCapacity = oldSize + numToAdd;
+
+    // 1. If existing capacity is sufficient, append in-place directly
+    if (neededCapacity <= pVec->m_Memory.m_nAllocationCount && pVec->m_Memory.m_pMemory) {
+        for (int i = 0; i < numToAdd; ++i) {
+            pVec->m_Memory.m_pMemory[oldSize + i] = values[i];
+        }
+        pVec->m_Size = neededCapacity;
+        return true;
+    }
+
+    // 2. If capacity insufficient, try native CUtlMemoryGrow routine if resolved
+    if (oCUtlMemoryGrow && oCUtlMemoryGrow(pVec, numToAdd)) {
+        for (int i = 0; i < numToAdd; ++i) {
+            pVec->m_Memory.m_pMemory[oldSize + i] = values[i];
+        }
+        pVec->m_Size = neededCapacity;
+        return true;
+    }
+
+    // 3. Fallback: Self-managed allocation guarantee (never fails even if signature drifts)
+    const int newCapacity = neededCapacity * 2 + 64;
+    T* newMemory = static_cast<T*>(std::malloc(sizeof(T) * newCapacity));
+    if (!newMemory) {
+        spdlog::error("Hooks_Package: Failed to allocate {} elements for CUtlVector expansion", newCapacity);
         return false;
     }
-    for (int i = 0; i < numToAdd; ++i) {
-        pVec->m_Memory.m_pMemory[oldSize + i] = values[i];
+
+    if (oldSize > 0 && pVec->m_Memory.m_pMemory) {
+        std::memcpy(newMemory, pVec->m_Memory.m_pMemory, sizeof(T) * oldSize);
     }
-    pVec->m_Size = static_cast<int>(oldSize + numToAdd);
+    for (int i = 0; i < numToAdd; ++i) {
+        newMemory[oldSize + i] = values[i];
+    }
+
+    pVec->m_Memory.m_pMemory = newMemory;
+    pVec->m_Memory.m_nAllocationCount = newCapacity;
+    pVec->m_Size = neededCapacity;
     return true;
 }
 
