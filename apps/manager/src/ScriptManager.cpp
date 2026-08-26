@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -74,6 +75,20 @@ bool PathIsUnder(const fs::path& child, const fs::path& parent) {
     return true;
 }
 
+std::mutex g_managedRootsMutex;
+std::set<fs::path> g_managedRoots;
+
+// Toggle/delete guard against HTTP path traversal: only directories the
+// manager itself listed or wrote to are manageable. Production callers always
+// use the default candidate Lua directories; tests register their temp dir.
+void RegisterManagedRoot(const std::string& dir) {
+    try {
+        std::lock_guard<std::mutex> lock(g_managedRootsMutex);
+        g_managedRoots.insert(fs::weakly_canonical(fs::path(dir)));
+    } catch (...) {
+    }
+}
+
 } // namespace
 
 bool ScriptManager::IsManagedScriptPath(const std::string& filePath) {
@@ -81,6 +96,16 @@ bool ScriptManager::IsManagedScriptPath(const std::string& filePath) {
         fs::path canonical = fs::weakly_canonical(fs::path(filePath));
         for (const auto& dir : GetCandidateLuaDirectories()) {
             if (PathIsUnder(canonical, fs::weakly_canonical(fs::path(dir)))) {
+                return true;
+            }
+        }
+
+        std::lock_guard<std::mutex> lock(g_managedRootsMutex);
+        if (g_managedRoots.count(canonical) > 0) {
+            return true;
+        }
+        for (const auto& root : g_managedRoots) {
+            if (PathIsUnder(canonical, root)) {
                 return true;
             }
         }
@@ -237,6 +262,7 @@ bool ScriptManager::EnsureAppManifest(uint32_t appId, const std::string& appName
 
 bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string& targetDir) {
     std::string dir = targetDir.empty() ? GetDefaultLuaDirectory() : targetDir;
+    RegisterManagedRoot(dir); // toggles/deletes may only touch dirs we manage
     try {
         fs::create_directories(dir);
         std::string filename = std::to_string(spec.appId) + ".lua";
@@ -274,6 +300,7 @@ std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& target
     }
 
     for (const auto& dir : searchDirs) {
+        RegisterManagedRoot(dir);
         if (!fs::exists(dir))
             continue;
 
