@@ -31,6 +31,16 @@ jobs:
           ${{ github.event.issue.body }}
           EOF
 
+      - name: Fetch Current depotkeys.bin
+        run: |
+          # Attempt to pull existing depotkeys.bin from data branch, fallback to CDN if not available
+          git fetch origin data:data 2>/dev/null && git checkout data -- depotkeys.bin || {
+            echo "Fetching depotkeys.bin baseline from CDN..."
+            curl -fsSL -o depotkeys.bin "https://raw.githubusercontent.com/arisvia/omni-steam/data/depotkeys.bin" || \
+            curl -fsSL -o depotkeys.bin "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin" || \
+            echo "No existing depotkeys.bin found, initializing new."
+          }
+
       - name: Validate & Merge Key
         id: process_key
         run: |
@@ -49,15 +59,18 @@ jobs:
           APP_ID=$(grep "APP_ID:" /tmp/process_output.txt | cut -d':' -f2 || echo "")
           echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
 
-      - name: Commit and Push depotkeys.bin
+      - name: Force Push to Orphan data Branch
         if: steps.process_key.outputs.result == 'MERGED'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Switch to clean orphan branch 'data' to maintain single-commit 6MB history
+          git checkout --orphan data
+          git rm -rf . > /dev/null 2>&1 || true
           git add -f depotkeys.bin
-          git commit -m "chore(depotkeys): add depot ${{ steps.process_key.outputs.depot_id }} for ${{ steps.process_key.outputs.game_title }} [skip ci]"
-          git push origin main
-
+          git commit -m "chore(data): merge depot ${{ steps.process_key.outputs.depot_id }} for ${{ steps.process_key.outputs.game_title }} [skip ci]"
+          git push -f origin data
       - name: Comment on Issue (Success)
         if: steps.process_key.outputs.result == 'MERGED'
         uses: actions/github-script@v7

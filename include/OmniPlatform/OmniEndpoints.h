@@ -21,10 +21,10 @@ inline constexpr const char* kJsDelivrMainBase = "https://cdn.jsdelivr.net/gh/ar
 inline constexpr const char* kJsDelivrNightlyBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@nightly/";
 
 // 远程全局 Depot 解密 Key 二进制数据库与加速 CDN 镜像
-inline constexpr const char* kDepotKeysBin = "https://raw.githubusercontent.com/arisvia/omni-steam/main/depotkeys.bin";
-inline constexpr const char* kDepotKeysJsDelivr = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
-inline constexpr const char* kDepotKeysFastly = "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
-inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@main/depotkeys.bin";
+inline constexpr const char* kDepotKeysBin = "https://raw.githubusercontent.com/arisvia/omni-steam/data/depotkeys.bin";
+inline constexpr const char* kDepotKeysJsDelivr = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin";
+inline constexpr const char* kDepotKeysFastly = "https://fastly.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin";
+inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin";
 } // namespace GitHub
 
 // ==============================================================================
