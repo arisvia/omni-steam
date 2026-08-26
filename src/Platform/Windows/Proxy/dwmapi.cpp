@@ -55,7 +55,6 @@ void LoadOmniSteamCore() {
     }
     LoadLibraryA("libomnisteam.dll");
 }
-}
 } // namespace
 
 extern "C" {
