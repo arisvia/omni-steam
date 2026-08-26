@@ -16,7 +16,7 @@ struct CallbackData {
     bool found = false;
 };
 
-static int PhdrCallback(struct dl_phdr_info* info, size_t size, void* data) {
+static int PhdrCallback(struct dl_phdr_info* info, size_t /*size*/, void* data) {
     auto* cbData = reinterpret_cast<CallbackData*>(data);
     if (!info->dlpi_name)
         return 0;
