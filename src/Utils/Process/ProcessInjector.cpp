@@ -107,13 +107,38 @@ bool ProcessInjector::InjectModule(uint32_t processId, const std::string& module
         return false;
     }
 
-    WaitForSingleObject(hThread, 5000);
-    CloseHandle(hThread);
-    VirtualFreeEx(hProcess, pRemoteMem, 0, MEM_RELEASE);
-    CloseHandle(hProcess);
+    const DWORD waitResult = WaitForSingleObject(hThread, 10000);
+    if (waitResult == WAIT_OBJECT_0) {
+        // Thread finished: the remote buffer can no longer be in use, so it is
+        // safe to release. Verify LoadLibraryW actually succeeded via the
+        // thread exit code (non-zero HMODULE).
+        DWORD exitCode = 0;
+        GetExitCodeThread(hThread, &exitCode);
+        CloseHandle(hThread);
+        VirtualFreeEx(hProcess, pRemoteMem, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        if (exitCode == 0) {
+            spdlog::warn("ProcessInjector: LoadLibraryW returned null in PID {} - module rejected "
+                         "(missing dependencies or bitness mismatch?)",
+                         processId);
+            return false;
+        }
+        spdlog::info("ProcessInjector: Successfully injected module '{}' into process PID {}", modulePath, processId);
+        return true;
+    }
 
-    spdlog::info("ProcessInjector: Successfully injected module '{}' into process PID {}", modulePath, processId);
-    return true;
+    // WAIT_TIMEOUT / WAIT_FAILED: the remote thread is STILL executing
+    // LoadLibraryW and reading pRemoteMem. Freeing the remote memory here
+    // would pull the page out from under it and crash the target process
+    // (common with antivirus scanning the DLL on first load). Leak the
+    // small path buffer instead - the loader frees it never, but the
+    // target process terminates long before this matters.
+    spdlog::warn("ProcessInjector: Remote LoadLibraryW in PID {} did not finish within 10s; leaving path buffer "
+                 "and thread handle to the target process",
+                 processId);
+    CloseHandle(hThread);
+    CloseHandle(hProcess);
+    return false;
 #else
     spdlog::info("ProcessInjector: Target injection module registered for PID {}: {}", processId, modulePath);
     return true;

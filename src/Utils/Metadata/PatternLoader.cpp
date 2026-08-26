@@ -86,11 +86,34 @@ std::string GetCacheDirectory() {
     return OmniPlatform::Paths::GetCacheDirectory();
 }
 
-// Binary cache structure: Magic (4) + Version (4) + EntryCount (4) + [NameLen (2) + Name + RVA (8)]
-constexpr uint32_t kPatternCacheMagic = 0x50544348; // "PTCH"
+// Per-entry module lookup: an RVA is only meaningful against the base of the
+// module that owns the function. FillInAppOverview lives in steamui.dll while
+// the cache was historically keyed to steamclient64.dll - mixing the two
+// produced wild hook addresses after a cache hit.
+uintptr_t ModuleBaseFor(const std::string& moduleName) {
+    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(moduleName);
+    return reinterpret_cast<uintptr_t>(hModule);
+}
 
-bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
-    if (!fs::exists(cachePath) || moduleBase == 0) {
+std::string CurrentCachePath() {
+    std::string modName = GetTargetModuleName();
+    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
+    std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
+    std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
+    if (moduleHash.empty()) {
+        return "";
+    }
+    return GetCacheDirectory() + "/pattern_" + moduleHash + ".cache";
+}
+
+// Binary cache structure v2:
+//   Magic(4) + Version(4) + EntryCount(4)
+//   Entry := NameLen(2) + Name + ModuleLen(2) + ModuleName + RVA(8)
+constexpr uint32_t kPatternCacheMagic = 0x50544348; // "PTCH"
+constexpr uint32_t kPatternCacheVersion = 2;
+
+bool LoadRvaCache(const std::string& cachePath) {
+    if (cachePath.empty() || !fs::exists(cachePath)) {
         return false;
     }
 
@@ -104,10 +127,11 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         return false;
     }
 
-    if (magic != kPatternCacheMagic || version != 1 || count > 500) {
+    if (magic != kPatternCacheMagic || version != kPatternCacheVersion || count > 500) {
         return false;
     }
 
+    bool loadedAny = false;
     for (uint32_t i = 0; i < count; ++i) {
         uint16_t nameLen = 0;
         if (!file.read(reinterpret_cast<char*>(&nameLen), 2) || nameLen == 0 || nameLen > 256) {
@@ -115,6 +139,14 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
         }
         std::string name(nameLen, '\0');
         if (!file.read(&name[0], nameLen)) {
+            return false;
+        }
+        uint16_t moduleLen = 0;
+        if (!file.read(reinterpret_cast<char*>(&moduleLen), 2) || moduleLen == 0 || moduleLen > 128) {
+            return false;
+        }
+        std::string moduleName(moduleLen, '\0');
+        if (!file.read(moduleName.data(), static_cast<std::streamsize>(moduleLen))) {
             return false;
         }
         uint64_t rva = 0;
@@ -126,17 +158,46 @@ bool LoadRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
             return false;
         }
 
-        uintptr_t addr = moduleBase + static_cast<uintptr_t>(rva);
+        // Resolve against the OWNING module's base. A not-yet-loaded module
+        // (steamui.dll during early init) stays unresolved for the lazy path
+        // instead of being rebased onto the wrong module.
+        uintptr_t entryBase = ModuleBaseFor(moduleName);
+        if (entryBase == 0) {
+            continue;
+        }
+        uintptr_t addr = entryBase + static_cast<uintptr_t>(rva);
         std::string norm = NormalizeFunctionName(name);
         g_resolvedAddresses[norm] = addr;
-        spdlog::info("PatternLoader: Loaded cached RVA for {} -> 0x{:X} at {:p}", norm, rva,
+        loadedAny = true;
+        spdlog::info("PatternLoader: Loaded cached RVA for {} ({}) -> 0x{:X} at {:p}", norm, moduleName, rva,
                      reinterpret_cast<void*>(addr));
     }
-    return true;
+    return loadedAny;
 }
 
-void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
-    if (moduleBase == 0 || g_resolvedAddresses.empty()) {
+void SaveRvaCache(const std::string& cachePath) {
+    if (cachePath.empty() || g_resolvedAddresses.empty()) {
+        return;
+    }
+
+    struct PendingEntry {
+        std::string name;
+        std::string moduleName;
+        uint64_t rva;
+    };
+    std::vector<PendingEntry> entries;
+    for (const auto& [name, addr] : g_resolvedAddresses) {
+        auto itPat = g_patterns.find(name);
+        if (itPat == g_patterns.end()) {
+            continue; // never persist an address we cannot attribute to a module
+        }
+        uintptr_t base = ModuleBaseFor(itPat->second.moduleName);
+        if (base == 0 || addr < base) {
+            continue;
+        }
+        entries.push_back({name, itPat->second.moduleName, static_cast<uint64_t>(addr - base)});
+    }
+    if (entries.empty()) {
         return;
     }
 
@@ -149,19 +210,21 @@ void SaveRvaCache(const std::string& cachePath, uintptr_t moduleBase) {
     if (!file)
         return;
     uint32_t magic = kPatternCacheMagic;
-    uint32_t version = 1;
-    uint32_t count = static_cast<uint32_t>(g_resolvedAddresses.size());
+    uint32_t version = kPatternCacheVersion;
+    uint32_t count = static_cast<uint32_t>(entries.size());
 
     file.write(reinterpret_cast<const char*>(&magic), 4);
     file.write(reinterpret_cast<const char*>(&version), 4);
     file.write(reinterpret_cast<const char*>(&count), 4);
 
-    for (const auto& [name, addr] : g_resolvedAddresses) {
-        uint16_t nameLen = static_cast<uint16_t>(name.size());
+    for (const auto& e : entries) {
+        uint16_t nameLen = static_cast<uint16_t>(e.name.size());
+        uint16_t moduleLen = static_cast<uint16_t>(e.moduleName.size());
         file.write(reinterpret_cast<const char*>(&nameLen), 2);
-        file.write(name.data(), nameLen);
-        uint64_t rva = static_cast<uint64_t>(addr - moduleBase);
-        file.write(reinterpret_cast<const char*>(&rva), 8);
+        file.write(e.name.data(), nameLen);
+        file.write(reinterpret_cast<const char*>(&moduleLen), 2);
+        file.write(e.moduleName.data(), moduleLen);
+        file.write(reinterpret_cast<const char*>(&e.rva), 8);
     }
     spdlog::info("PatternLoader: Saved {} function RVAs to cache {}", count, cachePath);
 }
@@ -391,10 +454,10 @@ void Initialize(const std::string& /*unused*/) {
         return;
     }
 
-    std::string cacheFile = GetCacheDirectory() + "/pattern_" + moduleHash + ".cache";
+    std::string cacheFile = CurrentCachePath();
 
     // 1. Check if we already have cached RVAs for this exact binary hash
-    if (LoadRvaCache(cacheFile, moduleBase)) {
+    if (LoadRvaCache(cacheFile)) {
         spdlog::info("PatternLoader: Hash {} matched, all RVAs loaded from local cache in 0.01ms (Zero Scan)",
                      moduleHash);
         return;
@@ -433,7 +496,7 @@ void Initialize(const std::string& /*unused*/) {
     }
 
     // 6. Save resolved RVAs to local cache for instant future launches
-    SaveRvaCache(cacheFile, moduleBase);
+    SaveRvaCache(cacheFile);
 }
 
 bool RegisterPattern(const std::string& functionName, const std::string& moduleName, const std::string& pattern,
@@ -463,6 +526,7 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
     if (found != 0) {
         uintptr_t finalAddr = found + entry.offset;
         g_resolvedAddresses[normalized] = finalAddr;
+        SaveRvaCache(CurrentCachePath()); // persist lazy resolutions, otherwise they are re-scanned every launch
         spdlog::info("PatternLoader: Resolved {} via fallback scan at {:p}", normalized,
                      reinterpret_cast<void*>(finalAddr));
         return finalAddr;
