@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <cctype>
 #include <string>
 
 // Function pointers for real DWMAPI functions forwarded to C:\Windows\System32\dwmapi.dll
@@ -19,21 +20,41 @@ FARPROC GetRealFunc(const char* name) {
 
 void LoadOmniSteamCore() {
     static bool loaded = false;
-    if (!loaded) {
-        loaded = true;
-        char modulePath[MAX_PATH];
-        if (GetModuleFileNameA(nullptr, modulePath, MAX_PATH)) {
-            std::string dir(modulePath);
-            size_t pos = dir.find_last_of("\\/");
-            if (pos != std::string::npos) {
-                std::string fullCorePath = dir.substr(0, pos + 1) + "libomnisteam.dll";
-                if (LoadLibraryA(fullCorePath.c_str())) {
-                    return;
-                }
+    if (loaded) {
+        return;
+    }
+    loaded = true;
+    // Inject ONLY into the main Steam client. Every Steam subprocess
+    // (steamwebhelper.exe CEF renderers incl. sandboxed ones, steamservice,
+    // crash handlers) resolves dwmapi.dll from the app directory; loading
+    // the hook core into them corrupts their network/render stacks - store
+    // pages and news feeds fail with "载入失败".
+    char exePath[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, exePath, MAX_PATH)) {
+        return;
+    }
+    std::string exeName(exePath);
+    const size_t slash = exeName.find_last_of("\\/");
+    exeName = (slash == std::string::npos) ? exeName : exeName.substr(slash + 1);
+    for (char& c : exeName) {
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    }
+    if (exeName != "steam.exe") {
+        return;
+    }
+    char modulePath[MAX_PATH];
+    if (GetModuleFileNameA(nullptr, modulePath, MAX_PATH)) {
+        std::string dir(modulePath);
+        size_t pos = dir.find_last_of("\\/");
+        if (pos != std::string::npos) {
+            std::string fullCorePath = dir.substr(0, pos + 1) + "libomnisteam.dll";
+            if (LoadLibraryA(fullCorePath.c_str())) {
+                return;
             }
         }
-        LoadLibraryA("libomnisteam.dll");
     }
+    LoadLibraryA("libomnisteam.dll");
+}
 }
 } // namespace
 

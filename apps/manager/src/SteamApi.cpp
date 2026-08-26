@@ -61,7 +61,10 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     spdlog::info("SteamApi: Querying store search: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 8000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
-        std::regex blockRegex(R"regex(\{[^\{\}]*"type"\s*:\s*"app"[^\}]*\})regex");
+        // Item blocks carry a nested "price" object, so the block matcher
+        // must tolerate one level of braces; [^{}]* alone truncates at the
+        // nested "{" and every match silently fails (search returned 0).
+        std::regex blockRegex(R"regex(\{"type"\s*:\s*"app"(?:[^{}]|\{[^{}]*\})*\})regex");
         auto begin = std::sregex_iterator(resp.body.begin(), resp.body.end(), blockRegex);
         auto end = std::sregex_iterator();
 
