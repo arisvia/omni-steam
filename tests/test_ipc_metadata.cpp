@@ -1,4 +1,5 @@
-#include <cassert>
+#include "omni_check.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -30,39 +31,39 @@ void TestSteamIPCBuffer() {
     std::string name = reader.ReadString();
     uint8_t flag = reader.Read<uint8_t>();
 
-    assert(appId == 1361510);
-    assert(name == "TestGame");
-    assert(flag == 1);
+    OMNI_CHECK(appId == 1361510);
+    OMNI_CHECK(name == "TestGame");
+    OMNI_CHECK(flag == 1);
     std::cout << "[PASS] TestSteamIPCBuffer\n";
 }
 
 void TestManifestClientResolution() {
     std::string gid = ManifestClient::QueryManifestIdByDepot(999999);
-    assert(gid.empty());
+    OMNI_CHECK(gid.empty());
     std::cout << "[PASS] TestManifestClientResolution\n";
 }
 void TestSteamStructureInvariants() {
     // 1. Verify Enum Value Invariants
-    assert(static_cast<uint32_t>(EPackageStatus::Available) == 0);
-    assert(static_cast<uint32_t>(EAppReleaseState::Released) == 4);
-    assert(kSteamDefaultBasePackageId == 0);
-    assert(kSteamDefaultInjectedPackageCount == 1);
-    assert(k_iCallback_LicensesUpdated == 125);
+    OMNI_CHECK(static_cast<uint32_t>(EPackageStatus::Available) == 0);
+    OMNI_CHECK(static_cast<uint32_t>(EAppReleaseState::Released) == 4);
+    OMNI_CHECK(kSteamDefaultBasePackageId == 0);
+    OMNI_CHECK(kSteamDefaultInjectedPackageCount == 1);
+    OMNI_CHECK(k_iCallback_LicensesUpdated == 125);
 
     // 2. Verify structure layout invariants (compile-time asserts live in
     //    SteamTypes.h; runtime mirrors them so drift fails loudly here too).
-    assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14);
-    assert(offsetof(AppOwnership, bOwnsLicense) == 0x24);
-    assert(offsetof(AppOwnership, bFreeLicense) == 0x28);
-    assert(offsetof(PackageInfo, Status) == 0x18);
+    OMNI_CHECK(offsetof(AppOwnership, ExistInPackageNums) == 0x14);
+    OMNI_CHECK(offsetof(AppOwnership, bOwnsLicense) == 0x24);
+    OMNI_CHECK(offsetof(AppOwnership, bFreeLicense) == 0x28);
+    OMNI_CHECK(offsetof(PackageInfo, Status) == 0x18);
 #if defined(OMNI_ARCH_X64)
-    assert(offsetof(PackageInfo, AppIdVec) == 0x40);
-    assert(offsetof(PackageInfo, DepotIdVec) == 0x58);
-    assert(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
+    OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x40);
+    OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x58);
+    OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
 #elif defined(OMNI_ARCH_X86)
-    assert(offsetof(PackageInfo, AppIdVec) == 0x38);
-    assert(offsetof(PackageInfo, DepotIdVec) == 0x48);
-    assert(sizeof(CUtlVector<AppId_t>) == 16);
+    OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x38);
+    OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x48);
+    OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 16);
 #endif
 
     std::cout << "[PASS] TestSteamStructureInvariants\n";
@@ -74,11 +75,11 @@ void TestDlcStoreInvariants() {
     std::vector<uint32_t> dlcs = {3899110, 3899120, 3899130};
     Metadata::DlcStore::RegisterDlcs(baseApp, dlcs);
 
-    assert(Metadata::DlcStore::IsKnownDlc(3899110));
-    assert(Metadata::DlcStore::IsKnownDlc(3899120));
-    assert(Metadata::DlcStore::IsKnownDlc(3899130));
-    assert(!Metadata::DlcStore::IsKnownDlc(99999999));
-    assert(Metadata::DlcStore::Count() >= 3);
+    OMNI_CHECK(Metadata::DlcStore::IsKnownDlc(3899110));
+    OMNI_CHECK(Metadata::DlcStore::IsKnownDlc(3899120));
+    OMNI_CHECK(Metadata::DlcStore::IsKnownDlc(3899130));
+    OMNI_CHECK(!Metadata::DlcStore::IsKnownDlc(99999999));
+    OMNI_CHECK(Metadata::DlcStore::Count() >= 3);
 
     std::cout << "[PASS] TestDlcStoreInvariants\n";
 }

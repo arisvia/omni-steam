@@ -1,6 +1,6 @@
 #include "ScriptManager.h"
+#include "omni_check.h"
 
-#include <cassert>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -15,10 +15,10 @@ void TestScriptGeneration() {
     spec.accessToken = "123456789";
 
     std::string lua = Manager::ScriptManager::GenerateLuaScript(spec);
-    assert(lua.find("addappid(1361510)") != std::string::npos);
-    assert(lua.find("addtoken(1361510, \"123456789\")") != std::string::npos);
-    assert(lua.find("addappid(2138330)") != std::string::npos);
-    assert(lua.find("addappid(2564880)") != std::string::npos);
+    OMNI_CHECK(lua.find("addappid(1361510)") != std::string::npos);
+    OMNI_CHECK(lua.find("addtoken(1361510, \"123456789\")") != std::string::npos);
+    OMNI_CHECK(lua.find("addappid(2138330)") != std::string::npos);
+    OMNI_CHECK(lua.find("addappid(2564880)") != std::string::npos);
     std::cout << "[PASS] TestScriptGeneration\n";
 }
 
@@ -31,20 +31,20 @@ void TestScriptLifecycle() {
     spec.gameName = "TestGame";
 
     bool saved = Manager::ScriptManager::SaveGameUnlock(spec, tempDir);
-    assert(saved);
+    OMNI_CHECK(saved);
 
     auto list = Manager::ScriptManager::ListScripts(tempDir);
-    assert(!list.empty());
-    assert(list[0].primaryAppId == 9999);
-    assert(list[0].enabled);
+    OMNI_CHECK(!list.empty());
+    OMNI_CHECK(list[0].primaryAppId == 9999);
+    OMNI_CHECK(list[0].enabled);
 
     // Test toggle
     bool toggled = Manager::ScriptManager::ToggleScript(list[0].fullPath, false);
-    assert(toggled);
+    OMNI_CHECK(toggled);
 
     auto listAfterToggle = Manager::ScriptManager::ListScripts(tempDir);
-    assert(!listAfterToggle.empty());
-    assert(!listAfterToggle[0].enabled);
+    OMNI_CHECK(!listAfterToggle.empty());
+    OMNI_CHECK(!listAfterToggle[0].enabled);
 
     // Clean up
     fs::remove_all(tempDir);

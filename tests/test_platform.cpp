@@ -1,4 +1,5 @@
-#include <cassert>
+#include "omni_check.h"
+
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -10,14 +11,14 @@
 void TestEncoding() {
     std::string hex = "5954562e";
     auto bytes = OmniPlatform::Encoding::HexToBytes(hex);
-    assert(bytes.size() == 4);
-    assert(bytes[0] == 0x59);
-    assert(bytes[1] == 0x54);
-    assert(bytes[2] == 0x56);
-    assert(bytes[3] == 0x2e);
+    OMNI_CHECK(bytes.size() == 4);
+    OMNI_CHECK(bytes[0] == 0x59);
+    OMNI_CHECK(bytes[1] == 0x54);
+    OMNI_CHECK(bytes[2] == 0x56);
+    OMNI_CHECK(bytes[3] == 0x2e);
 
     std::string roundtrip = OmniPlatform::Encoding::BytesToHex(bytes.data(), bytes.size());
-    assert(roundtrip == hex);
+    OMNI_CHECK(roundtrip == hex);
     std::cout << "[PASS] TestEncoding\n";
 }
 
@@ -26,10 +27,10 @@ void TestByteSearch() {
     uintptr_t base = reinterpret_cast<uintptr_t>(buffer);
 
     uintptr_t found = OmniPlatform::ByteSearch::FindPattern(base, sizeof(buffer), "55 48 89 E5 ?? 57");
-    assert(found == base);
+    OMNI_CHECK(found == base);
 
     uintptr_t notFound = OmniPlatform::ByteSearch::FindPattern(base, sizeof(buffer), "FF FF FF");
-    assert(notFound == 0);
+    OMNI_CHECK(notFound == 0);
     std::cout << "[PASS] TestByteSearch\n";
 }
 
@@ -38,20 +39,20 @@ void TestCredentialStore() {
     std::string testHex = "14000000aabbccdd";
 
     bool ok = OmniPlatform::CredentialStore::WriteTicket(appId, "TestTicket", testHex);
-    assert(ok);
+    OMNI_CHECK(ok);
 
     std::string readBack = OmniPlatform::CredentialStore::ReadTicket(appId, "TestTicket");
-    assert(readBack == testHex);
+    OMNI_CHECK(readBack == testHex);
     std::cout << "[PASS] TestCredentialStore\n";
 }
 
 void TestAntiCheatGuard() {
     using namespace AntiCheat;
-    assert(kCounterStrike2 == 730);
-    assert(kDota2 == 570);
-    assert(kApexLegends == 1172470);
-    assert(kPUBG == 578080);
-    assert(kEldenRing == 1245620);
+    OMNI_CHECK(kCounterStrike2 == 730);
+    OMNI_CHECK(kDota2 == 570);
+    OMNI_CHECK(kApexLegends == 1172470);
+    OMNI_CHECK(kPUBG == 578080);
+    OMNI_CHECK(kEldenRing == 1245620);
 
     std::cout << "[PASS] TestAntiCheatGuard\n";
 }

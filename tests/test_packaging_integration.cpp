@@ -1,4 +1,5 @@
-#include <cassert>
+#include "omni_check.h"
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -29,19 +30,19 @@ std::string ResolvePath(const std::string& relativePath) {
 } // namespace
 
 void TestPackagingDefinitions() {
-    assert(FindFile("scripts/omnisteam.sh"));
-    assert(FindFile("scripts/install-steamos.sh"));
+    OMNI_CHECK(FindFile("scripts/omnisteam.sh"));
+    OMNI_CHECK(FindFile("scripts/install-steamos.sh"));
     std::cout << "[PASS] TestPackagingDefinitions\n";
 }
 
 void TestDeckyPluginSchema() {
     std::string pluginPath = ResolvePath("plugins/decky-omnisteam/plugin.json");
-    assert(!pluginPath.empty());
+    OMNI_CHECK(!pluginPath.empty());
     std::ifstream in(pluginPath);
-    assert(in.is_open());
+    OMNI_CHECK(in.is_open());
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    assert(content.find("\"name\": \"OmniSteam\"") != std::string::npos);
-    assert(content.find("\"api_version\": 2") != std::string::npos);
+    OMNI_CHECK(content.find("\"name\": \"OmniSteam\"") != std::string::npos);
+    OMNI_CHECK(content.find("\"api_version\": 2") != std::string::npos);
     std::cout << "[PASS] TestDeckyPluginSchema\n";
 }
 

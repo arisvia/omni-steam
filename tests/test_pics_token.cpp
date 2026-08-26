@@ -1,3 +1,5 @@
+#include "omni_check.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -9,17 +11,6 @@
 
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/PicsTokenInjector.h"
-
-// NDEBUG strips <cassert>, which would turn every check into a no-op and let
-// failures pass silently (or surface later as unrelated exceptions). This
-// macro stays active in Release and prints the exact failing expression.
-#define OMNI_CHECK(cond)                                                                                               \
-    do {                                                                                                               \
-        if (!(cond)) {                                                                                                 \
-            std::fprintf(stderr, "[FAIL] %s:%d  CHECK(%s)\n", __FILE__, __LINE__, #cond);                              \
-            std::abort();                                                                                              \
-        }                                                                                                              \
-    } while (0)
 
 namespace {
 

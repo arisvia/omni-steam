@@ -1,8 +1,8 @@
 #include "CloudSaveManager.h"
 #include "SavePathResolver.h"
 #include "WebDavClient.h"
+#include "omni_check.h"
 
-#include <cassert>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -24,8 +24,8 @@ void TestWebDavConfig() {
     cfg.password = "test_pass";
     cfg.remoteRootPath = "OmniSteam_Saves";
 
-    assert(!cfg.serverUrl.empty());
-    assert(cfg.remoteRootPath == "OmniSteam_Saves");
+    OMNI_CHECK(!cfg.serverUrl.empty());
+    OMNI_CHECK(cfg.remoteRootPath == "OmniSteam_Saves");
     std::cout << "[PASS] TestWebDavConfig\n";
 }
 

@@ -1,4 +1,5 @@
-#include <cassert>
+#include "omni_check.h"
+
 #include <cstdint>
 #include <iostream>
 #include <set>
@@ -30,16 +31,16 @@ void TestVarintRoundTrip() {
         const uint8_t* ptr = encoded.data();
         const uint8_t* end = ptr + encoded.size();
         uint64_t decoded = 0;
-        assert(ProtoFields::ReadVarint(ptr, end, decoded));
-        assert(decoded == value);
-        assert(ptr == end);
+        OMNI_CHECK(ProtoFields::ReadVarint(ptr, end, decoded));
+        OMNI_CHECK(decoded == value);
+        OMNI_CHECK(ptr == end);
     }
     std::cout << "[PASS] TestVarintRoundTrip\n";
 }
 
 void TestNegativeVarintIsTenBytes() {
     auto encoded = Varint(static_cast<uint64_t>(-1));
-    assert(encoded.size() == 10); // protobuf encodes negative int32/64 as 10-byte varint
+    OMNI_CHECK(encoded.size() == 10); // protobuf encodes negative int32/64 as 10-byte varint
     std::cout << "[PASS] TestNegativeVarintIsTenBytes\n";
 }
 
@@ -49,14 +50,14 @@ void TestGetVarintAndFixed64() {
     ProtoFields::AppendFixed64Field(body, 4, 0x0110000100001234ull);
 
     auto appId = ProtoFields::GetVarintField(body.data(), static_cast<uint32_t>(body.size()), 2);
-    assert(appId && *appId == 730);
+    OMNI_CHECK(appId && *appId == 730);
 
     uint32_t wire = 0;
     auto donor = ProtoFields::GetScalarField(body.data(), static_cast<uint32_t>(body.size()), 4, &wire);
-    assert(donor && wire == ProtoFields::WireFixed64);
-    assert(*donor == 0x0110000100001234ull);
+    OMNI_CHECK(donor && wire == ProtoFields::WireFixed64);
+    OMNI_CHECK(*donor == 0x0110000100001234ull);
 
-    assert(!ProtoFields::GetVarintField(body.data(), static_cast<uint32_t>(body.size()), 9));
+    OMNI_CHECK(!ProtoFields::GetVarintField(body.data(), static_cast<uint32_t>(body.size()), 9));
     std::cout << "[PASS] TestGetVarintAndFixed64\n";
 }
 
@@ -66,7 +67,7 @@ void TestAppendOverrideLastWins() {
 
     // Reader semantics: the last occurrence of a scalar field wins.
     auto value = ProtoFields::GetVarintField(body.data(), static_cast<uint32_t>(body.size()), 1);
-    assert(value && *value == 222);
+    OMNI_CHECK(value && *value == 222);
     std::cout << "[PASS] TestAppendOverrideLastWins\n";
 }
 
@@ -85,26 +86,26 @@ void TestWithoutFields() {
     body.push_back(0x11);
 
     auto pruned = ProtoFields::WithoutFields(body.data(), static_cast<uint32_t>(body.size()), std::set<uint32_t>{4});
-    assert(pruned);
-    assert(!ProtoFields::HasField(pruned->data(), static_cast<uint32_t>(pruned->size()), 4));
+    OMNI_CHECK(pruned);
+    OMNI_CHECK(!ProtoFields::HasField(pruned->data(), static_cast<uint32_t>(pruned->size()), 4));
 
     auto sha = ProtoFields::GetVarintField(pruned->data(), static_cast<uint32_t>(pruned->size()), 1);
     auto crc = ProtoFields::GetVarintField(pruned->data(), static_cast<uint32_t>(pruned->size()), 2);
-    assert(sha && *sha == 0xAABB);
-    assert(crc && *crc == 42);
+    OMNI_CHECK(sha && *sha == 0xAABB);
+    OMNI_CHECK(crc && *crc == 42);
     std::cout << "[PASS] TestWithoutFields\n";
 }
 
 void TestMalformedInputSafe() {
     const uint8_t truncated[] = {0x08}; // tag without payload
-    assert(!ProtoFields::GetVarintField(truncated, sizeof(truncated), 1));
-    assert(!ProtoFields::HasField(truncated, sizeof(truncated), 1));
-    assert(!ProtoFields::WithoutFields(truncated, sizeof(truncated), std::set<uint32_t>{1}));
+    OMNI_CHECK(!ProtoFields::GetVarintField(truncated, sizeof(truncated), 1));
+    OMNI_CHECK(!ProtoFields::HasField(truncated, sizeof(truncated), 1));
+    OMNI_CHECK(!ProtoFields::WithoutFields(truncated, sizeof(truncated), std::set<uint32_t>{1}));
 
     const uint8_t badLength[] = {0x12, 0x40, 0x01}; // len-delimited claiming 64 bytes, only 1 present
-    assert(!ProtoFields::WithoutFields(badLength, sizeof(badLength), std::set<uint32_t>{}));
+    OMNI_CHECK(!ProtoFields::WithoutFields(badLength, sizeof(badLength), std::set<uint32_t>{}));
 
-    assert(!ProtoFields::GetVarintField(nullptr, 16, 1));
+    OMNI_CHECK(!ProtoFields::GetVarintField(nullptr, 16, 1));
     std::cout << "[PASS] TestMalformedInputSafe\n";
 }
 
