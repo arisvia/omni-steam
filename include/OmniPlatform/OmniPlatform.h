@@ -87,6 +87,10 @@ public:
     static Response Get(const std::string& url, int timeoutMs = 5000);
     static Response Post(const std::string& url, const std::string& body,
                          const std::string& contentType = "application/json", int timeoutMs = 5000);
+    // Opt-in chain-validation bypass for self-signed / test endpoints. Off by
+    // default: enabling it lets a MITM tamper with manifest request codes,
+    // signature documents and depot keys.
+    static void SetAllowInsecureTls(bool allowed);
 };
 
 class Hash {

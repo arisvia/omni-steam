@@ -6,6 +6,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <optional>
 #include <regex>
@@ -170,37 +171,49 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
         const auto& latest = backups.front();
         std::string remoteAppDir = webdav.remoteRootPath + "/" + std::to_string(appId) + "/" + latest.timestamp;
 
-        auto listing = WebDavClient::PropFind(webdav, remoteAppDir);
-        if (!listing.isSuccess()) {
-            spdlog::warn("CloudSaveManager: PROPFIND failed for {} (HTTP {})", remoteAppDir, listing.statusCode);
-            return false;
-        }
-
         size_t restoredFiles = 0;
-        for (const auto& href : ParsePropFindHrefs(listing.body)) {
-            std::string relative = RelativeTo(href, remoteAppDir).value_or("");
-            if (relative.empty() || relative.back() == '/')
-                continue; // the collection itself or nested directories
-
-            auto payload = WebDavClient::DownloadFile(webdav, remoteAppDir + "/" + relative);
-            if (!payload.isSuccess()) {
-                spdlog::warn("CloudSaveManager: Download failed for {}/{}", remoteAppDir, relative);
-                continue;
-            }
-
-            std::string destination = (fs::path(localDir) / fs::path(relative)).generic_string();
-            std::string parentDir = fs::path(destination).parent_path().string();
-            if (!parentDir.empty())
-                fs::create_directories(parentDir);
-
-            std::ofstream out(destination, std::ios::binary | std::ios::trunc);
-            if (!out) {
-                spdlog::warn("CloudSaveManager: Cannot write {}", destination);
-                continue;
-            }
-            out.write(payload.body.data(), static_cast<std::streamsize>(payload.body.size()));
-            ++restoredFiles;
-        }
+        // Recursive walk: backups preserve subdirectories (EnsureRemoteDirs on
+        // upload), so restore must descend into collections instead of skipping
+        // them - Depth:1 PROPFIND alone silently dropped nested saves.
+        std::function<void(const std::string&, const std::string&, int)> restoreDir =
+            [&](const std::string& remoteDir, const std::string& localParent, int depth) {
+                if (depth > 8) {
+                    spdlog::warn("CloudSaveManager: WebDAV nesting deeper than 8 levels at {}, skipping", remoteDir);
+                    return;
+                }
+                auto listing = WebDavClient::PropFind(webdav, remoteDir);
+                if (!listing.isSuccess()) {
+                    spdlog::warn("CloudSaveManager: PROPFIND failed for {} (HTTP {})", remoteDir, listing.statusCode);
+                    return;
+                }
+                for (const auto& href : ParsePropFindHrefs(listing.body)) {
+                    std::string relative = RelativeTo(href, remoteDir).value_or("");
+                    if (relative.empty())
+                        continue;
+                    if (relative.back() == '/') {
+                        restoreDir(remoteDir + "/" + relative, (fs::path(localParent) / relative).generic_string(),
+                                   depth + 1);
+                        continue;
+                    }
+                    auto payload = WebDavClient::DownloadFile(webdav, remoteDir + "/" + relative);
+                    if (!payload.isSuccess()) {
+                        spdlog::warn("CloudSaveManager: Download failed for {}/{}", remoteDir, relative);
+                        continue;
+                    }
+                    std::string destination = (fs::path(localParent) / fs::path(relative)).generic_string();
+                    std::string parentDir = fs::path(destination).parent_path().string();
+                    if (!parentDir.empty())
+                        fs::create_directories(parentDir);
+                    std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+                    if (!out) {
+                        spdlog::warn("CloudSaveManager: Cannot write {}", destination);
+                        continue;
+                    }
+                    out.write(payload.body.data(), static_cast<std::streamsize>(payload.body.size()));
+                    ++restoredFiles;
+                }
+            };
+        restoreDir(remoteAppDir, localDir, 0);
 
         spdlog::info("CloudSaveManager: Restored {} file(s) from backup {} into {}", restoredFiles, latest.timestamp,
                      localDir);

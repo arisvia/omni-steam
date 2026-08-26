@@ -80,6 +80,8 @@ ConfigDto ConfigManager::ReadConfig() {
             dto.manifestUrl = *url;
         if (auto stats = tbl["stats"]["enable_api"].value<bool>())
             dto.statsEnableApi = *stats;
+        if (auto insecure = tbl["security"]["allow_insecure_tls"].value<bool>())
+            OmniPlatform::Http::SetAllowInsecureTls(*insecure);
         if (auto cloud = tbl["cloud"]["enabled"].value<bool>())
             dto.cloudEnabled = *cloud;
         if (auto serverUrl = tbl["cloud"]["webdav_server_url"].value<std::string>())

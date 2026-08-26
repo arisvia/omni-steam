@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
+#include "OmniPlatform/OmniPlatform.h"
 
 namespace {
 std::mutex g_configMutex;
@@ -41,6 +42,10 @@ void Load(const std::string& configPath) {
 
         if (auto dlcAuto = tbl["dlc"]["auto_unlock"].value<bool>()) {
             g_autoUnlockDlc = *dlcAuto;
+        }
+
+        if (auto insecure = tbl["security"]["allow_insecure_tls"].value<bool>()) {
+            OmniPlatform::Http::SetAllowInsecureTls(*insecure);
         }
         spdlog::info("OmniSteam Config loaded from: {}", configPath);
     } catch (const std::exception& ex) {

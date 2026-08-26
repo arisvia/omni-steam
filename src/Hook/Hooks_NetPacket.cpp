@@ -69,6 +69,21 @@ std::unordered_map<uint64_t, std::shared_future<uint64_t>> g_ManifestFutures;
 std::unordered_map<uint64_t, uint64_t> g_ManifestInstantCodes;
 std::mutex g_ManifestMutex;
 
+// Insertion order + TTL: Steam jobs that never receive a response (disconnect,
+// lost packet) would otherwise grow both maps without bound.
+std::deque<std::pair<uint64_t, std::chrono::steady_clock::time_point>> g_ManifestJobOrder;
+constexpr auto kManifestJobTtl = std::chrono::seconds(120);
+
+// Caller holds g_ManifestMutex.
+void PruneStaleManifestJobs() {
+    const auto now = std::chrono::steady_clock::now();
+    while (!g_ManifestJobOrder.empty() && now - g_ManifestJobOrder.front().second > kManifestJobTtl) {
+        g_ManifestInstantCodes.erase(g_ManifestJobOrder.front().first);
+        g_ManifestFutures.erase(g_ManifestJobOrder.front().first);
+        g_ManifestJobOrder.pop_front();
+    }
+}
+
 // jobid_source -> appid for in-flight Player.GetUserStats requests
 std::unordered_map<uint64_t, AppId_t> g_StatsJobToAppId;
 std::mutex g_StatsJobMutex;
@@ -435,6 +450,8 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                     if (cached != 0) {
                         std::lock_guard<std::mutex> lock(g_ManifestMutex);
                         g_ManifestInstantCodes[jobid_source] = cached;
+                        g_ManifestJobOrder.emplace_back(jobid_source, std::chrono::steady_clock::now());
+                        PruneStaleManifestJobs();
                     } else if (!ManifestClient::IsNegativeCached(manifestId)) {
                         auto task = std::async(std::launch::async, [manifestId]() -> uint64_t {
                             uint64_t code = 0;
@@ -443,6 +460,8 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                         });
                         std::lock_guard<std::mutex> lock(g_ManifestMutex);
                         g_ManifestFutures[jobid_source] = task.share();
+                        g_ManifestJobOrder.emplace_back(jobid_source, std::chrono::steady_clock::now());
+                        PruneStaleManifestJobs();
                     }
                 }
             } else if (target_job_name == "Player.GetUserStats#1") {

@@ -64,8 +64,13 @@ uintptr_t ByteSearch::FindPatternInModule(const std::string& moduleName, const s
         return 0;
     return FindPattern(textStart, textSize, pattern);
 }
+static std::atomic<bool> g_httpAllowInsecureTls{false};
 static std::atomic<bool> g_watchRunning{false};
 static std::thread g_watchThread;
+
+void Http::SetAllowInsecureTls(bool allowed) {
+    g_httpAllowInsecureTls.store(allowed, std::memory_order_relaxed);
+}
 
 bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Callback onChange) {
     if (directories.empty() || !onChange || g_watchRunning.load())
@@ -196,7 +201,10 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
         WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
 
-        if (urlComp.nScheme == INTERNET_SCHEME_HTTPS) {
+        if (urlComp.nScheme == INTERNET_SCHEME_HTTPS && g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
+            // Opt-in only (security.allow_insecure_tls): skipping chain
+            // validation lets a MITM tamper with manifest request codes,
+            // signature documents and depot keys.
             DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
                              SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
             WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));

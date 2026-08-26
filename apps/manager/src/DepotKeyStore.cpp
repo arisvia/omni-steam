@@ -150,6 +150,7 @@ void TriggerAsyncBackgroundUpdate(size_t localCount, const std::string& targetCa
                         if (header->count > localCount) {
                             std::lock_guard<std::mutex> lock(g_storeMutex);
                             if (ParseBinaryContent(rawData, resp.body.size())) {
+                                ImportKeysFromConfigVdf(); // ParseBinaryContent resets g_records - re-apply local keys
                                 spdlog::info(
                                     "DepotKeyStore: Background update hot-reloaded {} depot keys (was {}) from {}",
                                     g_records.size(), localCount, url);

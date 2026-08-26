@@ -27,7 +27,11 @@ inline bool ReadVarint(const uint8_t*& ptr, const uint8_t* end, uint64_t& out) {
             return true;
         shift += 7;
     }
-    return shift < 64 && ptr == end;
+    // A varint is only complete when a byte with the continuation bit clear
+    // was consumed. Running out of bytes mid-value (or exceeding 10 bytes)
+    // is malformed input, not a zero value - the old `ptr == end` fallback
+    // accepted truncated varints from the network.
+    return false;
 }
 
 inline void WriteVarint(std::vector<uint8_t>& buf, uint64_t value) {
@@ -87,6 +91,8 @@ inline std::optional<uint64_t> GetScalarField(const uint8_t* body, uint32_t cbBo
     const uint8_t* end = body + cbBody;
     std::optional<uint64_t> result;
 
+    if (!body || cbBody == 0)
+        return std::nullopt;
     while (ptr < end) {
         uint32_t field = 0, wire = 0;
         if (!ReadTag(ptr, end, field, wire))
@@ -131,12 +137,17 @@ inline std::optional<uint64_t> GetVarintField(const uint8_t* body, uint32_t cbBo
 inline bool HasField(const uint8_t* body, uint32_t cbBody, uint32_t wantField) {
     const uint8_t* ptr = body;
     const uint8_t* end = body + cbBody;
+    if (!body)
+        return false;
     while (ptr < end) {
         uint32_t field = 0, wire = 0;
         if (!ReadTag(ptr, end, field, wire))
             return false;
-        if (field == wantField)
-            return true;
+        if (field == wantField) {
+            // Presence requires an intact payload: a truncated field means
+            // the whole message is malformed, not that the field exists.
+            return SkipPayload(ptr, end, wire);
+        }
         if (!SkipPayload(ptr, end, wire))
             return false;
     }
@@ -153,6 +164,8 @@ inline std::optional<std::vector<uint8_t>> WithoutFields(const uint8_t* body, ui
     std::vector<uint8_t> out;
     out.reserve(cbBody);
 
+    if (!body)
+        return std::nullopt;
     while (ptr < end) {
         const uint8_t* fieldStart = ptr;
         uint32_t field = 0, wire = 0;
