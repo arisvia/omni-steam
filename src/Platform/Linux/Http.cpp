@@ -70,6 +70,8 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+
+    CURLcode code = curl_easy_perform(curl);
     if (code == CURLE_OK) {
         long httpCode = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
