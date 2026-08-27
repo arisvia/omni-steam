@@ -62,7 +62,8 @@ void InstallHooks() {
     Hooks_Misc::Install();
     Hooks_NetPacket::Install();
     Hooks_Package::Install();
-    Hooks_SteamUI::Install();
+    // Hooks_SteamUI disabled: Package 0 injection and appmanifest generation provide full library persistence without
+    // steamui.dll detour instability Hooks_SteamUI::Install();
     if (OmniPlatform::Detour::CommitTransaction()) {
         spdlog::info("OmniSteam hooks installed successfully across current platform");
     } else {

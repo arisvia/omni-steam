@@ -167,27 +167,28 @@ struct AppOwnership {
     AppId_t MasterSubscriptionAppID; // 0x0C
     uint32_t TrialSeconds;           // 0x10
     uint32_t ExistInPackageNums;     // 0x14
-    uint32_t TimeStamp;              // 0x18
-    uint32_t TimeExpire;             // 0x1C
-    uint32_t Unknown20;              // 0x20
-    bool bOwnsLicense;               // 0x24
-    bool bLicenseExpired;            // 0x25
-    bool bIsPermanent;               // 0x26
-    bool bLowViolence;               // 0x27
-    bool bFreeLicense;               // 0x28
-    bool bRegionRestricted;          // 0x29
-    bool bFromFreeWeekend;           // 0x2A
-    bool bLicenseLocked;             // 0x2B
-    bool bLicensePending;            // 0x2C
-    bool bRetailLicense;             // 0x2D
-    bool bAutoGrant;                 // 0x2E
-    bool bLicensePermanent;          // 0x2F
-    bool bGuestPass;                 // 0x30
-    bool bBorrowed;                  // 0x31
-    bool bAnySiteLicense;            // 0x32
-    bool bAllSiteLicenses;           // 0x33
-    bool bAllActivationRequired;     // 0x34
-    bool bFamilyShared;              // 0x35
+    char PurchaseCountryCode[4];     // 0x18
+    uint32_t TimeStamp;              // 0x1C
+    uint32_t TimeExpire;             // 0x20
+    uint32_t Unknown24;              // 0x24
+    bool bOwnsLicense;               // 0x28
+    bool bLicenseExpired;            // 0x29
+    bool bIsPermanent;               // 0x2A
+    bool bLowViolence;               // 0x2B
+    bool bFreeLicense;               // 0x2C
+    bool bRegionRestricted;          // 0x2D
+    bool bFromFreeWeekend;           // 0x2E
+    bool bLicenseLocked;             // 0x2F
+    bool bLicensePending;            // 0x30
+    bool bRetailLicense;             // 0x31
+    bool bAutoGrant;                 // 0x32
+    bool bLicensePermanent;          // 0x33
+    bool bGuestPass;                 // 0x34
+    bool bBorrowed;                  // 0x35
+    bool bAnySiteLicense;            // 0x36
+    bool bAllSiteLicenses;           // 0x37
+    bool bAllActivationRequired;     // 0x38
+    bool bFamilyShared;              // 0x39
 };
 
 struct PackageInfo {
@@ -203,6 +204,26 @@ struct PackageInfo {
     CUtlVector<AppId_t> AppIdVec;     // 0x40
     CUtlVector<DepotId_t> DepotIdVec; // 0x58
 };
+
+#pragma pack(push, 1)
+struct CSteamApp {
+    void** vfptr;                   // 0x00
+    CGameID GameID;                 // 0x08
+    AppId_t nAppID;                 // 0x10
+    uint16_t _unknown1;             // 0x14
+    uint16_t _unknown2;             // 0x16
+    EAppReleaseState ReleaseState;  // 0x18
+    uint32_t OwnershipFlags;        // 0x1C
+    uint32_t AppStateFlags;         // 0x20
+    uint64_t SteamID;               // 0x24
+    uint32_t PurchasedTime;         // 0x2C
+    uint32_t ChangeNumber;          // 0x30
+    uint32_t LicenseExpirationTime; // 0x34
+    AppId_t MasterSubAppID;         // 0x38
+    uint32_t eProtoAppType;         // 0x3C
+    AppId_t ParentAppID;            // 0x40
+};
+#pragma pack(pop)
 // ==============================================================================
 // Structure Layout Invariants (self-verifying; replaces hand-maintained offset
 // tables that drifted from the real client layout — see upstream Structs.h).
@@ -218,8 +239,8 @@ static_assert(offsetof(PackageInfo, DepotIdVec) == offsetof(PackageInfo, AppIdVe
 static_assert(offsetof(CUtlVector<AppId_t>, m_Size) == sizeof(CUtlMemory<AppId_t>),
               "CUtlVector::m_Size must directly follow CUtlMemory (no m_pElements)");
 static_assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14, "AppOwnership::ExistInPackageNums offset drifted");
-static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x24, "AppOwnership::bOwnsLicense offset drifted");
-static_assert(offsetof(AppOwnership, bFreeLicense) == 0x28, "AppOwnership::bFreeLicense offset drifted");
+static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x28, "AppOwnership::bOwnsLicense offset drifted");
+static_assert(offsetof(AppOwnership, bFreeLicense) == 0x2C, "AppOwnership::bFreeLicense offset drifted");
 #if defined(OMNI_ARCH_X64)
 static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "x64 PackageInfo::AppIdVec anchor drifted");
 static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "x64 PackageInfo::DepotIdVec anchor drifted");

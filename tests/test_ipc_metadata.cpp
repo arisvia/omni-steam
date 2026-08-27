@@ -53,8 +53,8 @@ void TestSteamStructureInvariants() {
     // 2. Verify structure layout invariants (compile-time asserts live in
     //    SteamTypes.h; runtime mirrors them so drift fails loudly here too).
     OMNI_CHECK(offsetof(AppOwnership, ExistInPackageNums) == 0x14);
-    OMNI_CHECK(offsetof(AppOwnership, bOwnsLicense) == 0x24);
-    OMNI_CHECK(offsetof(AppOwnership, bFreeLicense) == 0x28);
+    OMNI_CHECK(offsetof(AppOwnership, bOwnsLicense) == 0x28);
+    OMNI_CHECK(offsetof(AppOwnership, bFreeLicense) == 0x2C);
     OMNI_CHECK(offsetof(PackageInfo, Status) == 0x18);
 #if defined(OMNI_ARCH_X64)
     OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x40);

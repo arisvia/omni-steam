@@ -63,6 +63,8 @@ void RegisterCoreSignatures() {
     RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
     RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 98 24 00 00 00",
                     0);
+    RegisterPattern("CUtlMemoryGrow", "steamclient64.dll",
+                    "48 89 5C 24 10 57 48 83 EC 30 8B FA 48 8B D9 8B 51 08 8B 49 10 8D 04 39", 0);
     RegisterPattern("BBuildAndAsyncSendFrame", "steamclient64.dll",
                     "48 8B C4 55 48 8D 68 A1 48 81 EC C0 00 00 00 48 89 70 18", 0);
     RegisterPattern("RecvPkt", "steamclient64.dll", "48 8B C4 55 48 8D A8 98 F6 FF FF", 0);

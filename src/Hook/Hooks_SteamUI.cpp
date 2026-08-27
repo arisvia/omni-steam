@@ -13,20 +13,7 @@
 
 namespace {
 
-struct CSteamApp {
-    uint32_t nAppID;
-    uint32_t AppStateFlags;
-    uint32_t OwnershipFlags;
-    uint32_t PurchasedTime;
-};
-
 HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* pApp) {
-    if (pApp && (LuaConfig::HasApp(pApp->nAppID) || LuaConfig::HasDepot(pApp->nAppID))) {
-        if (pApp->PurchasedTime == 0) {
-            pApp->PurchasedTime = kSteamSyntheticPurchasedTime;
-            spdlog::debug("Hooks_SteamUI: Set synthetic PurchasedTime for uninstalled AppID {}", pApp->nAppID);
-        }
-    }
     return oFillInAppOverview ? oFillInAppOverview(pThis, pAppOverview, pApp) : nullptr;
 }
 
