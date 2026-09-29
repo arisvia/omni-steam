@@ -11,16 +11,14 @@
 | :--- | :--- | :--- | :--- |
 | **`PlatformTests`** | `test_platform` | `tests/test_platform.cpp` | **底层跨平台抽象层**：特征字节搜索 (`ByteSearch`)、十六进制编解码 (`Encoding`)、凭据票据存取 (`CredentialStore`)、反作弊白名单常量。 |
 | **`IpcMetadataTests`** | `test_ipc_metadata` | `tests/test_ipc_metadata.cpp` | **Steam IPC 与元数据引擎**：结构偏移量断言（Ownership/PackageInfo 布局）、指令特征扫描 (`PatternLoader`)、IPC 序列化 (`SteamIPC`)、Manifest 解析 (`ManifestClient`)。 |
-| **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：AppID/DLC/Token 脚本生成、启用与停用状态切换、目录扫描。 |
+| **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：AppID/DLC/Token 脚本生成、DepotKey 智能去重、Denuvo 票据语句生成、启用/停用/删除全生命周期、AppID=0 边界防御。 |
 | **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档引擎**：存档路径探测（userdata / Proton compatdata）、WebDAV 客户端配置。 |
-| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与 Decky 整合**：发布资源定义、SteamOS 安装脚本、Decky 插件规范校验。 |
+| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与系统整合**：发布资源定义、SteamOS 脚本、Decky 插件规范、全平台签名完整性校验、`dwmapi.def` 45 序数转发映射验证。 |
 | **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：`depotkeys.bin` 二进制加载、二分查找、恶意头防护（数量上限/溢出）。 |
 | **`PicsTokenTests`** | `test_pics_token` | `tests/test_pics_token.cpp` | **PICS 令牌注入器**：eMsg 8903 报文改写（令牌注入/覆盖/已正确则跳过）、无关字段逐字节保留、畸形输入安全拒绝。 |
 | **`StatsProtoTests`** | `test_stats_proto` | `tests/test_stats_proto.cpp` | **protobuf 字段操作库**：varint 往返（含负数 10 字节编码）、fixed64 读取、追加覆盖语义、repeated 字段剥离、畸形输入安全拒绝。 |
 
-> 已知局限：部分套件存在恒真断言（如 constexpr 常量与字面量比较），行为级覆盖将在阶段 7 增强
-> （重点：LuaConfig 双缓冲并发、ManifestClient 缓存 TTL、ApiRouter 输入净化）。
-
+> 注：已通过 code-review-graph 对全量执行流进行盲区分析，覆盖了 ScriptManager 生命周期、Manifest 边界与打包资产校验。
 ---
 
 ## 二、运行测试命令

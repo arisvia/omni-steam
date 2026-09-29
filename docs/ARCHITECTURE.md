@@ -22,8 +22,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | :--- | :--- | :--- | :--- |
 | 注入载体 | `dwmapi.dll` 代理劫持 | `LD_PRELOAD` | `DYLD_INSERT_LIBRARIES` |
 | Hook 引擎 (funchook) | ✅ | ✅ | ✅ |
-| 函数特征签名库 | ✅（与上游签名库核对一致） | ⚠️ 暂缺（Hook 休眠） | ⚠️ 暂缺（Hook 休眠） |
-| 所有权/解密/请求码解锁 | ✅ | ❌ 待签名库 | ❌ 待签名库 |
+| 函数特征签名库 | ✅（内置 + 远程 CDN 兜底） | ✅（已派生 x64 TOML） | ✅（已派生 Universal TOML） |
+| 所有权/解密/请求码解锁 | ✅ | ✅（加载 TOML 生效） | ✅（加载 TOML 生效） |
 | Manager CLI/Web/云存档 | ✅ | ✅ | ✅ |
 
 ---
@@ -136,10 +136,10 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **2026-08-25 实测 + 自环打通**：三平台内部符号全部 strip（仅公开 `Steam_*` C API）；Windows 内置特征码在部分客户端版本上大面积失效。**vtable 槽位迁移派生已实现并验证**（`tools/derive_signatures.py`）：以任一已锚定版本为参照，经 RTTI（MSVC image-relative COL / Itanium type_info）定位同类 vtable，槽位序号跨版本不变即可迁移函数地址。自环测试 7/7 与上游锚定值精确一致；跨版本迁移经内置特征码独立命中交叉验证（RecvPkt 两法同址）。流水线已接入：Windows 作业快照安装器版参照二进制 + 上游锚点匹配时自动派生回推 | Windows 已闭环；Linux/macOS 待参照数据源 |
+| D | ~~Linux/macOS 签名库~~ | **已闭环打通**：通过 `derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与 Mach-O `LC_FUNCTION_STARTS` 提取函数起止点，已生成并入库 `signatures/linux-x64/` 与 `signatures/macos-universal/`；CI 流水线已修复全平台自动派生与回推 | ✅ 2026-09 完成 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
-| F | ~~Denuvo EncryptedAppTicket 消费~~ | `setAppTicket` 写入的票据现由 eMsg 5527 响应伪造消费（eresult=OK + 子消息注入）；AppOwnershipTicket(858) 伪造仍属增强池 | ✅ 2026-08 部分完成 |
-
+| F | Denuvo 隐身交付 | 详见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)，采用纯协议层拦截与零跨进程代理，杜绝全局命名管道检测 | 📝 2026-09 RFC 规划就绪 |
+| G | 安全化 IPC 回调拦截 | 详见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)，C API 边界优先、异步队列非重入与竞技白名单穿透 | 📝 2026-09 RFC 规划就绪 |
 ## 6. 目录导览
 
 ```
@@ -152,7 +152,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 ├─ apps/manager/src/         Manager 三层架构 + 业务模块（见 §4）
 ├─ plugins/decky-omnisteam/  Steam Deck Decky Loader 插件
 ├─ scripts/                  Linux/SteamOS 安装与启动脚本
-├─ tests/                    六个 CTest 套件（见 TESTING.md）
+├─ tests/                    八个 CTest 套件（见 TESTING.md）
 ├─ tools/                    check_code.py 质检、depot_key_tool.py / process_issue_key.py 密钥工具、
 │                            harvest_signatures.py 三平台签名采集（按架构分桶）、
 │                            sync_upstream_patterns.py 上游锚点同步（锚点→派生→验证）

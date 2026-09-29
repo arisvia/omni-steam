@@ -115,7 +115,8 @@ omnisteam backup [AppID]        # 云存档备份 / restore <AppID> 还原
 | [docs/COMPARISON.md](docs/COMPARISON.md) | 与 GreenLuma / OpenSteamTool / SmokeAPI 等同类项目的对比分析 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 开发路线图与当前进度 |
 | [docs/TESTING.md](docs/TESTING.md) | 测试体系与模块映射 |
-
+| [docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md](docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md) | RFC 001: 隐身化 Denuvo 票据传递方案（零命名管道/纯协议层） |
+| [docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md](docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md) | RFC 002: 安全化 IPC 与回调拦截规范（防死锁与反作弊白名单） |
 ---
 
 ## 致谢与引用 (Credits & Acknowledgements)

@@ -6,9 +6,8 @@
 ## 阶段总览
 
 ```
-[1 跨平台基建] → [2 特征码与IPC核心] → [3 Manager面板] → [4 云存档WebDAV] → [5 发布打包] → [6 全链路加固] → [7 断点补全]
-    ✅               ✅                   ✅                ✅                ✅             ✅             🚧 进行中
-```
+[1 跨平台基建] → [2 特征码与IPC核心] → [3 Manager面板] → [4 云存档WebDAV] → [5 发布打包] → [6 全链路加固] → [7 断点补全] → [8 架构演进]
+    ✅               ✅                   ✅                ✅                ✅             ✅             ✅             📋 规划就绪
 
 ---
 
@@ -109,3 +108,8 @@
 - [x] **特征码采集按架构分桶**（2026-08）：`harvest_signatures.py` 按 ELF 类/机器码输出
       `linux-x64` / `linux-i386` 规范目录（此前 32 位 steamclient.so 的签名被错误归入
       linux-x64，i386 端 PatternLoader 永远 404）；collect 步骤直接透传规范目录。
+- [x] **全平台特征码点亮与 CI 流水线打通**（2026-09）：修复 macOS Mach-O 符号自动派生（LC_FUNCTION_STARTS + 字符串 xref 提取）；对齐 CI 输出规范路径（`windows-x64` / `linux-x64` / `macos-universal`）；测试盲区闭环。
+
+## 阶段 8：架构演进与深水区探索 【📋 规划就绪】
+- [ ] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
+- [ ] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。
