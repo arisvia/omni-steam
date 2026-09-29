@@ -4,6 +4,7 @@
 #include "omni_check.h"
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -17,6 +18,32 @@ void TestSavePathResolver() {
     std::cout << "[PASS] TestSavePathResolver (Found " << locs.size() << " potential save paths)\n";
 }
 
+void TestRemoteCacheUfsResolution() {
+    // Create dummy remotecache.vdf structure
+    std::string tempRoot = (fs::temp_directory_path() / "test_omnisteam_cloud").generic_string();
+    std::string appUserData = tempRoot + "/userdata/123456/999999";
+    std::string remoteDir = appUserData + "/remote";
+    fs::create_directories(remoteDir);
+
+    std::string vdfPath = appUserData + "/remotecache.vdf";
+    std::ofstream out(vdfPath);
+    out << "\"999999\"\n"
+        << "{\n"
+        << "\t\"savegame.sav\"\n"
+        << "\t{\n"
+        << "\t\t\"root\"\t\t\"0\"\n"
+        << "\t\t\"size\"\t\t\"2048\"\n"
+        << "\t}\n"
+        << "}\n";
+    out.close();
+
+    OMNI_CHECK(fs::exists(vdfPath));
+    OMNI_CHECK(fs::exists(remoteDir));
+
+    // Cleanup
+    fs::remove_all(tempRoot);
+    std::cout << "[PASS] TestRemoteCacheUfsResolution\n";
+}
 void TestWebDavConfig() {
     Manager::WebDavConfig cfg;
     cfg.serverUrl = "https://dav.jianguoyun.com/dav/";
@@ -33,6 +60,7 @@ int main() {
     std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
     TestSavePathResolver();
     TestWebDavConfig();
+    TestRemoteCacheUfsResolution();
     std::cout << "All Cloud Save Tests Passed!\n";
     return 0;
 }

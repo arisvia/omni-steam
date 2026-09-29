@@ -45,6 +45,102 @@ std::vector<std::string> GetSteamLibraryFolders(const std::string& steamDir) {
     }
     return libraries;
 }
+
+void ParseRemoteCacheLocations(const std::string& vdfPath, uint32_t appId, const std::string& steamDir,
+                               const std::string& accountId, std::vector<SaveLocation>& locations) {
+    if (!fs::exists(vdfPath))
+        return;
+    try {
+        std::ifstream file(vdfPath);
+        std::string line;
+        std::string currentFile;
+        std::string currentRoot;
+
+        while (std::getline(file, line)) {
+            size_t first = line.find_first_not_of(" \t");
+            if (first == std::string::npos)
+                continue;
+            line = line.substr(first);
+
+            if (line.front() == '"') {
+                size_t q2 = line.find('"', 1);
+                if (q2 != std::string::npos) {
+                    std::string key = line.substr(1, q2 - 1);
+                    if (key == "root") {
+                        size_t q3 = line.find('"', q2 + 1);
+                        if (q3 != std::string::npos) {
+                            size_t q4 = line.find('"', q3 + 1);
+                            if (q4 != std::string::npos) {
+                                currentRoot = line.substr(q3 + 1, q4 - q3 - 1);
+                            }
+                        }
+                    } else if (key != "ChangeNumber" && key != "OSType" && key != std::to_string(appId)) {
+                        currentFile = key;
+                    }
+                }
+            } else if (line.front() == '}' && !currentFile.empty() && !currentRoot.empty()) {
+                std::string resolvedDir;
+                if (currentRoot == "0") {
+                    resolvedDir = steamDir + "/userdata/" + accountId + "/" + std::to_string(appId) + "/remote";
+                }
+#if defined(OMNI_PLATFORM_WINDOWS)
+                else if (currentRoot == "WinMyDocuments") {
+                    const char* prof = std::getenv("USERPROFILE");
+                    if (prof)
+                        resolvedDir = std::string(prof) + "/Documents";
+                } else if (currentRoot == "WinAppDataLocal") {
+                    const char* local = std::getenv("LOCALAPPDATA");
+                    if (local)
+                        resolvedDir = local;
+                } else if (currentRoot == "WinAppDataRoaming") {
+                    const char* app = std::getenv("APPDATA");
+                    if (app)
+                        resolvedDir = app;
+                } else if (currentRoot == "WinSavedGames") {
+                    const char* prof = std::getenv("USERPROFILE");
+                    if (prof)
+                        resolvedDir = std::string(prof) + "/Saved Games";
+                }
+#else
+                else if (currentRoot == "WinMyDocuments" || currentRoot == "WinAppDataLocal" ||
+                         currentRoot == "WinAppDataRoaming" || currentRoot == "WinSavedGames") {
+                    std::string compatPrefix =
+                        steamDir + "/steamapps/compatdata/" + std::to_string(appId) + "/pfx/drive_c/users/steamuser";
+                    if (currentRoot == "WinMyDocuments") {
+                        resolvedDir = compatPrefix + "/Documents";
+                    } else if (currentRoot == "WinAppDataLocal") {
+                        resolvedDir = compatPrefix + "/AppData/Local";
+                    } else if (currentRoot == "WinAppDataRoaming") {
+                        resolvedDir = compatPrefix + "/AppData/Roaming";
+                    } else if (currentRoot == "WinSavedGames") {
+                        resolvedDir = compatPrefix + "/Saved Games";
+                    }
+                }
+#endif
+                if (!resolvedDir.empty()) {
+                    fs::path saveFilePath = fs::path(resolvedDir) / currentFile;
+                    fs::path saveDirPath = saveFilePath.parent_path();
+                    std::string dirStr = saveDirPath.generic_string();
+                    if (!dirStr.empty() && fs::exists(dirStr)) {
+                        bool exists = false;
+                        for (const auto& l : locations) {
+                            if (l.path == dirStr) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        if (!exists) {
+                            locations.push_back({appId, dirStr, "Steam Auto-Cloud UFS (" + currentRoot + ")", true});
+                        }
+                    }
+                }
+                currentFile.clear();
+                currentRoot.clear();
+            }
+        }
+    } catch (...) {
+    }
+}
 } // namespace
 
 std::string SavePathResolver::GetSteamInstallDirectory() {
@@ -72,6 +168,16 @@ std::vector<SaveLocation> SavePathResolver::LocateSaveDirectories(uint32_t appId
         }
     }
 
+    // 1b. Steam Auto-Cloud UFS resolution via remotecache.vdf
+    if (fs::exists(userDataPath)) {
+        for (const auto& accountEntry : fs::directory_iterator(userDataPath)) {
+            if (accountEntry.is_directory()) {
+                std::string accountId = accountEntry.path().filename().string();
+                std::string vdfPath = accountEntry.path().string() + "/" + std::to_string(appId) + "/remotecache.vdf";
+                ParseRemoteCacheLocations(vdfPath, appId, steamDir, accountId, locations);
+            }
+        }
+    }
 #if defined(OMNI_PLATFORM_WINDOWS)
     // 2. Windows Native Saved Games & AppData/Local/AppId paths
     const char* userProfile = std::getenv("USERPROFILE");
