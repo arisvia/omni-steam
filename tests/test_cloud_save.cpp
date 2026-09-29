@@ -8,6 +8,8 @@
 #include <iostream>
 #include <string>
 
+#include "OmniPlatform/OmniPaths.h"
+
 namespace fs = std::filesystem;
 
 void TestSavePathResolver() {
@@ -66,12 +68,69 @@ void TestCloudSyncEnabledToggle() {
     std::cout << "[PASS] TestCloudSyncEnabledToggle\n";
 }
 
+void TestCloudSyncStatusPersistence() {
+    Manager::CloudSyncStatus status;
+    status.appId = 777777;
+    status.action = "backup";
+    status.status = "success";
+    status.timestamp = "20260929_123456";
+    status.fileCount = 3;
+    status.totalBytes = 4096;
+    status.message = "Unit test backup status";
+
+    Manager::CloudSaveManager::RecordSyncStatus(status);
+
+    auto retrieved = Manager::CloudSaveManager::GetSyncStatus(777777);
+    OMNI_CHECK(retrieved.has_value());
+    OMNI_CHECK(retrieved->appId == 777777);
+    OMNI_CHECK(retrieved->action == "backup");
+    OMNI_CHECK(retrieved->status == "success");
+    OMNI_CHECK(retrieved->fileCount == 3);
+    OMNI_CHECK(retrieved->totalBytes == 4096);
+    OMNI_CHECK(retrieved->message == "Unit test backup status");
+
+    auto all = Manager::CloudSaveManager::GetAllSyncStatuses();
+    bool found = false;
+    for (const auto& s : all) {
+        if (s.appId == 777777) {
+            found = true;
+            break;
+        }
+    }
+    OMNI_CHECK(found);
+
+    std::cout << "[PASS] TestCloudSyncStatusPersistence\n";
+}
+
+void TestManagerPathRegistration() {
+    // Register dummy manager executable path
+    std::string testPath = (fs::temp_directory_path() / "test_omnisteam_manager.exe").generic_string();
+    {
+        std::ofstream dummy(testPath);
+        dummy << "binary";
+    }
+    OMNI_CHECK(fs::exists(testPath));
+
+    bool regOk = OmniPlatform::Paths::RegisterManagerExecutablePath(testPath);
+    OMNI_CHECK(regOk);
+
+    std::string resolved = OmniPlatform::Paths::GetManagerExecutablePath();
+    // Should resolve to the registered path
+    OMNI_CHECK(!resolved.empty());
+    OMNI_CHECK(fs::exists(resolved));
+
+    fs::remove(testPath);
+    std::cout << "[PASS] TestManagerPathRegistration\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
     TestSavePathResolver();
     TestWebDavConfig();
     TestRemoteCacheUfsResolution();
     TestCloudSyncEnabledToggle();
+    TestCloudSyncStatusPersistence();
+    TestManagerPathRegistration();
     std::cout << "All Cloud Save Tests Passed!\n";
     return 0;
 }

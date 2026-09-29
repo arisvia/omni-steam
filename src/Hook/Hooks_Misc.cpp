@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <mutex>
@@ -10,6 +11,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 
+#include "OmniPlatform/OmniPaths.h"
 #include "OmniPlatform/OmniPlatform.h"
 #include "OmniPlatform/SteamTypes.h"
 
@@ -36,36 +38,84 @@ bool ClaimPid(uint32_t pid) {
     return g_attemptedPids.insert(pid).second;
 }
 
-void ScheduleGameInjection(AppId_t appId, const char* exePath) {
-    const bool hasAppModules = !LuaConfig::GetInjectModules(appId).empty();
-    const bool hasGlobalModules = appId != 0 && !LuaConfig::GetInjectModules(0).empty();
-    if (!hasAppModules && !hasGlobalModules)
+void MonitorGameLifecycle(AppId_t appId, const char* exePath) {
+    if (appId == 0 || !exePath)
         return;
 
-    std::string exeName = exePath ? fs::path(exePath).filename().string() : "";
+    std::string exeName = fs::path(exePath).filename().string();
     if (exeName.empty()) {
-        spdlog::warn("Hooks_Misc: addinject configured for AppID {} but SpawnProcess exe path is empty", appId);
         return;
     }
 
+    const bool hasAppModules = !LuaConfig::GetInjectModules(appId).empty();
+    const bool hasGlobalModules = !LuaConfig::GetInjectModules(0).empty();
+    const bool needsInject = hasAppModules || hasGlobalModules;
+
     auto baseline = OmniPlatform::Process::FindProcessIdsByName(exeName);
 
-    OmniPlatform::Thread::StartDetached([appId, exeName, baseline]() {
+    OmniPlatform::Thread::StartDetached([appId, exeName, baseline, needsInject]() {
         constexpr int kMaxPolls = 75; // ~15s at 200ms intervals
         OmniPlatform::Thread::Sleep(500);
+        uint32_t targetPid = 0;
         for (int i = 0; i < kMaxPolls; ++i) {
             for (uint32_t pid : OmniPlatform::Process::FindProcessIdsByName(exeName)) {
                 if (std::find(baseline.begin(), baseline.end(), pid) != baseline.end())
                     continue;
                 if (!ClaimPid(pid))
                     return;
-                Process::ProcessInjector::InjectForApp(appId, pid);
-                return;
+                targetPid = pid;
+                if (needsInject) {
+                    Process::ProcessInjector::InjectForApp(appId, pid);
+                }
+                break;
             }
+            if (targetPid != 0)
+                break;
             OmniPlatform::Thread::Sleep(200);
         }
-        spdlog::warn("Hooks_Misc: Timed out waiting for game process '{}' (AppID {}) to appear for addinject", exeName,
-                     appId);
+
+        if (targetPid == 0) {
+            return;
+        }
+
+        // Monitor game process until termination
+#if defined(OMNI_PLATFORM_WINDOWS)
+        HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, targetPid);
+        if (hProc) {
+            WaitForSingleObject(hProc, INFINITE);
+            CloseHandle(hProc);
+        }
+#else
+        while (OmniPlatform::Process::IsProcessRunning(targetPid)) {
+            OmniPlatform::Thread::Sleep(1000);
+        }
+#endif
+
+        if (g_activeRunningAppId.load() == appId) {
+            g_activeRunningAppId.store(0);
+        }
+        spdlog::info("Hooks_Misc: Game process '{}' (AppID {}, PID {}) terminated", exeName, appId, targetPid);
+
+        // Dispatch silent background cloud save backup if manager executable is present
+        std::string managerExe = OmniPlatform::Paths::GetManagerExecutablePath();
+        if (!managerExe.empty()) {
+            std::string cmd = "\"" + managerExe + "\" backup " + std::to_string(appId) + " --silent";
+#if defined(OMNI_PLATFORM_WINDOWS)
+            STARTUPINFOA si{};
+            si.cb = sizeof(si);
+            PROCESS_INFORMATION pi{};
+            if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS,
+                               nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {}", appId);
+            }
+#else
+            std::string bgCmd = cmd + " >/dev/null 2>&1 &";
+            std::system(bgCmd.c_str());
+            spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {}", appId);
+#endif
+        }
     });
 }
 
@@ -88,11 +138,9 @@ HOOK_FUNC(SpawnProcess, void*, void* pCUser, const char* pExePath, const char* p
     void* result = oSpawnProcess ? oSpawnProcess(pCUser, pExePath, pCommandLine, pWorkingDir, pGameID, a6, a7, a8, a9,
                                                  a10, a11, a12, a13, a14, a15)
                                  : nullptr;
-
-    ScheduleGameInjection(realAppId, pExePath);
+    MonitorGameLifecycle(realAppId, pExePath);
     return result;
 }
-
 HOOK_FUNC(OptedInMask, int64_t, void* pThis, AppId_t appId) {
     if (appId == kOnlineFixAppId) {
         AppId_t realAppId = g_OnlineFixRealAppId.load();

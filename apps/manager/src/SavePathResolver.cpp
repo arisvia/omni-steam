@@ -274,12 +274,23 @@ bool SavePathResolver::IsCloudSyncEnabled(uint32_t appId) {
                     std::string appBlock = "\"" + std::to_string(appId) + "\"";
                     size_t pos = content.find(appBlock);
                     if (pos != std::string::npos) {
-                        size_t blockEnd = content.find('}', pos);
-                        if (blockEnd != std::string::npos) {
-                            std::string block = content.substr(pos, blockEnd - pos);
-                            if (block.find("\"CloudEnabled\"\t\t\"0\"") != std::string::npos ||
-                                block.find("\"CloudEnabled\" \"0\"") != std::string::npos ||
-                                block.find("\"cloudenabled\"\t\t\"0\"") != std::string::npos) {
+                        size_t openBrace = content.find('{', pos);
+                        if (openBrace != std::string::npos) {
+                            int depth = 1;
+                            size_t i = openBrace + 1;
+                            for (; i < content.size() && depth > 0; ++i) {
+                                if (content[i] == '{')
+                                    ++depth;
+                                else if (content[i] == '}')
+                                    --depth;
+                            }
+                            std::string block = content.substr(pos, i - pos);
+                            std::string lowerBlock = block;
+                            std::transform(lowerBlock.begin(), lowerBlock.end(), lowerBlock.begin(),
+                                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                            if (lowerBlock.find("\"cloudenabled\"\t\t\"0\"") != std::string::npos ||
+                                lowerBlock.find("\"cloudenabled\" \"0\"") != std::string::npos ||
+                                lowerBlock.find("\"cloudenabled\"\t\"0\"") != std::string::npos) {
                                 return false; // Explicitly disabled by user in Steam in-game properties
                             }
                         }

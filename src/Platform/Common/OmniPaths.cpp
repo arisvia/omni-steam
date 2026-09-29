@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -251,6 +252,87 @@ std::string Paths::ResolveLogFilePath(const std::string& componentName) {
     }
 
     return logFileName;
+}
+
+bool Paths::RegisterManagerExecutablePath(const std::string& exePath) {
+    if (exePath.empty())
+        return false;
+
+    try {
+        std::string txtPath = (fs::path(GetConfigDirectory()) / "manager_path.txt").generic_string();
+        std::ofstream out(txtPath, std::ios::trunc);
+        if (out) {
+            out << exePath;
+        }
+    } catch (...) {
+    }
+
+#if defined(OMNI_PLATFORM_WINDOWS)
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\OmniSteam", 0, nullptr, 0, KEY_SET_VALUE, nullptr, &hKey,
+                        nullptr) == ERROR_SUCCESS) {
+        RegSetValueExA(hKey, "ManagerPath", 0, REG_SZ, reinterpret_cast<const BYTE*>(exePath.c_str()),
+                       static_cast<DWORD>(exePath.size() + 1));
+        RegCloseKey(hKey);
+    }
+#endif
+    return true;
+}
+
+std::string Paths::GetManagerExecutablePath() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\OmniSteam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char buf[MAX_PATH] = {};
+        DWORD bufSize = sizeof(buf);
+        DWORD type = REG_SZ;
+        if (RegQueryValueExA(hKey, "ManagerPath", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &bufSize) ==
+            ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            if (fs::exists(buf)) {
+                return fs::path(buf).generic_string();
+            }
+        } else {
+            RegCloseKey(hKey);
+        }
+    }
+#endif
+
+    try {
+        std::string txtPath = (fs::path(GetConfigDirectory()) / "manager_path.txt").generic_string();
+        if (fs::exists(txtPath)) {
+            std::ifstream in(txtPath);
+            std::string path;
+            if (std::getline(in, path) && !path.empty() && fs::exists(path)) {
+                return fs::path(path).generic_string();
+            }
+        }
+    } catch (...) {
+    }
+
+    std::string steamRoot = GetSteamInstallPath();
+    if (!steamRoot.empty()) {
+#if defined(OMNI_PLATFORM_WINDOWS)
+        std::string siblingExe = (fs::path(steamRoot) / "omnisteam.exe").generic_string();
+#else
+        std::string siblingExe = (fs::path(steamRoot) / "omnisteam").generic_string();
+#endif
+        if (fs::exists(siblingExe)) {
+            return siblingExe;
+        }
+    }
+
+#if !defined(OMNI_PLATFORM_WINDOWS)
+    const char* home = std::getenv("HOME");
+    if (home) {
+        std::string steamosBin = (fs::path(home) / ".local" / "share" / "omnisteam" / "omnisteam").generic_string();
+        if (fs::exists(steamosBin)) {
+            return steamosBin;
+        }
+    }
+#endif
+
+    return "";
 }
 
 } // namespace OmniPlatform

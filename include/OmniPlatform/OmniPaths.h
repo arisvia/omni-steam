@@ -20,6 +20,10 @@ public:
 
     // 3. Component Log Path Resolver (Steam/logs/omnisteam_*.log)
     static std::string ResolveLogFilePath(const std::string& componentName);
+
+    // 4. Manager Executable Path Self-Registration & Resolution
+    static bool RegisterManagerExecutablePath(const std::string& exePath);
+    static std::string GetManagerExecutablePath();
 };
 
 } // namespace OmniPlatform

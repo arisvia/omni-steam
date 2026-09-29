@@ -16,10 +16,16 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniPaths.h"
 #include "OmniPlatform/OmniPlatform.h"
 
-namespace fs = std::filesystem;
+#if !defined(OMNI_PLATFORM_WINDOWS)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
+namespace fs = std::filesystem;
 namespace Manager {
 
 namespace {
@@ -85,20 +91,171 @@ std::optional<std::string> RelativeTo(const std::string& href, const std::string
         rest.erase(rest.begin());
     return rest;
 }
-
 } // namespace
 
+class AppLockGuard {
+public:
+    explicit AppLockGuard(uint32_t appId) : m_appId(appId) {
+        if (appId == 0)
+            return;
+        std::string lockDir = (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "locks").generic_string();
+        try {
+            fs::create_directories(lockDir);
+        } catch (...) {
+        }
+        std::string lockPath = (fs::path(lockDir) / ("cloud_" + std::to_string(appId) + ".lock")).generic_string();
+#if defined(OMNI_PLATFORM_WINDOWS)
+        m_handle = CreateFileA(lockPath.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            m_acquired = true;
+        }
+#else
+        m_fd = open(lockPath.c_str(), O_CREAT | O_RDWR, 0666);
+        if (m_fd >= 0) {
+            if (flock(m_fd, LOCK_EX | LOCK_NB) == 0) {
+                m_acquired = true;
+            } else {
+                close(m_fd);
+                m_fd = -1;
+            }
+        }
+#endif
+    }
+
+    ~AppLockGuard() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+            m_handle = INVALID_HANDLE_VALUE;
+        }
+#else
+        if (m_fd >= 0) {
+            flock(m_fd, LOCK_UN);
+            close(m_fd);
+            m_fd = -1;
+        }
+#endif
+    }
+
+    bool IsAcquired() const { return m_acquired; }
+
+private:
+    uint32_t m_appId = 0;
+    bool m_acquired = false;
+#if defined(OMNI_PLATFORM_WINDOWS)
+    HANDLE m_handle = INVALID_HANDLE_VALUE;
+#else
+    int m_fd = -1;
+#endif
+};
+
+static std::string GetStatusFilePath() {
+    return (fs::path(OmniPlatform::Paths::GetConfigDirectory()) / "cloud_status.json").generic_string();
+}
+
+std::vector<CloudSyncStatus> CloudSaveManager::GetAllSyncStatuses() {
+    std::vector<CloudSyncStatus> list;
+    std::string path = GetStatusFilePath();
+    if (!fs::exists(path)) {
+        return list;
+    }
+    std::ifstream in(path);
+    if (!in) {
+        return list;
+    }
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    static const std::regex objRe(
+        R"raw(\{\s*"appId"\s*:\s*(\d+)\s*,\s*"action"\s*:\s*"([^"]*)"\s*,\s*"status"\s*:\s*"([^"]*)"\s*,\s*"timestamp"\s*:\s*"([^"]*)"\s*,\s*"fileCount"\s*:\s*(\d+)\s*,\s*"totalBytes"\s*:\s*(\d+)\s*,\s*"message"\s*:\s*"([^"]*)"\s*\})raw");
+    for (auto it = std::sregex_iterator(content.begin(), content.end(), objRe); it != std::sregex_iterator(); ++it) {
+        CloudSyncStatus s;
+        s.appId = static_cast<uint32_t>(std::stoul((*it)[1].str()));
+        s.action = (*it)[2].str();
+        s.status = (*it)[3].str();
+        s.timestamp = (*it)[4].str();
+        s.fileCount = static_cast<size_t>(std::stoull((*it)[5].str()));
+        s.totalBytes = static_cast<size_t>(std::stoull((*it)[6].str()));
+        s.message = (*it)[7].str();
+        list.push_back(s);
+    }
+    return list;
+}
+
+std::optional<CloudSyncStatus> CloudSaveManager::GetSyncStatus(uint32_t appId) {
+    auto all = GetAllSyncStatuses();
+    for (const auto& s : all) {
+        if (s.appId == appId) {
+            return s;
+        }
+    }
+    return std::nullopt;
+}
+
+void CloudSaveManager::RecordSyncStatus(const CloudSyncStatus& status) {
+    auto all = GetAllSyncStatuses();
+    bool found = false;
+    for (auto& s : all) {
+        if (s.appId == status.appId) {
+            s = status;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        all.push_back(status);
+    }
+
+    std::ostringstream json;
+    json << "[\n";
+    for (size_t i = 0; i < all.size(); ++i) {
+        const auto& s = all[i];
+        json << "  {\n"
+             << "    \"appId\": " << s.appId << ",\n"
+             << "    \"action\": \"" << OmniPlatform::Encoding::EscapeJson(s.action) << "\",\n"
+             << "    \"status\": \"" << OmniPlatform::Encoding::EscapeJson(s.status) << "\",\n"
+             << "    \"timestamp\": \"" << OmniPlatform::Encoding::EscapeJson(s.timestamp) << "\",\n"
+             << "    \"fileCount\": " << s.fileCount << ",\n"
+             << "    \"totalBytes\": " << s.totalBytes << ",\n"
+             << "    \"message\": \"" << OmniPlatform::Encoding::EscapeJson(s.message) << "\"\n"
+             << "  }" << (i + 1 < all.size() ? "," : "") << "\n";
+    }
+    json << "]\n";
+
+    try {
+        std::string path = GetStatusFilePath();
+        std::string dir = fs::path(path).parent_path().string();
+        if (!dir.empty()) {
+            fs::create_directories(dir);
+        }
+        std::ofstream out(path, std::ios::trunc);
+        if (out) {
+            out << json.str();
+        }
+    } catch (...) {
+    }
+}
+
 bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
+    AppLockGuard lock(appId);
+    if (!lock.IsAcquired()) {
+        spdlog::info("CloudSaveManager: Backup already in progress for AppID {}, skipping concurrent attempt", appId);
+        return true;
+    }
+
     if (webdav.serverUrl.empty()) {
         spdlog::warn("CloudSaveManager: WebDAV server URL is empty");
+        RecordSyncStatus({appId, "backup", "failed", GetCurrentTimestamp(), 0, 0, "WebDAV server URL is empty"});
         return false;
     }
 
     auto locations = SavePathResolver::LocateSaveDirectories(appId);
     if (locations.empty()) {
         spdlog::warn("CloudSaveManager: No save directories found for app {}", appId);
+        RecordSyncStatus({appId, "backup", "failed", GetCurrentTimestamp(), 0, 0, "No save directories found"});
         return false;
     }
+
+    RecordSyncStatus({appId, "backup", "in_progress", GetCurrentTimestamp(), 0, 0, "Backing up..."});
 
     // Ensure root remote directory exists
     WebDavClient::MkCol(webdav, webdav.remoteRootPath);
@@ -107,6 +264,7 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
 
     std::string timestamp = GetCurrentTimestamp();
     size_t uploadedFiles = 0;
+    size_t totalBytes = 0;
     std::set<std::string> attemptedDirs;
 
     for (const auto& loc : locations) {
@@ -128,6 +286,7 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
             auto res = WebDavClient::UploadFile(webdav, remoteTarget, buffer);
             if (res.isSuccess()) {
                 uploadedFiles++;
+                totalBytes += buffer.size();
                 spdlog::debug("CloudSaveManager: Uploaded {}", remoteTarget);
             } else {
                 spdlog::warn("CloudSaveManager: Upload failed {} ({})", remoteTarget,
@@ -136,13 +295,25 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
         }
     }
 
-    spdlog::info("CloudSaveManager: Backup finished for app {} ({} files uploaded)", appId, uploadedFiles);
-    return uploadedFiles > 0;
+    spdlog::info("CloudSaveManager: Backup finished for app {} ({} files uploaded, {} bytes)", appId, uploadedFiles,
+                 totalBytes);
+    bool ok = uploadedFiles > 0;
+    RecordSyncStatus({appId, "backup", ok ? "success" : "failed", timestamp, uploadedFiles, totalBytes,
+                      ok ? "Backup completed" : "Upload failed"});
+    return ok;
 }
 
 bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webdav, const std::string& targetLocalDir) {
+    AppLockGuard lock(appId);
+    if (!lock.IsAcquired()) {
+        spdlog::info("CloudSaveManager: Operation already in progress for AppID {}, skipping concurrent attempt",
+                     appId);
+        return true;
+    }
+
     if (webdav.serverUrl.empty()) {
         spdlog::warn("CloudSaveManager: WebDAV server URL is empty");
+        RecordSyncStatus({appId, "restore", "failed", GetCurrentTimestamp(), 0, 0, "WebDAV server URL is empty"});
         return false;
     }
 
@@ -156,15 +327,18 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
 
     if (localDir.empty()) {
         spdlog::warn("CloudSaveManager: Could not resolve local save destination for app {}", appId);
+        RecordSyncStatus({appId, "restore", "failed", GetCurrentTimestamp(), 0, 0, "Could not resolve save path"});
         return false;
     }
 
+    RecordSyncStatus({appId, "restore", "in_progress", GetCurrentTimestamp(), 0, 0, "Restoring..."});
     spdlog::info("CloudSaveManager: Restoring saves for app {} from WebDAV into {}", appId, localDir);
     try {
         fs::create_directories(localDir);
         auto backups = ListRemoteBackups(appId, webdav);
         if (backups.empty()) {
             spdlog::warn("CloudSaveManager: No remote backups found on WebDAV for app {}", appId);
+            RecordSyncStatus({appId, "restore", "failed", GetCurrentTimestamp(), 0, 0, "No remote backups found"});
             return false;
         }
 
@@ -172,6 +346,7 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
         std::string remoteAppDir = webdav.remoteRootPath + "/" + std::to_string(appId) + "/" + latest.timestamp;
 
         size_t restoredFiles = 0;
+        size_t totalBytes = 0;
         // Recursive walk: backups preserve subdirectories (EnsureRemoteDirs on
         // upload), so restore must descend into collections instead of skipping
         // them - Depth:1 PROPFIND alone silently dropped nested saves.
@@ -210,6 +385,7 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
                         continue;
                     }
                     out.write(payload.body.data(), static_cast<std::streamsize>(payload.body.size()));
+                    totalBytes += payload.body.size();
                     ++restoredFiles;
                 }
             };
@@ -217,9 +393,13 @@ bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webda
 
         spdlog::info("CloudSaveManager: Restored {} file(s) from backup {} into {}", restoredFiles, latest.timestamp,
                      localDir);
-        return restoredFiles > 0;
+        bool ok = restoredFiles > 0;
+        RecordSyncStatus({appId, "restore", ok ? "success" : "failed", latest.timestamp, restoredFiles, totalBytes,
+                          ok ? "Restore completed" : "Restore failed"});
+        return ok;
     } catch (const std::exception& e) {
         spdlog::error("CloudSaveManager: Restore exception: {}", e.what());
+        RecordSyncStatus({appId, "restore", "failed", GetCurrentTimestamp(), 0, 0, e.what()});
         return false;
     }
 }

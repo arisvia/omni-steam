@@ -573,6 +573,50 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
              << (success ? "Restore completed" : "No remote backups found or WebDAV connection failed") << "\"}";
         return MakeHttpResponse(200, "application/json", json.str());
     }
+    if (request.rfind("GET /api/cloud/status", 0) == 0) {
+        size_t qPos = request.find("appid=");
+        uint32_t appId = 0;
+        if (qPos != std::string::npos) {
+            size_t endPos = request.find_first_of(" &\r\n", qPos);
+            std::string idStr = request.substr(qPos + 6, endPos - (qPos + 6));
+            ParseUint32Safe(idStr, appId);
+        }
+
+        std::ostringstream json;
+        if (appId != 0) {
+            auto opt = CloudSaveManager::GetSyncStatus(appId);
+            if (opt) {
+                json << "{"
+                     << "\"appId\":" << opt->appId << ","
+                     << "\"action\":\"" << OmniPlatform::Encoding::EscapeJson(opt->action) << "\","
+                     << "\"status\":\"" << OmniPlatform::Encoding::EscapeJson(opt->status) << "\","
+                     << "\"timestamp\":\"" << OmniPlatform::Encoding::EscapeJson(opt->timestamp) << "\","
+                     << "\"fileCount\":" << opt->fileCount << ","
+                     << "\"totalBytes\":" << opt->totalBytes << ","
+                     << "\"message\":\"" << OmniPlatform::Encoding::EscapeJson(opt->message) << "\""
+                     << "}";
+            } else {
+                json << "{\"appId\":" << appId << ",\"status\":\"idle\",\"message\":\"No sync history\"}";
+            }
+        } else {
+            auto all = CloudSaveManager::GetAllSyncStatuses();
+            json << "[";
+            for (size_t i = 0; i < all.size(); ++i) {
+                const auto& s = all[i];
+                json << "{"
+                     << "\"appId\":" << s.appId << ","
+                     << "\"action\":\"" << OmniPlatform::Encoding::EscapeJson(s.action) << "\","
+                     << "\"status\":\"" << OmniPlatform::Encoding::EscapeJson(s.status) << "\","
+                     << "\"timestamp\":\"" << OmniPlatform::Encoding::EscapeJson(s.timestamp) << "\","
+                     << "\"fileCount\":" << s.fileCount << ","
+                     << "\"totalBytes\":" << s.totalBytes << ","
+                     << "\"message\":\"" << OmniPlatform::Encoding::EscapeJson(s.message) << "\""
+                     << "}" << (i + 1 < all.size() ? "," : "");
+            }
+            json << "]";
+        }
+        return MakeHttpResponse(200, "application/json", json.str());
+    }
     // 16. /api/doctor - System Diagnostics
     if (request.rfind("GET /api/doctor", 0) == 0) {
         auto report = Doctor::RunDiagnostics();

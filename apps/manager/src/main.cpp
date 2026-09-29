@@ -32,6 +32,12 @@ void Init(const std::string& componentName = "omnisteam_core");
 int main(int argc, char* argv[]) {
     Log::Init("omnisteam_manager");
 
+    // Self-register manager executable path so Core can find and wake it up detached
+    std::string currentExe = OmniPlatform::Process::GetExecutablePath();
+    if (!currentExe.empty()) {
+        OmniPlatform::Paths::RegisterManagerExecutablePath(currentExe);
+    }
+
     if (argc > 1) {
         std::string cmd = argv[1];
 
@@ -285,10 +291,26 @@ int main(int argc, char* argv[]) {
 
         // 10. Backup Saves
         if (cmd == "backup") {
+            bool silent = false;
+            uint32_t targetAppId = 0;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "--silent" || arg == "-s") {
+                    silent = true;
+                } else if (targetAppId == 0) {
+                    try {
+                        targetAppId = static_cast<uint32_t>(std::stoul(arg));
+                    } catch (...) {
+                    }
+                }
+            }
+
             auto config = Manager::ConfigManager::ReadConfig();
             if (!config.cloudEnabled || config.webdavServerUrl.empty()) {
-                std::cerr << " [ERROR] Cloud save is not configured or disabled.\n";
-                std::cerr << "         Please configure WebDAV via WebUI or config.toml.\n";
+                if (!silent) {
+                    std::cerr << " [ERROR] Cloud save is not configured or disabled.\n";
+                    std::cerr << "         Please configure WebDAV via WebUI or config.toml.\n";
+                }
                 return 1;
             }
             Manager::WebDavConfig webdav;
@@ -297,31 +319,41 @@ int main(int argc, char* argv[]) {
             webdav.password = config.webdavPassword;
             webdav.remoteRootPath = config.webdavRemoteRoot.empty() ? OmniEndpoints::CloudSave::kDefaultRemoteRoot
                                                                     : config.webdavRemoteRoot;
-            if (argc > 2) {
-                uint32_t appId = 0;
-                try {
-                    appId = static_cast<uint32_t>(std::stoul(argv[2]));
-                } catch (...) {
-                    std::cerr << " [ERROR] Invalid AppID: " << argv[2] << "\n";
-                    return 1;
+            if (targetAppId != 0) {
+                if (!Manager::SavePathResolver::IsCloudSyncEnabled(targetAppId)) {
+                    if (!silent) {
+                        std::cout << "[OmniSteam] Cloud save is disabled for AppID " << targetAppId
+                                  << " in Steam properties.\n";
+                    }
+                    return 0;
                 }
-                std::cout << "[OmniSteam] Backing up saves for AppID " << appId << " to WebDAV...\n";
-                bool ok = Manager::CloudSaveManager::BackupAppSaves(appId, webdav);
-                std::cout << (ok ? " [SUCCESS] Backup completed.\n" : " [FAILED] Backup failed.\n");
+                if (!silent) {
+                    std::cout << "[OmniSteam] Backing up saves for AppID " << targetAppId << " to WebDAV...\n";
+                }
+                bool ok = Manager::CloudSaveManager::BackupAppSaves(targetAppId, webdav);
+                if (!silent) {
+                    std::cout << (ok ? " [SUCCESS] Backup completed.\n" : " [FAILED] Backup failed.\n");
+                }
                 return ok ? 0 : 1;
             } else {
-                std::cout << "[OmniSteam] Backing up saves for all unlocked games to WebDAV...\n";
+                if (!silent) {
+                    std::cout << "[OmniSteam] Backing up saves for all unlocked games to WebDAV...\n";
+                }
                 auto scripts = Manager::ScriptManager::ListScripts();
                 int okCount = 0;
                 for (const auto& s : scripts) {
-                    if (s.primaryAppId != 0) {
+                    if (s.primaryAppId != 0 && Manager::SavePathResolver::IsCloudSyncEnabled(s.primaryAppId)) {
                         if (Manager::CloudSaveManager::BackupAppSaves(s.primaryAppId, webdav)) {
-                            std::cout << "  [OK] " << s.title << " (AppID: " << s.primaryAppId << ")\n";
+                            if (!silent) {
+                                std::cout << "  [OK] " << s.title << " (AppID: " << s.primaryAppId << ")\n";
+                            }
                             okCount++;
                         }
                     }
                 }
-                std::cout << "[OmniSteam] Batch backup finished: " << okCount << " succeeded.\n";
+                if (!silent) {
+                    std::cout << "[OmniSteam] Batch backup finished: " << okCount << " succeeded.\n";
+                }
                 return 0;
             }
         }
