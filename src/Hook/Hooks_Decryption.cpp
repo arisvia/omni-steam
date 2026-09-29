@@ -131,6 +131,11 @@ std::vector<uint8_t> GetCacheAppOwnershipTicket(uint32_t appId) {
     std::vector<char> buf(4096);
     int32_t n = oConfigStoreGetBinary(pStore, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),
                                       static_cast<uint32_t>(buf.size()));
+    constexpr size_t kMaxTicketSize = 64 * 1024;
+    if (n > static_cast<int32_t>(kMaxTicketSize)) {
+        spdlog::warn("Hooks_Decryption: Ticket size {} exceeds 64KB cap for AppID {}", n, appId);
+        return {};
+    }
     if (n > static_cast<int32_t>(buf.size())) {
         buf.resize(static_cast<size_t>(n));
         n = oConfigStoreGetBinary(pStore, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),

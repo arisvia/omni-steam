@@ -122,8 +122,10 @@ public:
             }
         }
 #endif
+        if (m_acquired) {
+            spdlog::debug("CloudSaveManager: AppLockGuard acquired for AppID {}", m_appId);
+        }
     }
-
     ~AppLockGuard() {
 #if defined(OMNI_PLATFORM_WINDOWS)
         if (m_handle != INVALID_HANDLE_VALUE) {

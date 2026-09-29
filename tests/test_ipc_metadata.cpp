@@ -42,6 +42,22 @@ void TestSteamIPCBuffer() {
     std::cout << "[PASS] TestSteamIPCBuffer\n";
 }
 
+void TestIPCHeaderValidation() {
+    SteamIPC::InterfaceCallHeader callHdr{};
+    callHdr.interfaceID = SteamIPC::EIPCInterface::IClientUser;
+    callHdr.funcHash = 0x12345678;
+    callHdr.argc = 1; // Non-zero args (e.g. GetAuthSessionTicket)
+
+    bool isGetSteamID = (callHdr.interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr.argc == 0);
+    OMNI_CHECK(!isGetSteamID);
+
+    callHdr.argc = 0;
+    isGetSteamID = (callHdr.interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr.argc == 0);
+    OMNI_CHECK(isGetSteamID);
+
+    std::cout << "[PASS] TestIPCHeaderValidation\n";
+}
+
 void TestManifestClientResolution() {
     std::string gid = ManifestClient::QueryManifestIdByDepot(999999);
     OMNI_CHECK(gid.empty());
@@ -198,6 +214,7 @@ int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
     TestSteamIPCBuffer();
+    TestIPCHeaderValidation();
     TestManifestClientResolution();
     TestSteamStructureInvariants();
     TestDlcStoreInvariants();

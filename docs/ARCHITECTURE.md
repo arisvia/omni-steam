@@ -138,8 +138,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
 | D | ~~Linux/macOS 签名库~~ | **已闭环打通**：通过 `derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与 Mach-O `LC_FUNCTION_STARTS` 提取函数起止点，已生成并入库 `signatures/linux-x64/` 与 `signatures/macos-universal/`；CI 流水线已修复全平台自动派生与回推 | ✅ 2026-09 完成 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
-| F | Denuvo 隐身交付 | 详见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)，采用纯协议层拦截与零跨进程代理，杜绝全局命名管道检测 | 📝 2026-09 RFC 规划就绪 |
-| G | 安全化 IPC 回调拦截 | 详见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)，C API 边界优先、异步队列非重入与竞技白名单穿透 | 📝 2026-09 RFC 规划就绪 |
+| F | ~~Denuvo 隐身交付~~ | 纯协议层拦截（`Hooks_NetPacket` eMsg 5527/858）与 `Hooks_IPC` `IClientUser::GetSteamID` 供体动态伪装，杜绝命名管道与跨进程代理检测（详见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)） | ✅ 2026-09 完成 |
+| G | ~~安全化 IPC 回调拦截~~ | `Hooks_CallBack` 拦截 C API 边界（`Steam_BGetCallback` / `Steam_FreeLastCallback`），线程局部合成标志隔离 + 异步事件队列（详见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)） | ✅ 2026-09 完成 |
 ## 6. 目录导览
 
 ```

@@ -109,7 +109,8 @@
       `linux-x64` / `linux-i386` 规范目录（此前 32 位 steamclient.so 的签名被错误归入
       linux-x64，i386 端 PatternLoader 永远 404）；collect 步骤直接透传规范目录。
 - [x] **全平台特征码点亮与 CI 流水线打通**（2026-09）：修复 macOS Mach-O 符号自动派生（LC_FUNCTION_STARTS + 字符串 xref 提取）；对齐 CI 输出规范路径（`windows-x64` / `linux-x64` / `macos-universal`）；测试盲区闭环。
+- [x] **游戏退出静默云存档与状态同步引擎**（2026-09）：`MonitorGameLifecycle` 在游戏进程退出时自动触发非阻塞后台 CLI 备份；Manager `Paths::RegisterManagerExecutablePath` 自注册与全平台解析；`CloudSaveManager` 跨进程 `AppLockGuard` 单飞互斥防并发争抢；`CloudSyncStatus` 临时文件原子替换与无损 JSON 转义往返；开放 `GET /api/cloud/status` 实时状态监控；Steam `remotecache.vdf` UFS 精确物理路径映射；跨平台 `IsProcessRunning`（Linux `/proc/stat` 僵尸态识别、Darwin `proc_pidinfo`、Windows `GetExitCodeProcess`）。
 
-## 阶段 8：架构演进与深水区探索 【📋 规划就绪】
+## 阶段 8：架构演进与深水区探索 【🚀 架构落地】
 - [x] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
 - [x] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。

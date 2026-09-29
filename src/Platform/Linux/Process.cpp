@@ -78,7 +78,20 @@ std::string Process::GetExecutablePath() {
 bool Process::IsProcessRunning(uint32_t pid) {
     if (pid == 0)
         return false;
-    return access(("/proc/" + std::to_string(pid)).c_str(), F_OK) == 0;
+    std::ifstream statFile("/proc/" + std::to_string(pid) + "/stat");
+    if (!statFile)
+        return false;
+    std::string line;
+    if (std::getline(statFile, line)) {
+        size_t lastParen = line.rfind(')');
+        if (lastParen != std::string::npos && lastParen + 2 < line.size()) {
+            char state = line[lastParen + 2];
+            if (state == 'Z' || state == 'X') {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void Thread::StartDetached(std::function<void()> task) {

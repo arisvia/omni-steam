@@ -79,7 +79,12 @@ std::string Process::GetExecutablePath() {
 bool Process::IsProcessRunning(uint32_t pid) {
     if (pid == 0)
         return false;
-    return kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+    proc_bsdshortinfo info{};
+    int ret = proc_pidinfo(static_cast<int>(pid), PROC_PIDT_SHORTBSDINFO, 0, &info, sizeof(info));
+    if (ret <= 0) {
+        return false;
+    }
+    return info.pbsi_status != 5; // 5 = SZOMB (zombie)
 }
 
 void Thread::StartDetached(std::function<void()> task) {

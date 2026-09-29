@@ -109,6 +109,7 @@ void MonitorGameLifecycle(AppId_t appId, const char* exePath) {
             PROCESS_INFORMATION pi{};
             if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
                                &pi)) {
+                CloseHandle(pi.hThread);
                 CloseHandle(pi.hProcess);
                 spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {}", appId);
             }
