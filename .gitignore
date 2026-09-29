@@ -24,7 +24,10 @@ dump*.txt
 /source/
 
 # Code review tool cache
+.opencode/
+.serena/
 .code-review-graph/
+.codegraph/
 
 # Local depot key database (6MB binary) - fetched from CDN at runtime
 depotkeys.bin

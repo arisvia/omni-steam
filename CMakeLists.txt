@@ -330,9 +330,11 @@ if(ENABLE_LOGGING)
 endif()
 # Windows proxy DLLs for seamless launch
 if(WIN32)
-    add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
-    set_target_properties(dwmapi PROPERTIES PREFIX "")
-    # DelayLoad / dynamic resolution: dwmapi forwards calls and does not statically depend on OmniSteam import lib
+    add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp src/Platform/Windows/Proxy/dwmapi.def)
+    set_target_properties(dwmapi PROPERTIES 
+        PREFIX ""
+        OUTPUT_NAME "dwmapi"
+    )
     target_include_directories(dwmapi PRIVATE src)
 endif()
 # ---------------------------------------------------------------------------
