@@ -43,6 +43,7 @@ std::atomic<bool> g_inBroadcast{false};
 std::atomic<bool> g_injectInProgress{false};
 
 PackageInfo* g_pInjectedPackage = nullptr;
+std::set<AppId_t> g_currentInjectedAppIdSet;
 std::vector<AppId_t> g_currentInjectedAppIds;
 std::vector<DepotId_t> g_currentInjectedDepotIds;
 
@@ -137,10 +138,34 @@ std::vector<AppId_t> CollectDesiredAppIds() {
     auto unlockedApps = LuaConfig::GetUnlockedApps();
     std::set<AppId_t> allApps(unlockedApps.begin(), unlockedApps.end());
     if (Config::IsAutoUnlockDlcEnabled()) {
-        auto autoDlcs = Metadata::DlcStore::GetAllKnownDlcs();
-        allApps.insert(autoDlcs.begin(), autoDlcs.end());
+        // Scope DLC auto-unlock to base games that are STILL configured via
+        // Lua. Without this, removing a game's script leaves its previously
+        // discovered DLCs in dlc_cache.bin unlocking forever (zombie DLCs).
+        auto baseApps = unlockedApps;
+        auto scopedDlcs = Metadata::DlcStore::GetDlcsForBases(std::set<uint32_t>(baseApps.begin(), baseApps.end()));
+        allApps.insert(scopedDlcs.begin(), scopedDlcs.end());
     }
-    return std::vector<AppId_t>(allApps.begin(), allApps.end());
+    // IMPORTANT: only REAL apps may enter Package 0's AppIdVec. The client's
+    // ProcessPendingLicenseUpdates blocks until every entry has resolved
+    // appinfo; pure depot ids (placeholders only) would stall the whole
+    // license refresh and keep uninstalled games out of the library sidebar.
+    // Main games carrying decryption keys are promoted into unlockedApps by
+    // LuaConfig (script filename heuristic), so unlockedApps is sufficient.
+    // Never inject Valve-shared redistributables (VC++ runtimes, DirectX...).
+    std::vector<AppId_t> filtered;
+    filtered.reserve(allApps.size());
+    size_t excluded = 0;
+    for (AppId_t id : allApps) {
+        if (IsValveRedistributionAppId(id)) {
+            ++excluded;
+            continue;
+        }
+        filtered.push_back(id);
+    }
+    if (excluded > 0) {
+        spdlog::info("Hooks_Package: Excluded {} Valve redistributable AppID(s) from license injection", excluded);
+    }
+    return filtered;
 }
 
 std::vector<DepotId_t> CollectDesiredDepotIds() {
@@ -202,6 +227,8 @@ void ApplyDesiredLicenseDelta(PackageInfo* pPkg, const std::vector<AppId_t>& des
 
     if (appsOk) {
         g_currentInjectedAppIds.assign(desiredApps.begin(), desiredApps.end());
+        g_currentInjectedAppIdSet.clear();
+        g_currentInjectedAppIdSet.insert(desiredApps.begin(), desiredApps.end());
     }
     if (depotsOk) {
         g_currentInjectedDepotIds.assign(desiredDepots.begin(), desiredDepots.end());
@@ -217,14 +244,27 @@ bool InitFakeLicenseOnce(PackageInfo* pPkg) {
     if (!pPkg)
         return false;
 
-    std::lock_guard<std::mutex> lock(g_injectMutex);
-    auto desiredApps = CollectDesiredAppIds();
-    auto desiredDepots = CollectDesiredDepotIds();
+    // Mirror upstream: injecting into a package that is not yet Available
+    // (Preorder/Unavailable/Invalid) silently corrupts the license view.
+    if (pPkg->Status != EPackageStatus::Available) {
+        spdlog::warn("Hooks_Package: Package 0 status {} != Available, deferring license injection",
+                     static_cast<int>(pPkg->Status));
+        return false;
+    }
 
-    ApplyDesiredLicenseDelta(pPkg, desiredApps, desiredDepots);
+    {
+        std::lock_guard<std::mutex> lock(g_injectMutex);
+        auto desiredApps = CollectDesiredAppIds();
+        auto desiredDepots = CollectDesiredDepotIds();
 
-    g_pInjectedPackage = pPkg;
-    g_licenseInitialized.store(true);
+        ApplyDesiredLicenseDelta(pPkg, desiredApps, desiredDepots);
+
+        g_pInjectedPackage = pPkg;
+        g_licenseInitialized.store(true);
+    }
+    // CRITICAL: run the refresh OUTSIDE g_injectMutex. oProcessPendingLicense
+    // Updates executes client code that re-enters our GetOrAddAppData hook,
+    // whose rare path locks the same mutex -> self-deadlock if held here.
     g_licenseRefreshPending.store(true);
     TryProcessPendingLicenseRefresh();
     return true;
@@ -280,12 +320,18 @@ void UpdateInjectedPackages() {
 }
 
 HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
-    CaptureOnce(g_pCUser, pObj);
+    bool newlyCaptured = false;
+    if (pObj && !AtomicLoadPtr(g_pCUser)) {
+        CaptureOnce(g_pCUser, pObj);
+        newlyCaptured = true;
+    }
 
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
     TryInitFakeLicenseOnce();
+    if (newlyCaptured) {
+        g_licenseRefreshPending.store(true);
+    }
     TryProcessPendingLicenseRefresh();
-
     // 1. Anti-Cheat Protected Game Check -> Silent bypass to native logic to guarantee account safety
     if (Security::AntiCheatGuard::IsProtectedApp(appId)) {
         spdlog::debug("Hooks_Package: AppID {} is protected by anti-cheat whitelist; executing native check", appId);
@@ -293,8 +339,11 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     }
 
     if (result) {
-        // App is natively owned on Steam account; trigger async DLC discovery for base game
-        if (Config::IsAutoUnlockDlcEnabled()) {
+        // App is natively owned; discover its DLCs ONLY when it is explicitly
+        // configured via Lua. Discovering for every owned game would grow the
+        // injection set unboundedly (Half-Life, Portal, ...) and re-pollute
+        // the license view with titles the user never asked to unlock.
+        if (Config::IsAutoUnlockDlcEnabled() && LuaConfig::HasApp(appId)) {
             Metadata::DlcStore::AsyncFetchAppDlcs(appId);
         }
         return true;
@@ -313,6 +362,9 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
             pOwnership->bFreeLicense = false;
             pOwnership->bBorrowed = false;
             pOwnership->bFamilyShared = false;
+            if (pOwnership->TimeStamp == 0) {
+                pOwnership->TimeStamp = kSteamSyntheticPurchasedTime;
+            }
         }
         spdlog::info("Hooks_Package: CheckAppOwnership(appId={}) -> unlocked via OmniSteam", appId);
         return true;
@@ -323,6 +375,12 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
 } // namespace
 
 namespace Hooks_Package {
+
+bool IsInjectedAppId(uint32_t appId) {
+    std::lock_guard<std::mutex> lock(g_injectMutex);
+    return g_currentInjectedAppIdSet.count(appId) != 0;
+}
+
 void Install() {
     uintptr_t fnGrow = PatternLoader::GetFunctionAddress("CUtlMemoryGrow");
     if (fnGrow) {
@@ -368,7 +426,16 @@ void Install() {
     }
 }
 
-void Uninstall() {}
+void Uninstall() {
+    uintptr_t fnCheck = PatternLoader::GetFunctionAddress("CheckAppOwnership");
+    if (fnCheck) {
+        DETACH_HOOK(fnCheck, CheckAppOwnership);
+    }
+    uintptr_t fnGetPkg = PatternLoader::GetFunctionAddress("GetPackageInfo");
+    if (fnGetPkg) {
+        DETACH_HOOK(fnGetPkg, GetPackageInfo);
+    }
+}
 
 void NotifyLicenseChanged() {
     UpdateInjectedPackages();

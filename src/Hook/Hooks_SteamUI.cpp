@@ -14,6 +14,14 @@
 namespace {
 
 HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* pApp) {
+    if (pApp) {
+        uint32_t appId = pApp->nAppID;
+        if (appId > 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId))) {
+            pApp->PurchasedTime = kSteamSyntheticPurchasedTime;
+            spdlog::info("Hooks_SteamUI: Injected PurchasedTime for AppID {} (PurchasedTime={})", appId,
+                         pApp->PurchasedTime);
+        }
+    }
     return oFillInAppOverview ? oFillInAppOverview(pThis, pAppOverview, pApp) : nullptr;
 }
 
@@ -32,6 +40,11 @@ void Install() {
     }
 }
 
-void Uninstall() {}
+void Uninstall() {
+    uintptr_t fnAddress = PatternLoader::GetFunctionAddress("FillInAppOverview");
+    if (fnAddress != 0) {
+        DETACH_HOOK(fnAddress, FillInAppOverview);
+    }
+}
 
 } // namespace Hooks_SteamUI

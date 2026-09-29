@@ -74,14 +74,20 @@ void RegisterCoreSignatures() {
                     "48 89 5C 24 18 4C 89 4C 24 20 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 30 "
                     "FF FF FF",
                     0);
-    RegisterPattern("FillInAppOverview", "steamui.dll",
-                    "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1", 0);
+    RegisterPattern(
+        "FillInAppOverview", "steamui.dll",
+        "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1 48 81 EC B8 00 00 00", 0);
+    // CAppInfoCache::GetOrAddAppData - lets the license update pipeline skip
+    // injected ids whose appinfo can never resolve (PICS token denials).
+    RegisterPattern("GetOrAddAppData", "steamclient64.dll",
+                    "48 83 EC 58 48 8B 05 ?? ?? ?? ?? 48 89 5C 24 68 48 89 6C 24 70", 0);
+    // CIPCServer message pump - reserved for the upcoming IPC ticket layer.
+    RegisterPattern("IPCProcessMessage", "steamclient64.dll",
+                    "48 89 5C 24 18 48 89 6C 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 30", 0);
 #elif defined(OMNI_PLATFORM_LINUX)
-    spdlog::warn("PatternLoader: No verified steamclient.so signatures are bundled; "
-                 "function hooks stay dormant to avoid attaching to wrong addresses");
+    spdlog::info("PatternLoader: Linux platform uses external TOML signatures and runtime symbol tables");
 #elif defined(OMNI_PLATFORM_MACOS)
-    spdlog::warn("PatternLoader: No verified steamclient.dylib signatures are bundled; "
-                 "function hooks stay dormant to avoid attaching to wrong addresses");
+    spdlog::info("PatternLoader: macOS platform uses external TOML signatures and runtime symbol tables");
 #endif
 }
 std::string GetCacheDirectory() {
@@ -467,6 +473,7 @@ void Initialize(const std::string& /*unused*/) {
 
     // 2. Merge harvested signature TOMLs shipped with the deployment
     LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
+    LoadExternalSignatures("signatures", moduleBase, moduleHash);
 
     // 3. Resolve remaining targets from the module's own symbol table
     //    (zero-maintenance path; adapts to any client update automatically)

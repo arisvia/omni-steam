@@ -6,6 +6,7 @@
 #include <fstream>
 #include <mutex>
 #include <regex>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
@@ -84,7 +85,11 @@ void DlcStore::Initialize() {
             if (dlcCount > 0) {
                 in.read(reinterpret_cast<char*>(dlcs.data()), sizeof(uint32_t) * dlcCount);
                 for (uint32_t dlcId : dlcs) {
-                    g_knownDlcs.insert(dlcId);
+                    // Redistributable entries in legacy caches are dropped on
+                    // load so stale pollution self-heals without a manual wipe.
+                    if (!IsValveRedistributionAppId(dlcId)) {
+                        g_knownDlcs.insert(dlcId);
+                    }
                 }
             }
             g_baseAppToDlcs[baseAppId] = std::move(dlcs);
@@ -110,6 +115,22 @@ std::vector<uint32_t> DlcStore::GetAllKnownDlcs() {
     return std::vector<uint32_t>(g_knownDlcs.begin(), g_knownDlcs.end());
 }
 
+std::vector<uint32_t> DlcStore::GetDlcsForBases(const std::set<uint32_t>& baseApps) {
+    std::lock_guard<std::mutex> lock(g_dlcMutex);
+    std::vector<uint32_t> out;
+    for (uint32_t base : baseApps) {
+        auto it = g_baseAppToDlcs.find(base);
+        if (it == g_baseAppToDlcs.end())
+            continue;
+        for (uint32_t dlcId : it->second) {
+            if (std::find(out.begin(), out.end(), dlcId) == out.end()) {
+                out.push_back(dlcId);
+            }
+        }
+    }
+    return out;
+}
+
 void DlcStore::RegisterDlcs(uint32_t baseAppId, const std::vector<uint32_t>& dlcIds) {
     if (baseAppId == 0 || dlcIds.empty())
         return;
@@ -118,9 +139,12 @@ void DlcStore::RegisterDlcs(uint32_t baseAppId, const std::vector<uint32_t>& dlc
         std::lock_guard<std::mutex> lock(g_dlcMutex);
         auto& list = g_baseAppToDlcs[baseAppId];
         for (uint32_t dlcId : dlcIds) {
-            if (std::find(list.begin(), list.end(), dlcId) == list.end()) {
-                list.push_back(dlcId);
+            // Store pages list Valve redistributables (VC++ runtimes etc.) as
+            // "DLC" - never persist or unlock them.
+            if (IsValveRedistributionAppId(dlcId) || std::find(list.begin(), list.end(), dlcId) != list.end()) {
+                continue;
             }
+            list.push_back(dlcId);
             g_knownDlcs.insert(dlcId);
         }
     }

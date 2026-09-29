@@ -1,5 +1,7 @@
 #include "OmniPlatform/OmniPaths.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <set>
@@ -101,7 +103,20 @@ std::vector<std::string> Paths::GetCandidateLuaDirectories() {
 
     auto addDir = [&](const std::string& d) {
         if (!d.empty()) {
-            std::string normalized = fs::path(d).lexically_normal().generic_string();
+            // Resolve against the current working directory BEFORE dedup so
+            // "config/lua" and "<steam>/config/lua" (same physical folder when
+            // the CWD is the Steam root) collapse into one entry instead of
+            // double-loading every script.
+            std::error_code ec;
+            auto canonical = fs::weakly_canonical(fs::path(d), ec);
+            std::string normalized = (ec ? fs::path(d).lexically_normal() : canonical).generic_string();
+#if defined(OMNI_PLATFORM_WINDOWS)
+            // Windows paths are case-insensitive; the registry may hand back a
+            // different drive-letter casing than cwd-derived paths, which would
+            // defeat the exact-match dedup below.
+            std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+#endif
             if (!seen.contains(normalized)) {
                 seen.insert(normalized);
                 dirs.push_back(normalized);

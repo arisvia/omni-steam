@@ -28,6 +28,11 @@ void Install() {
     }
 }
 
-void Uninstall() {}
+void Uninstall() {
+    uintptr_t fnIPC = PatternLoader::GetFunctionAddress("IPCProcessMessage");
+    if (fnIPC) {
+        DETACH_HOOK(fnIPC, IPCProcessMessage);
+    }
+}
 
 } // namespace Hooks_IPC

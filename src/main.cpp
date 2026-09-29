@@ -85,7 +85,21 @@ const char* OmniSteam_GetCommitHash() {
 }
 }
 
+static bool IsSteamHostProcess() {
+    std::string exePath = OmniPlatform::Process::GetExecutablePath();
+    size_t lastSlash = exePath.find_last_of("/\\");
+    std::string exeName = (lastSlash != std::string::npos) ? exePath.substr(lastSlash + 1) : exePath;
+    for (char& c : exeName) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return exeName == "steam.exe" || exeName == "steam";
+}
+
 static void InitializeOmniSteam() {
+    if (!IsSteamHostProcess()) {
+        return; // Never hook into steamwebhelper.exe or helper processes
+    }
+
     Log::Init();
     spdlog::info("OmniSteam cross-platform core initializing (Version: {}, Commit: {})...", OMNISTEAM_VERSION,
                  OMNISTEAM_GIT_COMMIT);

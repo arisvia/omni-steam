@@ -107,6 +107,11 @@ void Install() {
     }
 }
 
-void Uninstall() {}
+void Uninstall() {
+    uintptr_t fnAddress = PatternLoader::GetFunctionAddress("ConfigStore_GetBinary");
+    if (fnAddress != 0) {
+        DETACH_HOOK(fnAddress, ConfigStoreGetBinary);
+    }
+}
 
 } // namespace Hooks_Decryption

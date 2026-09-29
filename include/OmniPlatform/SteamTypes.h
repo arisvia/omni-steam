@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 // ==============================================================================
 // Steam Base Types & Typedefs
@@ -19,6 +20,15 @@ inline constexpr uint64_t kSteamDefaultBasePackageAccessToken = 1066065243419061
 // OnlineFix Spacewar P2P AppID
 inline constexpr AppId_t kOnlineFixAppId = 480;
 
+// Valve-shared redistributable AppIDs (DirectX Jun 2010, VC++ 2005-2022 x86/x64,
+// .NET helpers...). They are published by every second store page's "dlc" array
+// and must NEVER be injected into Package 0 as unlock targets - they are already
+// owned by everyone and injecting them pollutes the library sidebar with junk
+// entries like "228988".
+inline constexpr bool IsValveRedistributionAppId(AppId_t appId) {
+    return appId >= 228980 && appId <= 228991;
+}
+
 // Default synthesized license count for unowned standalone apps & DLCs
 // Steam Protocol Network eMsg Constants
 inline constexpr uint32_t kMsgHdrProtoFlag = 0x80000000;
@@ -34,6 +44,21 @@ inline constexpr uint32_t k_EMsgClientPICSProductInfoRequest = 8903;
 inline constexpr uint32_t k_EMsgClientGetUserStats = 818;
 inline constexpr uint32_t k_EMsgClientGetUserStatsResponse = 819;
 inline constexpr uint32_t k_EMsgClientGetAppOwnershipTicketResponse = 858;
+inline constexpr uint32_t k_EMsgClientSharedLibraryStopPlaying = 9406;
+inline constexpr uint32_t k_EMsgClientPersonaState = 766;
+inline constexpr uint32_t k_EMsgClientRichPresenceUpload = 7501;
+
+// EClientPersonaStateFlag::k_EClientPersonaStateFlagRichPresence
+inline constexpr uint32_t kPersonaStateFlagRichPresence = 0x1000;
+
+// CMsgClientPersonaState / Friend protobuf field numbers (per upstream proto)
+inline constexpr uint32_t kPersonaFieldStatusFlags = 1;
+inline constexpr uint32_t kPersonaFieldFriends = 2;
+inline constexpr uint32_t kFriendFieldFriendId = 1;        // fixed64
+inline constexpr uint32_t kFriendFieldGamePlayedAppId = 3; // varint
+inline constexpr uint32_t kFriendFieldGameName = 55;       // string
+inline constexpr uint32_t kFriendFieldGameId = 56;         // fixed64
+inline constexpr uint32_t kFriendFieldRichPresence = 71;   // repeated KV{key=1,value=2}
 
 // Synthetic purchase timestamp injected into AppOverview so unlocked titles
 // appear instantly and persist in the library UI.
@@ -52,6 +77,30 @@ struct CGameID {
         return static_cast<AppId_t>(m_ulGameID & 0xFFFFFF);
     }
     void SetAppID(AppId_t appId) { m_ulGameID = (m_ulGameID & ~0xFFFFFFull) | (appId & 0xFFFFFFull); }
+};
+
+// CAppInfoCache::CAppData entry (steamclient64.dll). Layout matched against
+// upstream BetterSteamTools research for the same client build.
+// Used by the GetOrAddAppData hook: injected license entries whose appinfo
+// never resolves (server denies PICS tokens for client-side-only unlocks)
+// must set bSkipFlag, otherwise CClientAppManager_ProcessPendingLicenseUpdates
+// blocks forever and the library sidebar never receives ownership updates.
+struct CAppData {
+    void** vfptr;                 // 0x00
+    AppId_t nAppID;               // 0x08
+    uint32_t ChangeNumber;        // 0x0C
+    uint32_t LastChangeTimeStamp; // 0x10
+    bool bSkipFlag;               // 0x14
+    bool bDeniedToken;            // 0x15
+    bool bMissingToken;           // 0x16
+    uint64_t accessToken;         // 0x18
+    uint8_t sha1Hash[20];         // 0x20
+
+    bool HasEmptyAppInfoSha() const {
+        static constexpr uint8_t kEmptySha1[sizeof(sha1Hash)] = {};
+        return std::memcmp(sha1Hash, kEmptySha1, sizeof(sha1Hash)) == 0;
+    }
+    bool IsUnresolvedAppInfo() const { return HasEmptyAppInfoSha() && !bSkipFlag; }
 };
 
 #pragma pack(push, 1)
@@ -77,10 +126,8 @@ struct MsgClientGetLegacyGameKeyResponse {
 };
 #pragma pack(pop)
 inline constexpr uint32_t kSteamDefaultInjectedPackageCount = 1;
-// Steam AppState Manifest Magic Flags
-inline constexpr uint32_t kSteamAppStateReadyToInstall =
-    1026; // k_EAppStateUpdateRequired (2) | k_EAppStateUpdateOptional (1024)
-
+// Steam AppState Manifest Flags (1 = Uninstalled / Ready to install without auto-downloading)
+inline constexpr uint32_t kSteamAppStateReadyToInstall = 1;
 // OmniSteam Binary DLC Cache Header
 inline constexpr uint32_t kSteamDlcCacheMagic = 0x4F4D4443; // 'OMDC' (OmniSteam DLC Cache)
 inline constexpr uint32_t kSteamDlcCacheVersion = 1;
@@ -170,25 +217,24 @@ struct AppOwnership {
     char PurchaseCountryCode[4];     // 0x18
     uint32_t TimeStamp;              // 0x1C
     uint32_t TimeExpire;             // 0x20
-    uint32_t Unknown24;              // 0x24
-    bool bOwnsLicense;               // 0x28
-    bool bLicenseExpired;            // 0x29
-    bool bIsPermanent;               // 0x2A
-    bool bLowViolence;               // 0x2B
-    bool bFreeLicense;               // 0x2C
-    bool bRegionRestricted;          // 0x2D
-    bool bFromFreeWeekend;           // 0x2E
-    bool bLicenseLocked;             // 0x2F
-    bool bLicensePending;            // 0x30
-    bool bRetailLicense;             // 0x31
-    bool bAutoGrant;                 // 0x32
-    bool bLicensePermanent;          // 0x33
-    bool bGuestPass;                 // 0x34
-    bool bBorrowed;                  // 0x35
-    bool bAnySiteLicense;            // 0x36
-    bool bAllSiteLicenses;           // 0x37
-    bool bAllActivationRequired;     // 0x38
-    bool bFamilyShared;              // 0x39
+    bool bOwnsLicense;               // 0x24
+    bool bLicenseExpired;            // 0x25
+    bool bIsPermanent;               // 0x26
+    bool bLowViolence;               // 0x27
+    bool bFreeLicense;               // 0x28
+    bool bRegionRestricted;          // 0x29
+    bool bFromFreeWeekend;           // 0x2A
+    bool bLicenseLocked;             // 0x2B
+    bool bLicensePending;            // 0x2C
+    bool bRetailLicense;             // 0x2D
+    bool bAutoGrant;                 // 0x2E
+    bool bLicensePermanent;          // 0x2F
+    bool bGuestPass;                 // 0x30
+    bool bBorrowed;                  // 0x31
+    bool bAnySiteLicense;            // 0x32
+    bool bAllSiteLicenses;           // 0x33
+    bool bAllActivationRequired;     // 0x34
+    bool bFamilyShared;              // 0x35
 };
 
 struct PackageInfo {
@@ -239,8 +285,11 @@ static_assert(offsetof(PackageInfo, DepotIdVec) == offsetof(PackageInfo, AppIdVe
 static_assert(offsetof(CUtlVector<AppId_t>, m_Size) == sizeof(CUtlMemory<AppId_t>),
               "CUtlVector::m_Size must directly follow CUtlMemory (no m_pElements)");
 static_assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14, "AppOwnership::ExistInPackageNums offset drifted");
-static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x28, "AppOwnership::bOwnsLicense offset drifted");
-static_assert(offsetof(AppOwnership, bFreeLicense) == 0x2C, "AppOwnership::bFreeLicense offset drifted");
+// Layout anchored against upstream BetterSteamTools Structs.h (their working
+// client build): TimeExpire 0x20 -> bOwnsLicense 0x24 directly, no filler.
+static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x24, "AppOwnership::bOwnsLicense offset drifted");
+static_assert(offsetof(AppOwnership, bFreeLicense) == 0x28, "AppOwnership::bFreeLicense offset drifted");
+static_assert(offsetof(AppOwnership, bFamilyShared) == 0x35, "AppOwnership::bFamilyShared offset drifted");
 #if defined(OMNI_ARCH_X64)
 static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "x64 PackageInfo::AppIdVec anchor drifted");
 static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "x64 PackageInfo::DepotIdVec anchor drifted");
