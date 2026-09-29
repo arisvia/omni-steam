@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <climits>
+#include <csignal>
 #include <cstdint>
 #include <libproc.h>
 #include <string>
@@ -73,6 +75,13 @@ std::string Process::GetExecutablePath() {
     }
     return "";
 }
+
+bool Process::IsProcessRunning(uint32_t pid) {
+    if (pid == 0)
+        return false;
+    return kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+}
+
 void Thread::StartDetached(std::function<void()> task) {
     std::thread t(task);
     t.detach();

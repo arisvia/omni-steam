@@ -140,6 +140,18 @@ std::vector<uint32_t> Process::FindProcessIdsByName(const std::string& processNa
     return result;
 }
 
+bool Process::IsProcessRunning(uint32_t pid) {
+    if (pid == 0)
+        return false;
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h)
+        return false;
+    DWORD exitCode = 0;
+    BOOL ok = GetExitCodeProcess(h, &exitCode);
+    CloseHandle(h);
+    return ok && exitCode == STILL_ACTIVE;
+}
+
 void Thread::StartDetached(std::function<void()> task) {
     CreateThread(
         nullptr, 0,

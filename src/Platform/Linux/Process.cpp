@@ -75,6 +75,12 @@ std::string Process::GetExecutablePath() {
     return "";
 }
 
+bool Process::IsProcessRunning(uint32_t pid) {
+    if (pid == 0)
+        return false;
+    return access(("/proc/" + std::to_string(pid)).c_str(), F_OK) == 0;
+}
+
 void Thread::StartDetached(std::function<void()> task) {
     std::thread t(task);
     t.detach();

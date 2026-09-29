@@ -44,15 +44,15 @@ HOOK_FUNC(IPCProcessMessage, bool, void* pServer, int32_t hSteamPipe, void* pRea
                         if (reqHdr->command == SteamIPC::EIPCCommand::InterfaceCall) {
                             const auto* callHdr = reinterpret_cast<const SteamIPC::InterfaceCallHeader*>(
                                 readBuf->Base() + sizeof(SteamIPC::IPCHeader));
-                            if (callHdr->interfaceID == SteamIPC::EIPCInterface::IClientUser) {
-                                constexpr size_t kMinResp = sizeof(SteamIPC::IPCHeader) + sizeof(uint64_t);
-                                if (writeBuf->TellPut() >= static_cast<int32_t>(kMinResp)) {
+                            if (callHdr->interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr->argc == 0) {
+                                constexpr size_t kExactResp = sizeof(SteamIPC::IPCHeader) + sizeof(uint64_t);
+                                if (writeBuf->TellPut() == static_cast<int32_t>(kExactResp)) {
                                     uint64_t* pRespSteamId =
                                         reinterpret_cast<uint64_t*>(writeBuf->Base() + sizeof(SteamIPC::IPCHeader));
                                     if (*pRespSteamId != 0 && *pRespSteamId != spoofed) {
                                         spdlog::info("Hooks_IPC: Spoofed IClientUser::GetSteamID for AppID {} (0x{:X} "
-                                                     "-> 0x{:X})",
-                                                     activeAppId, *pRespSteamId, spoofed);
+                                                     "-> 0x{:X}, funcHash=0x{:08X})",
+                                                     activeAppId, *pRespSteamId, spoofed, callHdr->funcHash);
                                         *pRespSteamId = spoofed;
                                     }
                                 }

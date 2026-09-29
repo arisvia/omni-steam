@@ -3,6 +3,7 @@
 #include "WebDavClient.h"
 #include "omni_check.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,6 +11,9 @@
 
 #include "OmniPlatform/OmniPaths.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 namespace fs = std::filesystem;
 
 void TestSavePathResolver() {
@@ -72,11 +76,12 @@ void TestCloudSyncStatusPersistence() {
     Manager::CloudSyncStatus status;
     status.appId = 777777;
     status.action = "backup";
-    status.status = "success";
+    status.status = "failed";
     status.timestamp = "20260929_123456";
     status.fileCount = 3;
     status.totalBytes = 4096;
-    status.message = "Unit test backup status";
+    // Regression test: message with quotes, backslashes, and special characters
+    status.message = R"(Upload failed "C:\Steam\games\save.bin" (404 / Not Found))";
 
     Manager::CloudSaveManager::RecordSyncStatus(status);
 
@@ -84,27 +89,45 @@ void TestCloudSyncStatusPersistence() {
     OMNI_CHECK(retrieved.has_value());
     OMNI_CHECK(retrieved->appId == 777777);
     OMNI_CHECK(retrieved->action == "backup");
-    OMNI_CHECK(retrieved->status == "success");
+    OMNI_CHECK(retrieved->status == "failed");
     OMNI_CHECK(retrieved->fileCount == 3);
     OMNI_CHECK(retrieved->totalBytes == 4096);
-    OMNI_CHECK(retrieved->message == "Unit test backup status");
+    OMNI_CHECK(retrieved->message == status.message);
 
     auto all = Manager::CloudSaveManager::GetAllSyncStatuses();
     bool found = false;
     for (const auto& s : all) {
         if (s.appId == 777777) {
             found = true;
+            OMNI_CHECK(s.message == status.message);
             break;
         }
     }
     OMNI_CHECK(found);
 
-    std::cout << "[PASS] TestCloudSyncStatusPersistence\n";
+    std::cout << "[PASS] TestCloudSyncStatusPersistence (Round-trip escaped JSON OK)\n";
 }
 
 void TestManagerPathRegistration() {
-    // Register dummy manager executable path
-    std::string testPath = (fs::temp_directory_path() / "test_omnisteam_manager.exe").generic_string();
+    // Hermetic: snapshot prior registry state
+    std::string priorRegValue;
+    bool hadPriorReg = false;
+#if defined(_WIN32)
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\OmniSteam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char buf[MAX_PATH] = {};
+        DWORD bufSize = sizeof(buf);
+        DWORD type = REG_SZ;
+        if (RegQueryValueExA(hKey, "ManagerPath", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &bufSize) ==
+            ERROR_SUCCESS) {
+            hadPriorReg = true;
+            priorRegValue = buf;
+        }
+        RegCloseKey(hKey);
+    }
+#endif
+
+    std::string testPath = (fs::temp_directory_path() / "test_omnisteam_mgr.exe").generic_string();
     {
         std::ofstream dummy(testPath);
         dummy << "binary";
@@ -115,22 +138,56 @@ void TestManagerPathRegistration() {
     OMNI_CHECK(regOk);
 
     std::string resolved = OmniPlatform::Paths::GetManagerExecutablePath();
-    // Should resolve to the registered path
     OMNI_CHECK(!resolved.empty());
     OMNI_CHECK(fs::exists(resolved));
 
     fs::remove(testPath);
-    std::cout << "[PASS] TestManagerPathRegistration\n";
+
+    // Restore prior registry state
+#if defined(_WIN32)
+    if (hadPriorReg) {
+        HKEY hKeyWrite = nullptr;
+        if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\OmniSteam", 0, KEY_SET_VALUE, &hKeyWrite) == ERROR_SUCCESS) {
+            RegSetValueExA(hKeyWrite, "ManagerPath", 0, REG_SZ, reinterpret_cast<const BYTE*>(priorRegValue.c_str()),
+                           static_cast<DWORD>(priorRegValue.size() + 1));
+            RegCloseKey(hKeyWrite);
+        }
+    } else {
+        HKEY hKeyWrite = nullptr;
+        if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\OmniSteam", 0, KEY_SET_VALUE, &hKeyWrite) == ERROR_SUCCESS) {
+            RegDeleteValueA(hKeyWrite, "ManagerPath");
+            RegCloseKey(hKeyWrite);
+        }
+    }
+#endif
+
+    std::cout << "[PASS] TestManagerPathRegistration (Hermetic)\n";
 }
 
 int main() {
     std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
+
+    // Hermetic sandbox isolation: redirect config & cache directories into temp
+    std::string tempSandbox = (fs::temp_directory_path() / "test_omnisteam_sandbox").generic_string();
+    fs::create_directories(tempSandbox);
+#if defined(_WIN32)
+    _putenv_s("OMNISTEAM_CONFIG_DIR", tempSandbox.c_str());
+    _putenv_s("OMNISTEAM_CACHE_DIR", tempSandbox.c_str());
+#else
+    setenv("OMNISTEAM_CONFIG_DIR", tempSandbox.c_str(), 1);
+    setenv("OMNISTEAM_CACHE_DIR", tempSandbox.c_str(), 1);
+#endif
+
     TestSavePathResolver();
     TestWebDavConfig();
     TestRemoteCacheUfsResolution();
     TestCloudSyncEnabledToggle();
     TestCloudSyncStatusPersistence();
     TestManagerPathRegistration();
+
+    std::error_code ec;
+    fs::remove_all(tempSandbox, ec);
+
     std::cout << "All Cloud Save Tests Passed!\n";
     return 0;
 }

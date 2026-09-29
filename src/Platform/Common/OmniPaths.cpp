@@ -169,6 +169,10 @@ std::string Paths::GetDefaultLuaDirectory() {
 }
 
 std::string Paths::GetConfigDirectory() {
+    const char* envConfig = std::getenv("OMNISTEAM_CONFIG_DIR");
+    if (envConfig && *envConfig) {
+        return fs::path(envConfig).generic_string();
+    }
 #if defined(OMNI_PLATFORM_WINDOWS)
     const char* appData = std::getenv("APPDATA");
     if (appData) {
@@ -201,6 +205,15 @@ std::string Paths::GetConfigPath() {
 }
 
 std::string Paths::GetCacheDirectory() {
+    const char* envCache = std::getenv("OMNISTEAM_CACHE_DIR");
+    if (envCache && *envCache) {
+        std::string base = fs::path(envCache).generic_string();
+        try {
+            fs::create_directories(base);
+        } catch (...) {
+        }
+        return base;
+    }
 #if defined(OMNI_PLATFORM_WINDOWS)
     const char* localAppData = std::getenv("LOCALAPPDATA");
     std::string base = localAppData ? (fs::path(localAppData) / "OmniSteam" / "cache").generic_string()

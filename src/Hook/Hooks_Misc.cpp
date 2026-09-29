@@ -1,4 +1,7 @@
 #include "Hooks_Misc.h"
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -104,9 +107,8 @@ void MonitorGameLifecycle(AppId_t appId, const char* exePath) {
             STARTUPINFOA si{};
             si.cb = sizeof(si);
             PROCESS_INFORMATION pi{};
-            if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS,
-                               nullptr, nullptr, &si, &pi)) {
-                CloseHandle(pi.hThread);
+            if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                               &pi)) {
                 CloseHandle(pi.hProcess);
                 spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {}", appId);
             }

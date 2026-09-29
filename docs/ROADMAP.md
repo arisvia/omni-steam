@@ -111,5 +111,5 @@
 - [x] **全平台特征码点亮与 CI 流水线打通**（2026-09）：修复 macOS Mach-O 符号自动派生（LC_FUNCTION_STARTS + 字符串 xref 提取）；对齐 CI 输出规范路径（`windows-x64` / `linux-x64` / `macos-universal`）；测试盲区闭环。
 
 ## 阶段 8：架构演进与深水区探索 【📋 规划就绪】
-- [ ] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
-- [ ] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。
+- [x] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
+- [x] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。

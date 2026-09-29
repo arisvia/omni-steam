@@ -19,7 +19,9 @@
 #include "OmniPlatform/OmniPaths.h"
 #include "OmniPlatform/OmniPlatform.h"
 
-#if !defined(OMNI_PLATFORM_WINDOWS)
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -91,7 +93,6 @@ std::optional<std::string> RelativeTo(const std::string& href, const std::string
         rest.erase(rest.begin());
     return rest;
 }
-} // namespace
 
 class AppLockGuard {
 public:
@@ -138,6 +139,11 @@ public:
 #endif
     }
 
+    AppLockGuard(const AppLockGuard&) = delete;
+    AppLockGuard& operator=(const AppLockGuard&) = delete;
+    AppLockGuard(AppLockGuard&&) = delete;
+    AppLockGuard& operator=(AppLockGuard&&) = delete;
+
     bool IsAcquired() const { return m_acquired; }
 
 private:
@@ -150,8 +156,51 @@ private:
 #endif
 };
 
+} // namespace
 static std::string GetStatusFilePath() {
     return (fs::path(OmniPlatform::Paths::GetConfigDirectory()) / "cloud_status.json").generic_string();
+}
+
+static std::string UnescapeJson(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (input[i] == '\\' && i + 1 < input.size()) {
+            char next = input[++i];
+            switch (next) {
+                case '"':
+                    out += '"';
+                    break;
+                case '\\':
+                    out += '\\';
+                    break;
+                case '/':
+                    out += '/';
+                    break;
+                case 'b':
+                    out += '\b';
+                    break;
+                case 'f':
+                    out += '\f';
+                    break;
+                case 'n':
+                    out += '\n';
+                    break;
+                case 'r':
+                    out += '\r';
+                    break;
+                case 't':
+                    out += '\t';
+                    break;
+                default:
+                    out += next;
+                    break;
+            }
+        } else {
+            out += input[i];
+        }
+    }
+    return out;
 }
 
 std::vector<CloudSyncStatus> CloudSaveManager::GetAllSyncStatuses() {
@@ -166,21 +215,20 @@ std::vector<CloudSyncStatus> CloudSaveManager::GetAllSyncStatuses() {
     }
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     static const std::regex objRe(
-        R"raw(\{\s*"appId"\s*:\s*(\d+)\s*,\s*"action"\s*:\s*"([^"]*)"\s*,\s*"status"\s*:\s*"([^"]*)"\s*,\s*"timestamp"\s*:\s*"([^"]*)"\s*,\s*"fileCount"\s*:\s*(\d+)\s*,\s*"totalBytes"\s*:\s*(\d+)\s*,\s*"message"\s*:\s*"([^"]*)"\s*\})raw");
+        R"raw(\{\s*"appId"\s*:\s*(\d+)\s*,\s*"action"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"status"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"timestamp"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"fileCount"\s*:\s*(\d+)\s*,\s*"totalBytes"\s*:\s*(\d+)\s*,\s*"message"\s*:\s*"((?:\\.|[^"\\])*)"\s*\})raw");
     for (auto it = std::sregex_iterator(content.begin(), content.end(), objRe); it != std::sregex_iterator(); ++it) {
         CloudSyncStatus s;
         s.appId = static_cast<uint32_t>(std::stoul((*it)[1].str()));
-        s.action = (*it)[2].str();
-        s.status = (*it)[3].str();
-        s.timestamp = (*it)[4].str();
+        s.action = UnescapeJson((*it)[2].str());
+        s.status = UnescapeJson((*it)[3].str());
+        s.timestamp = UnescapeJson((*it)[4].str());
         s.fileCount = static_cast<size_t>(std::stoull((*it)[5].str()));
         s.totalBytes = static_cast<size_t>(std::stoull((*it)[6].str()));
-        s.message = (*it)[7].str();
+        s.message = UnescapeJson((*it)[7].str());
         list.push_back(s);
     }
     return list;
 }
-
 std::optional<CloudSyncStatus> CloudSaveManager::GetSyncStatus(uint32_t appId) {
     auto all = GetAllSyncStatuses();
     for (const auto& s : all) {
@@ -227,9 +275,18 @@ void CloudSaveManager::RecordSyncStatus(const CloudSyncStatus& status) {
         if (!dir.empty()) {
             fs::create_directories(dir);
         }
-        std::ofstream out(path, std::ios::trunc);
-        if (out) {
+        std::string tempPath = path + ".tmp." + std::to_string(OmniPlatform::Process::GetCurrentProcessId());
+        {
+            std::ofstream out(tempPath, std::ios::trunc);
+            if (!out)
+                return;
             out << json.str();
+        }
+        std::error_code ec;
+        fs::rename(tempPath, path, ec);
+        if (ec) {
+            fs::copy_file(tempPath, path, fs::copy_options::overwrite_existing, ec);
+            fs::remove(tempPath, ec);
         }
     } catch (...) {
     }
@@ -238,10 +295,9 @@ void CloudSaveManager::RecordSyncStatus(const CloudSyncStatus& status) {
 bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
     AppLockGuard lock(appId);
     if (!lock.IsAcquired()) {
-        spdlog::info("CloudSaveManager: Backup already in progress for AppID {}, skipping concurrent attempt", appId);
-        return true;
+        spdlog::warn("CloudSaveManager: Backup already in progress for AppID {}, skipping concurrent attempt", appId);
+        return false;
     }
-
     if (webdav.serverUrl.empty()) {
         spdlog::warn("CloudSaveManager: WebDAV server URL is empty");
         RecordSyncStatus({appId, "backup", "failed", GetCurrentTimestamp(), 0, 0, "WebDAV server URL is empty"});
@@ -306,9 +362,8 @@ bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav
 bool CloudSaveManager::RestoreAppSaves(uint32_t appId, const WebDavConfig& webdav, const std::string& targetLocalDir) {
     AppLockGuard lock(appId);
     if (!lock.IsAcquired()) {
-        spdlog::info("CloudSaveManager: Operation already in progress for AppID {}, skipping concurrent attempt",
-                     appId);
-        return true;
+        spdlog::warn("CloudSaveManager: Restore already in progress for AppID {}, skipping concurrent attempt", appId);
+        return false;
     }
 
     if (webdav.serverUrl.empty()) {

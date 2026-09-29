@@ -1,5 +1,7 @@
 #include "Hooks_Decryption.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -16,8 +18,7 @@
 #include "Hook/HookMacros.h"
 namespace {
 
-void* g_pConfigStoreLocal = nullptr;
-
+std::atomic<void*> g_pConfigStoreLocal{nullptr};
 // Case-insensitive substring search without allocating.
 const char* FindCaseInsensitive(const char* haystack, const char* needle) {
     if (!haystack || !needle)
@@ -40,9 +41,11 @@ const char* FindCaseInsensitive(const char* haystack, const char* needle) {
 
 HOOK_FUNC(ConfigStoreGetBinary, int32_t, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key,
           uint32_t KeySize) {
-    if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal) {
-        g_pConfigStoreLocal = pObject;
-        spdlog::debug("Captured local ConfigStore instance at {:p}", g_pConfigStoreLocal);
+    if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal.load(std::memory_order_relaxed)) {
+        void* expected = nullptr;
+        if (g_pConfigStoreLocal.compare_exchange_strong(expected, pObject)) {
+            spdlog::debug("Captured local ConfigStore instance at {:p}", pObject);
+        }
     }
 
     // Fast rejection first: this hook fires for every config lookup, so the
@@ -120,17 +123,23 @@ void Uninstall() {
 }
 
 std::vector<uint8_t> GetCacheAppOwnershipTicket(uint32_t appId) {
-    if (!g_pConfigStoreLocal || !oConfigStoreGetBinary) {
+    void* pStore = g_pConfigStoreLocal.load(std::memory_order_acquire);
+    if (!pStore || !oConfigStoreGetBinary) {
         return {};
     }
     std::string keyPath = "apptickets\\" + std::to_string(appId);
     std::vector<char> buf(4096);
-    int32_t n = oConfigStoreGetBinary(g_pConfigStoreLocal, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),
+    int32_t n = oConfigStoreGetBinary(pStore, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),
                                       static_cast<uint32_t>(buf.size()));
+    if (n > static_cast<int32_t>(buf.size())) {
+        buf.resize(static_cast<size_t>(n));
+        n = oConfigStoreGetBinary(pStore, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),
+                                  static_cast<uint32_t>(buf.size()));
+    }
     if (n > 0) {
-        return std::vector<uint8_t>(buf.begin(), buf.begin() + n);
+        size_t validLen = std::min(static_cast<size_t>(n), buf.size());
+        return std::vector<uint8_t>(buf.begin(), buf.begin() + validLen);
     }
     return {};
 }
-
 } // namespace Hooks_Decryption
