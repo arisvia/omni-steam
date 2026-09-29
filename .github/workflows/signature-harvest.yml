@@ -66,7 +66,7 @@ jobs:
           mkdir -p cmd && cd cmd
           curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
           ./steamcmd.sh +quit || true
-          cd ..
+          cd ../..
           n=0
           declare -A SEEN
           while IFS= read -r f; do
@@ -77,14 +77,14 @@ jobs:
               mkdir -p "steam-dist/uniq$n"
               cp "$f" "steam-dist/uniq$n/$(basename "$f")"
             fi
-          done < <(find . "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
+          done < <(find steam-dist "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
           COUNT=$n
           echo "Unique steamclient.so copies: $COUNT"
           find steam-dist -name 'steamclient*.so' -printf '%p\n'
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
 
       - name: Harvest signatures
-        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/linux
+        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/linux-x64
 
       - name: Derive signatures via string xrefs
         run: |
@@ -92,7 +92,7 @@ jobs:
           # recompiles and .eh_frame_hdr gives exact containing functions, so
           # this re-derives anchors on EVERY new client with no reference.
           for f in $(find steam-dist -name 'steamclient*.so' | sort); do
-            python3 tools/derive_signatures.py --binary "$f" --out signatures-out/linux || true
+            python3 tools/derive_signatures.py --binary "$f" --out signatures-out/linux-x64 || true
           done
 
       - name: Upload binaries artifact (private, 7 days)
@@ -183,13 +183,13 @@ jobs:
         shell: pwsh
         run: |
           pip install pefile
-          python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/windows
+          python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/windows-x64
 
       - name: Sync upstream pattern database
         shell: pwsh
         run: |
           pip install pefile capstone
-          python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows --sub steamclient --sub steamui
+          python tools/sync_upstream_patterns.py --binary steam-dist/steamclient64.dll --out signatures-out/windows-x64 --sub steamclient --sub steamui
         # A brand-new Steam build may not be anchored upstream yet; that is
         # informational, not a failure.
         continue-on-error: true
@@ -202,7 +202,7 @@ jobs:
           # RTTI names + vtable slot indices - no Valve bytes, lives in-repo).
           # Works for ANY new client version with zero network dependency.
           if (Test-Path "signatures/anchor-map-windows.json") {
-            python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --map signatures/anchor-map-windows.json --out signatures-out/windows
+            python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --map signatures/anchor-map-windows.json --out signatures-out/windows-x64
             exit 0
           }
           # Self-loop tier 2 (bootstrap only): no committed map yet - transfer
@@ -220,9 +220,9 @@ jobs:
             } catch {}
           }
           if (-not $ok) { Write-Host "reference hash $refHash not anchored upstream; nothing to transfer"; exit 0 }
-          python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --reference-binary $ref --reference-toml $toml --out signatures-out/windows
+          python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --reference-binary $ref --reference-toml $toml --out signatures-out/windows-x64
           # Bootstrap the committed map so every future run uses tier 1.
-          python tools/derive_signatures.py --binary $ref --reference-binary $ref --reference-toml $toml --emit-map signatures/anchor-map-windows.json --out signatures-out/windows
+          python tools/derive_signatures.py --binary $ref --reference-binary $ref --reference-toml $toml --emit-map signatures/anchor-map-windows.json --out signatures-out/windows-x64
         continue-on-error: true
 
       - name: Upload binaries artifact (private, 7 days)
@@ -282,8 +282,13 @@ jobs:
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.dylib obtained"; exit 1; }
 
       - name: Harvest signatures
-        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos
+        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos-universal
 
+      - name: Derive signatures via string xrefs
+        run: |
+          for f in $(find steam-dist -iname '*steamclient*.dylib' | sort); do
+            python3 tools/derive_signatures.py --binary "$f" --out signatures-out/macos-universal || true
+          done
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         with:
@@ -316,7 +321,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all harvest outputs
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: signatures-*
           merge-multiple: true
