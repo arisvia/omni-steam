@@ -81,8 +81,12 @@ jobs:
         run: cmake -B build ${{ matrix.cmake_args }} -DBUILD_TESTS=ON
 
       - name: Build OmniSteam
-        run: cmake --build build --config Release --parallel
-
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cmake --build build --config Release --parallel 2
+          else
+            cmake --build build --config Release --parallel
+          fi
       - name: Run Unit Tests
         run: |
           ctest --test-dir build --output-on-failure -C Release

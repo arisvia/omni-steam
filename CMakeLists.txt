@@ -153,6 +153,7 @@ if(NOT funchook_src_POPULATED)
     endif()
 
     add_library(funchook STATIC ${FUNCHOOK_SOURCES})
+    target_compile_options(funchook PRIVATE -w)
     target_include_directories(funchook SYSTEM PUBLIC 
         "${funchook_src_SOURCE_DIR}/include"
         "${capstone_SOURCE_DIR}/include"
@@ -187,6 +188,7 @@ else()
             "${lua_source_SOURCE_DIR}/onelua.c"
         )
         add_library(lua_static STATIC ${LUA_SOURCES})
+        target_compile_options(lua_static PRIVATE -w)
         target_include_directories(lua_static SYSTEM PUBLIC "${lua_source_SOURCE_DIR}")
         if(UNIX)
             target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX)
