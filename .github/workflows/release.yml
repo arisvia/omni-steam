@@ -118,7 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Download all packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: all-packages
           merge-multiple: true
