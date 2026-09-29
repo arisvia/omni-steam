@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -14,6 +15,9 @@
 #include "Utils/Metadata/PatternLoader.h"
 #include "Utils/Metadata/SteamIPC.h"
 #include "Utils/Security/AntiCheatGuard.h"
+#include "Utils/Tickets/AppTicket.h"
+#include "Utils/Tickets/EticketClient.h"
+#include "Utils/Tickets/LegacyCDKey.h"
 void TestPatternLoader() {
     PatternLoader::Initialize();
     PatternLoader::RegisterPattern("DummyFunc", "", "90 90 90", 0);
@@ -119,6 +123,77 @@ void TestAntiCheatGuardWhitelist() {
     std::cout << "[PASS] TestAntiCheatGuardWhitelist\n";
 }
 
+void TestLegacyCDKeySynthesizer() {
+    uint32_t appId = 1086940;
+    uint32_t accountId = 12345678;
+    std::string key1 = LegacyCDKey::Synthesize(appId, accountId);
+    std::string key2 = LegacyCDKey::Synthesize(appId, accountId);
+
+    // 1. Length is exactly 19 (16 alphanumeric chars + 3 dashes)
+    OMNI_CHECK(key1.size() == 19);
+    // 2. Dashes are at positions 4, 9, 14
+    OMNI_CHECK(key1[4] == '-' && key1[9] == '-' && key1[14] == '-');
+    // 3. Deterministic: identical inputs produce identical output
+    OMNI_CHECK(key1 == key2);
+
+    // 4. Different account produces different key
+    std::string keyOther = LegacyCDKey::Synthesize(appId, 87654321);
+    OMNI_CHECK(key1 != keyOther);
+
+    std::cout << "[PASS] TestLegacyCDKeySynthesizer\n";
+}
+
+void TestAppTicketSteamIdExtraction() {
+    // Construct dummy AppOwnershipTicket: [uint32 Size][uint32 Version][uint64 SteamID]...
+    std::vector<uint8_t> dummyTicket(32, 0);
+    uint32_t size = 32;
+    uint32_t version = 1;
+    uint64_t expectedSteamId = 0x011000010A0B0C0Dull;
+
+    std::memcpy(dummyTicket.data(), &size, sizeof(uint32_t));
+    std::memcpy(dummyTicket.data() + 4, &version, sizeof(uint32_t));
+    std::memcpy(dummyTicket.data() + 8, &expectedSteamId, sizeof(uint64_t));
+
+    uint64_t extracted = AppTicket::ExtractSteamIdFromTicket(dummyTicket);
+    OMNI_CHECK(extracted == expectedSteamId);
+
+    // Short ticket must return 0
+    std::vector<uint8_t> shortTicket(8, 0);
+    OMNI_CHECK(AppTicket::ExtractSteamIdFromTicket(shortTicket) == 0);
+
+    // Test AppID 7 forgery via mock provider
+    AppTicket::SetCacheTicketProvider([](uint32_t aid) -> std::vector<uint8_t> {
+        if (aid == 7) {
+            return std::vector<uint8_t>(160, 0xBB);
+        }
+        return {};
+    });
+
+    auto forged = AppTicket::ForgeLocalAppOwnershipTicket(1086940);
+    OMNI_CHECK(!forged.empty());
+    OMNI_CHECK(forged.size() == 164); // 160 + sizeof(uint32_t)
+
+    AppTicket::AppOwnershipTicket outTicket;
+    OMNI_CHECK(AppTicket::GetAppOwnershipTicket(1086940, outTicket));
+    OMNI_CHECK(outTicket.totalSize == 160);
+
+    AppTicket::SetCacheTicketProvider(nullptr);
+
+    std::cout << "[PASS] TestAppTicketSteamIdExtraction\n";
+}
+
+void TestEticketClientOfflineFallback() {
+    // Without configuration, GetEticketUrl returns empty and FetchFreshEticket safely falls back
+    OMNI_CHECK(EticketClient::GetEticketUrl().empty());
+
+    std::vector<uint8_t> dummyNonce = {0x01, 0x02, 0x03, 0x04};
+    auto result = EticketClient::FetchFreshEticket(1086940, dummyNonce);
+    OMNI_CHECK(!result.has_value());
+
+    EticketClient::ClearCache();
+    std::cout << "[PASS] TestEticketClientOfflineFallback\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
@@ -128,6 +203,9 @@ int main() {
     TestDlcStoreInvariants();
     TestCredentialStoreTickets();
     TestAntiCheatGuardWhitelist();
+    TestLegacyCDKeySynthesizer();
+    TestAppTicketSteamIdExtraction();
+    TestEticketClientOfflineFallback();
     std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
 }

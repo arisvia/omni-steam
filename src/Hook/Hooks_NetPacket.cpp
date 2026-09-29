@@ -22,6 +22,8 @@
 #include "Utils/Metadata/PicsTokenInjector.h"
 #include "Utils/Metadata/ProtoFields.h"
 #include "Utils/Metadata/StatsClient.h"
+#include "Utils/Tickets/AppTicket.h"
+#include "Utils/Tickets/LegacyCDKey.h"
 
 #include "Hook/HookMacros.h"
 #include "Hook/Hooks_Misc.h"
@@ -400,7 +402,9 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             AppId_t appId = reqBody->m_unAppId;
 
             if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
-                std::string syntheticKey = "OMNI-STEAM-FREE-PLAY-KEY";
+                uint32_t accountId = static_cast<uint32_t>(reqHdr->steamID & 0xFFFFFFFFull);
+                auto resolvedKey = LegacyCDKey::Resolve(appId, accountId);
+                std::string syntheticKey = resolvedKey.value_or("OMNI-STEAM-FREE-PLAY-KEY");
                 uint32_t cchKey = static_cast<uint32_t>(syntheticKey.size() + 1);
                 uint32_t totalSize = sizeof(ExtendedMsgHdr) + sizeof(MsgClientGetLegacyGameKeyResponse) + cchKey;
 
@@ -954,16 +958,12 @@ void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const ui
     if (eresult && *eresult == static_cast<uint64_t>(k_EResultOK))
         return;
 
-    std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");
-    if (ticketHex.empty()) {
-        ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "ETicket");
-    }
-    if (ticketHex.empty())
+    AppTicket::AppOwnershipTicket ticketObj;
+    if (!AppTicket::GetAppOwnershipTicket(appId, ticketObj))
         return;
-    std::vector<uint8_t> ticketBytes = OmniPlatform::Encoding::HexToBytes(ticketHex);
+    const auto& ticketBytes = ticketObj.data;
     if (ticketBytes.empty() || ticketBytes.size() > kMaxBodySize)
         return;
-
     std::vector<uint8_t> newBody(pBody, pBody + cbBody);
     ProtoFields::AppendVarintField(newBody, 2, static_cast<uint64_t>(k_EResultOK));
     ProtoFields::AppendBytesField(newBody, 3, ticketBytes);

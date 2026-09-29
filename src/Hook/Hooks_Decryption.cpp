@@ -1,3 +1,5 @@
+#include "Hooks_Decryption.h"
+
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -9,6 +11,7 @@
 
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Metadata/PatternLoader.h"
+#include "Utils/Tickets/AppTicket.h"
 
 #include "Hook/HookMacros.h"
 namespace {
@@ -100,6 +103,7 @@ void Install() {
     uintptr_t fnAddress = PatternLoader::GetFunctionAddress("ConfigStore_GetBinary");
     if (fnAddress != 0) {
         ATTACH_HOOK(fnAddress, ConfigStoreGetBinary);
+        AppTicket::SetCacheTicketProvider(GetCacheAppOwnershipTicket);
         spdlog::info("Hooks_Decryption: Successfully installed ConfigStore_GetBinary hook at {:p}",
                      reinterpret_cast<void*>(fnAddress));
     } else {
@@ -108,10 +112,25 @@ void Install() {
 }
 
 void Uninstall() {
+    AppTicket::SetCacheTicketProvider(nullptr);
     uintptr_t fnAddress = PatternLoader::GetFunctionAddress("ConfigStore_GetBinary");
     if (fnAddress != 0) {
         DETACH_HOOK(fnAddress, ConfigStoreGetBinary);
     }
+}
+
+std::vector<uint8_t> GetCacheAppOwnershipTicket(uint32_t appId) {
+    if (!g_pConfigStoreLocal || !oConfigStoreGetBinary) {
+        return {};
+    }
+    std::string keyPath = "apptickets\\" + std::to_string(appId);
+    std::vector<char> buf(4096);
+    int32_t n = oConfigStoreGetBinary(g_pConfigStoreLocal, k_EConfigStoreUserLocal, keyPath.c_str(), buf.data(),
+                                      static_cast<uint32_t>(buf.size()));
+    if (n > 0) {
+        return std::vector<uint8_t>(buf.begin(), buf.begin() + n);
+    }
+    return {};
 }
 
 } // namespace Hooks_Decryption

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,6 +20,8 @@ std::string GetAccessToken(uint32_t appId);
 void SetAccessToken(uint32_t appId, const std::string& token);
 std::string GetStatSteamId(uint32_t appId);
 void SetStatSteamId(uint32_t appId, const std::string& steamId);
+std::optional<std::string> GetLegacyCDKey(uint32_t appId);
+std::string GetEticketUrl();
 std::unordered_set<uint32_t> GetUnlockedApps();
 std::vector<uint32_t> GetAllDepotIds();
 std::vector<std::string> GetInjectModules(uint32_t appId);

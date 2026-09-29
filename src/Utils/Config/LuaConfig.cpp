@@ -1,6 +1,7 @@
 #include "LuaConfig.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,6 +30,8 @@ struct LuaData {
     std::unordered_map<uint32_t, std::string> accessTokens;
     std::unordered_map<uint32_t, std::vector<std::string>> injectModules;
     std::unordered_map<uint32_t, std::string> statSteamIds;
+    std::unordered_map<uint32_t, std::string> legacyCdKeys;
+    std::string eticketUrl;
 };
 
 std::mutex g_luaMutex;
@@ -172,6 +175,32 @@ static int Lua_AddInject(lua_State* L) {
     return 0;
 }
 
+static int Lua_SetCDKey(lua_State* L) {
+    if (lua_gettop(L) < 2)
+        return 0;
+    uint32_t appId = static_cast<uint32_t>(lua_tointeger(L, 1));
+    const char* key = lua_tostring(L, 2);
+    if (key && *key) {
+        auto* target = TargetFromRegistry(L);
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        target->legacyCdKeys[appId] = key;
+        spdlog::info("Lua: setcdkey for app {}", appId);
+    }
+    return 0;
+}
+
+static int Lua_SetEticketUrl(lua_State* L) {
+    if (lua_gettop(L) < 1)
+        return 0;
+    const char* url = lua_tostring(L, 1);
+    if (url && *url) {
+        auto* target = TargetFromRegistry(L);
+        std::lock_guard<std::mutex> lock(g_luaMutex);
+        target->eticketUrl = url;
+        spdlog::info("Lua: seteticketurl = {}", url);
+    }
+    return 0;
+}
 void SanitizeLuaEnvironment(lua_State* L) {
     lua_pushnil(L);
     lua_setglobal(L, "dofile");
@@ -223,6 +252,10 @@ void RegisterLuaApi(lua_State* L, LuaData* target) {
     lua_register(L, "inject", Lua_AddInject);
     lua_register(L, "setStatSteamid", Lua_SetStatSteamId);
     lua_register(L, "setstatsteamid", Lua_SetStatSteamId);
+    lua_register(L, "setcdkey", Lua_SetCDKey);
+    lua_register(L, "setCDKey", Lua_SetCDKey);
+    lua_register(L, "seteticketurl", Lua_SetEticketUrl);
+    lua_register(L, "setETicketUrl", Lua_SetEticketUrl);
 }
 
 void RunLuaFile(const std::string& filePath, LuaData* target) {
@@ -366,6 +399,20 @@ void SetStatSteamId(uint32_t appId, const std::string& steamId) {
     }
 }
 
+std::optional<std::string> GetLegacyCDKey(uint32_t appId) {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    const auto& active = g_slots[g_activeSlot];
+    auto it = active.legacyCdKeys.find(appId);
+    if (it != active.legacyCdKeys.end()) {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+std::string GetEticketUrl() {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    return g_slots[g_activeSlot].eticketUrl;
+}
 std::unordered_set<uint32_t> GetUnlockedApps() {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     return g_slots[g_activeSlot].unlockedApps;

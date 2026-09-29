@@ -25,7 +25,7 @@ namespace fs = std::filesystem;
 namespace {
 
 std::atomic<AppId_t> g_OnlineFixRealAppId{0};
-
+std::atomic<AppId_t> g_activeRunningAppId{0};
 // PIDs already claimed by an injection attempt, so overlapping SpawnProcess
 // events or duplicate watchers never double-inject the same process.
 std::mutex g_attemptedMutex;
@@ -73,7 +73,9 @@ HOOK_FUNC(SpawnProcess, void*, void* pCUser, const char* pExePath, const char* p
           CGameID* pGameID, void* a6, void* a7, void* a8, void* a9, void* a10, void* a11, void* a12, void* a13,
           void* a14, void* a15) {
     AppId_t realAppId = pGameID ? pGameID->AppID() : 0;
-
+    if (realAppId != 0) {
+        g_activeRunningAppId.store(realAppId);
+    }
     if (pGameID && pCommandLine && std::strstr(pCommandLine, "-onlinefix")) {
         g_OnlineFixRealAppId.store(realAppId);
         pGameID->SetAppID(kOnlineFixAppId);
@@ -176,6 +178,10 @@ void Uninstall() {
     if (fnAppData) {
         DETACH_HOOK(fnAppData, GetOrAddAppDataHook);
     }
+}
+
+AppId_t GetActiveAppId() {
+    return g_activeRunningAppId.load();
 }
 
 } // namespace Hooks_Misc
