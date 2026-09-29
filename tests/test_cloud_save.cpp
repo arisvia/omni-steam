@@ -56,11 +56,22 @@ void TestWebDavConfig() {
     std::cout << "[PASS] TestWebDavConfig\n";
 }
 
+void TestCloudSyncEnabledToggle() {
+    // AppId 0 returns false
+    OMNI_CHECK(!Manager::SavePathResolver::IsCloudSyncEnabled(0));
+
+    // Non-zero default returns true when not explicitly disabled
+    OMNI_CHECK(Manager::SavePathResolver::IsCloudSyncEnabled(1086940));
+
+    std::cout << "[PASS] TestCloudSyncEnabledToggle\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
     TestSavePathResolver();
     TestWebDavConfig();
     TestRemoteCacheUfsResolution();
+    TestCloudSyncEnabledToggle();
     std::cout << "All Cloud Save Tests Passed!\n";
     return 0;
 }

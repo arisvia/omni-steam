@@ -49,7 +49,7 @@ bool HandlePersonaStateRecv(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* 
                             CNetPacket* pPacket);
 void TryDeliverLegacyKey(void* pThis, CNetPacket* pPacket);
 void TryDeliverRPInject(void* pThis, CNetPacket* pPacket);
-
+void TryDeliverCloud(void* pThis, CNetPacket* pPacket);
 struct CNetPacket {
     void* m_pVTable;
     uint8_t* m_pubData;
@@ -100,6 +100,8 @@ void PruneStaleManifestJobs() {
 std::deque<std::vector<uint8_t>> g_LegacyKeyQueue;
 std::mutex g_LegacyKeyMutex;
 
+std::deque<std::vector<uint8_t>> g_CloudResponseQueue;
+std::mutex g_CloudMutex;
 inline uint64_t ReadVarint(const uint8_t*& ptr, const uint8_t* end) {
     uint64_t val = 0;
     if (!ProtoFields::ReadVarint(ptr, end, val)) {
@@ -485,6 +487,39 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                         return oBBuildAndAsyncSendFrame
                                    ? oBBuildAndAsyncSendFrame(pObject, eWebSocketOpCode, poolBuf, newSize)
                                    : false;
+                    }
+                }
+            } else if (target_job_name.rfind("Cloud.", 0) == 0) {
+                if (target_job_name != "Cloud.SignalAppExitSyncDone#1" &&
+                    target_job_name != "Cloud.ClientConflictResolution#1") {
+                    uint32_t fieldNum = (target_job_name == "Cloud.ClientCommitFileUpload#1") ? 2 : 1;
+                    auto appIdVal = ProtoFields::GetVarintField(pBody, cbBody, fieldNum);
+                    AppId_t appId = appIdVal ? static_cast<AppId_t>(*appIdVal) : 0;
+                    if (appId != 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId))) {
+                        std::vector<uint8_t> respHdr;
+                        ProtoFields::AppendFixed64Field(respHdr, 11, jobid_source);
+                        ProtoFields::AppendVarintField(respHdr, 13, k_EResultOK);
+                        ProtoFields::AppendBytesField(respHdr, 12,
+                                                      reinterpret_cast<const uint8_t*>(target_job_name.data()),
+                                                      target_job_name.size());
+
+                        uint32_t totalSize = sizeof(MsgHdr) + static_cast<uint32_t>(respHdr.size());
+                        std::vector<uint8_t> respPkt(totalSize);
+                        auto* mhdr = reinterpret_cast<MsgHdr*>(respPkt.data());
+                        mhdr->eMsg = k_EMsgServiceMethodResponse | kMsgHdrProtoFlag;
+                        mhdr->headerLength = static_cast<uint32_t>(respHdr.size());
+                        std::memcpy(respPkt.data() + sizeof(MsgHdr), respHdr.data(), respHdr.size());
+
+                        {
+                            std::lock_guard<std::mutex> lock(g_CloudMutex);
+                            if (g_CloudResponseQueue.size() < 64) {
+                                g_CloudResponseQueue.push_back(std::move(respPkt));
+                            }
+                        }
+                        spdlog::info(
+                            "Hooks_NetPacket: Handled Cloud RPC {} for AppID {} locally (suppressed Valve error popup)",
+                            target_job_name, appId);
+                        return true;
                     }
                 }
             }
@@ -990,7 +1025,7 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
     //    carrier-borrowing pattern and ensures the carrier packet remains clean.
     TryDeliverLegacyKey(pThis, pPacket);
     TryDeliverRPInject(pThis, pPacket);
-
+    TryDeliverCloud(pThis, pPacket);
     // 2. Intercept native received packets
     if (pPacket->m_cubData >= sizeof(MsgHdr)) {
         uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
@@ -1071,6 +1106,39 @@ void TryDeliverLegacyKey(void* pThis, CNetPacket* pPacket) {
     }
 }
 
+void TryDeliverCloud(void* pThis, CNetPacket* pPacket) {
+    if (!pPacket || !pPacket->m_pubData)
+        return;
+    for (;;) {
+        std::vector<uint8_t> respPkt;
+        {
+            std::lock_guard<std::mutex> lock(g_CloudMutex);
+            if (g_CloudResponseQueue.empty())
+                return;
+            respPkt = std::move(g_CloudResponseQueue.front());
+            g_CloudResponseQueue.pop_front();
+        }
+        if (respPkt.empty())
+            continue;
+
+        uint8_t* origData = pPacket->m_pubData;
+        uint32_t origSize = pPacket->m_cubData;
+        if (uint8_t* poolBuf = AcquirePacketSlot(respPkt.size())) {
+            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
+            pPacket->m_pubData = poolBuf;
+            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
+            if (oRecvPkt)
+                oRecvPkt(pThis, pPacket);
+            pPacket->m_pubData = origData;
+            pPacket->m_cubData = origSize;
+            spdlog::debug("Hooks_NetPacket: Delivered synthesized Cloud response ({} bytes)", respPkt.size());
+        } else {
+            std::lock_guard<std::mutex> lock(g_CloudMutex);
+            g_CloudResponseQueue.push_front(std::move(respPkt));
+            break;
+        }
+    }
+}
 // Defined after the RecvPkt hook so the oRecvPkt trampoline exists. Borrowing
 // the carrier's data pointer for exactly one original call keeps the packet
 // pipeline consistent (upstream RichPresence TryInject pattern).

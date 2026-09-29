@@ -17,6 +17,7 @@ public:
     static std::string GetSteamInstallDirectory();
     static std::vector<SaveLocation> LocateSaveDirectories(uint32_t appId);
     static std::vector<std::string> ScanSaveFiles(const std::string& saveDir);
+    static bool IsCloudSyncEnabled(uint32_t appId);
 };
 
 } // namespace Manager

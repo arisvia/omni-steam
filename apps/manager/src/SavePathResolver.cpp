@@ -254,4 +254,42 @@ std::vector<std::string> SavePathResolver::ScanSaveFiles(const std::string& save
     return files;
 }
 
+bool SavePathResolver::IsCloudSyncEnabled(uint32_t appId) {
+    if (appId == 0)
+        return false;
+
+    std::string steamDir = GetSteamInstallDirectory();
+    std::string userDataPath = steamDir + "/userdata";
+    if (!fs::exists(userDataPath)) {
+        return true;
+    }
+
+    try {
+        for (const auto& accountEntry : fs::directory_iterator(userDataPath)) {
+            if (accountEntry.is_directory()) {
+                std::string localConfig = accountEntry.path().string() + "/config/localconfig.vdf";
+                if (fs::exists(localConfig)) {
+                    std::ifstream in(localConfig);
+                    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                    std::string appBlock = "\"" + std::to_string(appId) + "\"";
+                    size_t pos = content.find(appBlock);
+                    if (pos != std::string::npos) {
+                        size_t blockEnd = content.find('}', pos);
+                        if (blockEnd != std::string::npos) {
+                            std::string block = content.substr(pos, blockEnd - pos);
+                            if (block.find("\"CloudEnabled\"\t\t\"0\"") != std::string::npos ||
+                                block.find("\"CloudEnabled\" \"0\"") != std::string::npos ||
+                                block.find("\"cloudenabled\"\t\t\"0\"") != std::string::npos) {
+                                return false; // Explicitly disabled by user in Steam in-game properties
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (...) {
+    }
+    return true;
+}
+
 } // namespace Manager
