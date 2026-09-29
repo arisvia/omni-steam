@@ -27,8 +27,7 @@ struct SyntheticEntry {
 
 std::deque<SyntheticEntry> g_syntheticQueue;
 std::mutex g_queueMutex;
-std::atomic<bool> g_lastCallbackSynthetic{false};
-
+thread_local bool t_lastCallbackSynthetic = false;
 HOOK_FUNC(Steam_BGetCallback, bool, HSteamPipe hSteamPipe, CallbackMsg_t* pCallbackMsg) {
     if (pCallbackMsg) {
         SyntheticEntry entry;
@@ -51,21 +50,20 @@ HOOK_FUNC(Steam_BGetCallback, bool, HSteamPipe hSteamPipe, CallbackMsg_t* pCallb
             pCallbackMsg->m_pubParam = s_paramBuffer.empty() ? nullptr : s_paramBuffer.data();
             pCallbackMsg->m_cubParam = static_cast<int32_t>(s_paramBuffer.size());
 
-            g_lastCallbackSynthetic.store(true, std::memory_order_release);
+            t_lastCallbackSynthetic = true;
             spdlog::debug("Hooks_CallBack: Dispatched synthetic callback ID {}", entry.iCallback);
             return true;
         }
     }
 
-    g_lastCallbackSynthetic.store(false, std::memory_order_release);
+    t_lastCallbackSynthetic = false;
     bool result = oSteam_BGetCallback ? oSteam_BGetCallback(hSteamPipe, pCallbackMsg) : false;
-
     return result;
 }
 
 HOOK_FUNC(Steam_FreeLastCallback, void, HSteamPipe hSteamPipe) {
-    if (g_lastCallbackSynthetic.load(std::memory_order_acquire)) {
-        g_lastCallbackSynthetic.store(false, std::memory_order_release);
+    if (t_lastCallbackSynthetic) {
+        t_lastCallbackSynthetic = false;
         return; // Synthetic callback buffer was our own thread_local; do not pass to native
     }
     if (oSteam_FreeLastCallback) {

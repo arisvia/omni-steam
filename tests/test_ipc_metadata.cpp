@@ -13,6 +13,7 @@
 #include "Utils/Metadata/ManifestClient.h"
 #include "Utils/Metadata/PatternLoader.h"
 #include "Utils/Metadata/SteamIPC.h"
+#include "Utils/Security/AntiCheatGuard.h"
 void TestPatternLoader() {
     PatternLoader::Initialize();
     PatternLoader::RegisterPattern("DummyFunc", "", "90 90 90", 0);
@@ -105,6 +106,19 @@ void TestCredentialStoreTickets() {
     std::cout << "[PASS] TestCredentialStoreTickets\n";
 }
 
+void TestAntiCheatGuardWhitelist() {
+    Security::AntiCheatGuard::Initialize();
+    OMNI_CHECK(Security::AntiCheatGuard::IsProtectedApp(730));      // CS2
+    OMNI_CHECK(Security::AntiCheatGuard::IsProtectedApp(570));      // Dota 2
+    OMNI_CHECK(Security::AntiCheatGuard::IsProtectedApp(440));      // TF2
+    OMNI_CHECK(Security::AntiCheatGuard::IsProtectedApp(1172470));  // Apex
+    OMNI_CHECK(!Security::AntiCheatGuard::IsProtectedApp(1086940)); // BG3
+    OMNI_CHECK(!Security::AntiCheatGuard::IsProtectedApp(1361510)); // Cyberpunk
+    OMNI_CHECK(Security::AntiCheatGuard::Count() >= 25);
+
+    std::cout << "[PASS] TestAntiCheatGuardWhitelist\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
@@ -113,6 +127,7 @@ int main() {
     TestSteamStructureInvariants();
     TestDlcStoreInvariants();
     TestCredentialStoreTickets();
+    TestAntiCheatGuardWhitelist();
     std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
 }
