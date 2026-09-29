@@ -229,6 +229,8 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
         "build/bin/Release",
         "build/bin/Debug",
         "build/lib",
+        "cmake-build-debug",
+        "cmake-build-release",
         (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path()).generic_string()};
     for (const auto& d : localSearchDirs) {
         std::string coreDll = (fs::path(d) / "libomnisteam.dll").generic_string();

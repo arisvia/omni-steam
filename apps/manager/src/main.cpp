@@ -10,10 +10,17 @@
 #include "WebServer.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <string>
+
+#if defined(OMNI_PLATFORM_WINDOWS)
+#include <windows.h>
+
+#include <shellapi.h>
+#endif
 
 #include "OmniPlatform/OmniBuildInfo.h"
 #include "OmniPlatform/OmniPlatform.h"
@@ -43,6 +50,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  uninstall-core        Remove hook DLL/SO from Steam folder\n";
             std::cout << "  search <query>        Search Steam Store games and get AppIDs\n";
             std::cout << "  unlock <appid>        Unlock game & all DLCs, resolve keys & generate Lua\n";
+            std::cout << "  open <appid>          Trigger Steam install flow (steam://install) for an unlocked game\n";
             std::cout << "  list                  List all unlocked games and script status\n";
             std::cout << "  toggle <appid> [0|1]  Enable (1) or Disable (0) an unlocked game\n";
             std::cout << "  remove <appid>        Remove an unlocked game Lua script\n";
@@ -62,6 +70,37 @@ int main(int argc, char* argv[]) {
         }
 
         // 3. Core Management
+        if (cmd == "open" && argc > 2) {
+            // steam://install/<id> makes the client adopt an already-licensed
+            // app into its library install flow (manifest bootstrap) - required
+            // for unlocked games that have never been installed before.
+            try {
+                uint32_t appId = static_cast<uint32_t>(std::stoul(argv[2]));
+                if (appId == 0) {
+                    std::cout << " [FAILED] Invalid AppID.\n";
+                    return 1;
+                }
+                std::string uri = "steam://install/" + std::to_string(appId);
+                std::cout << "[OmniSteam] Opening " << uri << " ...\n";
+#if defined(OMNI_PLATFORM_WINDOWS)
+                HINSTANCE result = ShellExecuteA(nullptr, "open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                bool ok = reinterpret_cast<INT_PTR>(result) > 32;
+#elif defined(OMNI_PLATFORM_MACOS)
+                std::string cmdLine = "open \"" + uri + "\"";
+                bool ok = std::system(cmdLine.c_str()) == 0;
+#else
+                std::string cmdLine = "xdg-open \"" + uri + "\"";
+                bool ok = std::system(cmdLine.c_str()) == 0;
+#endif
+                std::cout << (ok ? " [SUCCESS] Steam install dialog requested. Confirm the download in the client.\n"
+                                 : " [FAILED] Could not launch the URI handler. Is Steam running?\n");
+                return ok ? 0 : 1;
+            } catch (...) {
+                std::cout << " [FAILED] Invalid AppID format.\n";
+                return 1;
+            }
+        }
+
         if (cmd == "install-core") {
             std::string channel = (argc > 2 && std::string(argv[2]) == "--nightly") ? "nightly" : "release";
             std::cout << "[OmniSteam] Installing Core (" << channel << ") to Steam directory...\n";

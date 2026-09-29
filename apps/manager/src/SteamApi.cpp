@@ -61,43 +61,57 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
     spdlog::info("SteamApi: Querying store search: {}", url);
     auto resp = OmniPlatform::Http::Get(url, 8000);
     if (resp.statusCode == 200 && !resp.body.empty()) {
-        // Item blocks carry a nested "price" object, so the block matcher
-        // must tolerate one level of braces; [^{}]* alone truncates at the
-        // nested "{" and every match silently fails (search returned 0).
-        std::regex blockRegex(R"regex(\{"type"\s*:\s*"app"(?:[^{}]|\{[^{}]*\})*\})regex");
-        auto begin = std::sregex_iterator(resp.body.begin(), resp.body.end(), blockRegex);
-        auto end = std::sregex_iterator();
+        const std::string& body = resp.body;
+        size_t searchPos = 0;
+        while ((searchPos = body.find("\"id\":", searchPos)) != std::string::npos) {
+            size_t idStart = searchPos + 5;
+            while (idStart < body.size() && (body[idStart] == ' ' || body[idStart] == '\t'))
+                idStart++;
+            size_t idEnd = idStart;
+            while (idEnd < body.size() && std::isdigit(static_cast<unsigned char>(body[idEnd])))
+                idEnd++;
 
-        for (auto it = begin; it != end; ++it) {
-            std::string block = it->str();
-            std::smatch idMatch, nameMatch, imgMatch;
-            if (std::regex_search(block, idMatch, std::regex(R"regex("id"\s*:\s*(\d+))regex")) &&
-                std::regex_search(block, nameMatch, std::regex(R"regex("name"\s*:\s*"([^"]+)")regex"))) {
+            if (idEnd > idStart) {
                 try {
-                    uint32_t appId = static_cast<uint32_t>(std::stoul(idMatch[1].str()));
-                    if (seenAppIds.contains(appId))
-                        continue;
-                    seenAppIds.insert(appId);
-
-                    SearchResultItem item;
-                    item.appId = appId;
-                    item.name = nameMatch[1].str();
-                    if (std::regex_search(block, imgMatch, std::regex(R"regex("tiny_image"\s*:\s*"([^"]+)")regex"))) {
-                        std::string img = imgMatch[1].str();
-                        size_t pos = 0;
-                        while ((pos = img.find("\\/", pos)) != std::string::npos) {
-                            img.replace(pos, 2, "/");
-                            pos += 1;
+                    uint32_t appId = static_cast<uint32_t>(std::stoul(body.substr(idStart, idEnd - idStart)));
+                    if (!seenAppIds.contains(appId)) {
+                        // Extract the containing item JSON object by balancing braces
+                        size_t blockStart = body.rfind('{', searchPos);
+                        size_t blockEnd = std::string::npos;
+                        if (blockStart != std::string::npos) {
+                            int depth = 0;
+                            for (size_t i = blockStart; i < body.size(); ++i) {
+                                if (body[i] == '{') {
+                                    depth++;
+                                } else if (body[i] == '}') {
+                                    depth--;
+                                    if (depth == 0) {
+                                        blockEnd = i;
+                                        break;
+                                    }
+                                }
+                            }
                         }
-                        item.tinyImage = img;
-                    } else {
-                        item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(appId) +
-                                         "/capsule_sm_120.jpg";
+                        std::string block =
+                            (blockStart != std::string::npos && blockEnd != std::string::npos && blockEnd > blockStart)
+                                ? body.substr(blockStart, blockEnd - blockStart + 1)
+                                : "";
+                        static const std::regex kNameRegex(R"regex("name"\s*:\s*"([^"]+)")regex");
+                        std::smatch nameMatch;
+                        if (std::regex_search(block, nameMatch, kNameRegex)) {
+                            seenAppIds.insert(appId);
+                            SearchResultItem item;
+                            item.appId = appId;
+                            item.name = nameMatch[1].str();
+                            item.tinyImage = std::string(OmniEndpoints::Steam::kImageCdnBase) + std::to_string(appId) +
+                                             "/capsule_sm_120.jpg";
+                            results.push_back(item);
+                        }
                     }
-                    results.push_back(item);
                 } catch (...) {
                 }
             }
+            searchPos = idEnd;
         }
     }
     // 3. Fallback: Search Suggest API (effective for Chinese / non-Latin terms)
@@ -106,9 +120,9 @@ std::vector<SearchResultItem> SteamApi::SearchStore(const std::string& query, co
                                  "&f=games&cc=" + effectiveCc + "&l=" + language;
         auto suggestResp = OmniPlatform::Http::Get(suggestUrl, 6000);
         if (suggestResp.statusCode == 200 && !suggestResp.body.empty()) {
-            std::regex suggestRegex(
+            static const std::regex kSuggestRegex(
                 R"regex(data-ds-appid="(\d+)"[^>]*>[\s\S]*?<div class="match_name">([^<]+)</div>)regex");
-            auto s_begin = std::sregex_iterator(suggestResp.body.begin(), suggestResp.body.end(), suggestRegex);
+            auto s_begin = std::sregex_iterator(suggestResp.body.begin(), suggestResp.body.end(), kSuggestRegex);
             auto s_end = std::sregex_iterator();
             for (auto it = s_begin; it != s_end; ++it) {
                 std::smatch match = *it;
