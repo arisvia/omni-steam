@@ -1,9 +1,6 @@
 # OmniSteam Signature Database
-# Regenerated from official Steam clients on 2026-09-28 09:35:32 UTC
+# Regenerated from official Steam clients on 2026-09-29 02:02:18 UTC
 # Consumed by PatternLoader via cache/signatures/ (deployed by CoreInstaller)
 
-- signatures/anchor-map-windows.json
-- signatures/linux-x64/abd32eb3d963afb1.toml
-- signatures/macos-universal/42776e12adaa3114.toml
+- signatures/macos-universal/035722a42c74989f.toml
 - signatures/windows-x64/caba4826aa350103.toml
-- signatures/windows-x64/86112382982fa855.toml
