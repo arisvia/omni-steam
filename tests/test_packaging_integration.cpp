@@ -68,12 +68,25 @@ void TestDwmapiProxyDefinitions() {
     std::cout << "[PASS] TestDwmapiProxyDefinitions\n";
 }
 
+void TestXInputProxyDefinitions() {
+    std::string defPath = ResolvePath("src/Platform/Windows/Proxy/xinput1_4.def");
+    OMNI_CHECK(!defPath.empty());
+    std::ifstream in(defPath);
+    OMNI_CHECK(in.is_open());
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    OMNI_CHECK(content.find("XInputGetState @2") != std::string::npos);
+    OMNI_CHECK(content.find("XInputSetState @3") != std::string::npos);
+    OMNI_CHECK(content.find("XInputOrdinal100 @100 NONAME") != std::string::npos);
+    std::cout << "[PASS] TestXInputProxyDefinitions\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam Packaging & Decky Integration Tests...\n";
     TestPackagingDefinitions();
     TestDeckyPluginSchema();
     TestSignatureAssetsIntegrity();
     TestDwmapiProxyDefinitions();
+    TestXInputProxyDefinitions();
     std::cout << "All Packaging & Integration Tests Passed!\n";
     return 0;
 }

@@ -120,6 +120,9 @@ jobs:
           mkdir -p dist/core dist/cli
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp build/bin/Release/*dwmapi* dist/core/ 2>/dev/null || true
+            cp build/bin/Release/*xinput* dist/core/ 2>/dev/null || true
+            cp build/bin/*xinput* dist/core/ 2>/dev/null || true
+            cp build/bin/*dwmapi* dist/core/ 2>/dev/null || true
             cp build/bin/Release/*omnisteam.dll dist/core/ 2>/dev/null || true
             cp build/lib/*omnisteam.dll dist/core/ 2>/dev/null || true
             cp build/bin/Release/omnisteam.exe dist/cli/ 2>/dev/null || true

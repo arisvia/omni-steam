@@ -338,14 +338,22 @@ endif()
 if(WIN32)
     if(MSVC)
         add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
+        add_library(xinput1_4 SHARED src/Platform/Windows/Proxy/xinput1_4.cpp)
     else()
         add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp src/Platform/Windows/Proxy/dwmapi.def)
+        add_library(xinput1_4 SHARED src/Platform/Windows/Proxy/xinput1_4.cpp src/Platform/Windows/Proxy/xinput1_4.def)
     endif()
     set_target_properties(dwmapi PROPERTIES 
         PREFIX ""
         OUTPUT_NAME "dwmapi"
     )
     target_include_directories(dwmapi PRIVATE src)
+
+    set_target_properties(xinput1_4 PROPERTIES 
+        PREFIX ""
+        OUTPUT_NAME "xinput1_4"
+    )
+    target_include_directories(xinput1_4 PRIVATE src)
 endif()
 # ---------------------------------------------------------------------------
 # OmniSteam Manager Application (Decoupled Dashboard)
