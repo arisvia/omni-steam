@@ -581,14 +581,17 @@ void HandleEncryptedAppTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const
     if (!appIdValue || *appIdValue == 0)
         return;
     AppId_t appId = static_cast<AppId_t>(*appIdValue);
-    if (!LuaConfig::HasDepot(appId))
+    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
         return;
 
     auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);
     if (eresult && *eresult == static_cast<uint64_t>(k_EResultOK))
         return;
 
-    std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");
+    std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "ETicket");
+    if (ticketHex.empty()) {
+        ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");
+    }
     if (ticketHex.empty())
         return;
     std::vector<uint8_t> ticketBytes = OmniPlatform::Encoding::HexToBytes(ticketHex);
@@ -944,7 +947,7 @@ void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const ui
     if (!appIdValue || *appIdValue == 0)
         return;
     AppId_t appId = static_cast<AppId_t>(*appIdValue);
-    if (!LuaConfig::HasDepot(appId))
+    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
         return;
 
     auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);
@@ -952,6 +955,9 @@ void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const ui
         return;
 
     std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");
+    if (ticketHex.empty()) {
+        ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "ETicket");
+    }
     if (ticketHex.empty())
         return;
     std::vector<uint8_t> ticketBytes = OmniPlatform::Encoding::HexToBytes(ticketHex);

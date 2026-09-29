@@ -48,22 +48,29 @@ void TestSteamStructureInvariants() {
     OMNI_CHECK(static_cast<uint32_t>(EAppReleaseState::Released) == 4);
     OMNI_CHECK(kSteamDefaultBasePackageId == 0);
     OMNI_CHECK(kSteamDefaultInjectedPackageCount == 1);
+    OMNI_CHECK(k_iCallback_SteamServersConnected == 101);
     OMNI_CHECK(k_iCallback_LicensesUpdated == 125);
-
+    OMNI_CHECK(k_iCallback_EncryptedAppTicketResponse == 154);
+    OMNI_CHECK(k_iCallback_UserStatsReceived == 1101);
     // 2. Verify structure layout invariants (compile-time asserts live in
     //    SteamTypes.h; runtime mirrors them so drift fails loudly here too).
     OMNI_CHECK(offsetof(AppOwnership, ExistInPackageNums) == 0x14);
     OMNI_CHECK(offsetof(AppOwnership, bOwnsLicense) == 0x24);
     OMNI_CHECK(offsetof(AppOwnership, bFreeLicense) == 0x28);
+    OMNI_CHECK(offsetof(CallbackMsg_t, m_hSteamUser) == 0x00);
+    OMNI_CHECK(offsetof(CallbackMsg_t, m_iCallback) == 0x04);
+    OMNI_CHECK(offsetof(CallbackMsg_t, m_pubParam) == 0x08);
     OMNI_CHECK(offsetof(PackageInfo, Status) == 0x18);
 #if defined(OMNI_ARCH_X64)
     OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x40);
     OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x58);
     OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
+    OMNI_CHECK(sizeof(CallbackMsg_t) == 24);
 #elif defined(OMNI_ARCH_X86)
     OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x38);
     OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x48);
     OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 16);
+    OMNI_CHECK(sizeof(CallbackMsg_t) == 16);
 #endif
 
     std::cout << "[PASS] TestSteamStructureInvariants\n";
@@ -84,6 +91,20 @@ void TestDlcStoreInvariants() {
     std::cout << "[PASS] TestDlcStoreInvariants\n";
 }
 
+void TestCredentialStoreTickets() {
+    uint32_t testApp = 777777;
+    std::string testTicket = "deadbeefcafebabe0102030405060708";
+    OMNI_CHECK(OmniPlatform::CredentialStore::WriteTicket(testApp, "AppTicket", testTicket));
+    OMNI_CHECK(!OmniPlatform::CredentialStore::ReadTicket(testApp, "AppTicket").empty());
+    OMNI_CHECK(OmniPlatform::CredentialStore::ReadTicket(testApp, "AppTicket") == testTicket);
+
+    std::string testETicket = "aabbccddeeff00112233445566778899";
+    OMNI_CHECK(OmniPlatform::CredentialStore::WriteTicket(testApp, "ETicket", testETicket));
+    OMNI_CHECK(!OmniPlatform::CredentialStore::ReadTicket(testApp, "ETicket").empty());
+    OMNI_CHECK(OmniPlatform::CredentialStore::ReadTicket(testApp, "ETicket") == testETicket);
+    std::cout << "[PASS] TestCredentialStoreTickets\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
@@ -91,6 +112,7 @@ int main() {
     TestManifestClientResolution();
     TestSteamStructureInvariants();
     TestDlcStoreInvariants();
+    TestCredentialStoreTickets();
     std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
 }

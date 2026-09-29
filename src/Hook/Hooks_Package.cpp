@@ -20,6 +20,7 @@
 #include "Utils/Security/AntiCheatGuard.h"
 
 #include "Hook/HookMacros.h"
+#include "Hook/Hooks_CallBack.h"
 
 namespace {
 
@@ -115,10 +116,10 @@ template <typename T> bool FastRemoveValue(CUtlVector<T>* pVec, T value) {
 }
 
 bool MarkLicenseAsChangedAndProcessUpdates() {
+    Hooks_CallBack::PostLicensesUpdated();
     if (!AtomicLoadPtr(g_pCUser) || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates || g_inBroadcast.load()) {
         return false;
     }
-    g_inBroadcast.store(true);
     oMarkLicenseAsChanged(AtomicLoadPtr(g_pCUser), kInjectedPackageId, true);
     oProcessPendingLicenseUpdates(AtomicLoadPtr(g_pCUser));
     g_inBroadcast.store(false);

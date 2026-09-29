@@ -133,7 +133,33 @@ inline constexpr uint32_t kSteamDlcCacheMagic = 0x4F4D4443; // 'OMDC' (OmniSteam
 inline constexpr uint32_t kSteamDlcCacheVersion = 1;
 
 // Steam Client Internal Callback IDs
+inline constexpr int32_t k_iCallback_SteamServersConnected = 101;
 inline constexpr int32_t k_iCallback_LicensesUpdated = 125;
+inline constexpr int32_t k_iCallback_EncryptedAppTicketResponse = 154;
+inline constexpr int32_t k_iCallback_UserStatsReceived = 1101;
+
+// Steamworks Callback Envelope Structure (C API boundary: Steam_BGetCallback)
+#pragma pack(push, 8)
+struct CallbackMsg_t {
+    HSteamUser m_hSteamUser; // Specific user to whom this callback applies
+    int32_t m_iCallback;     // Callback identifier
+    uint8_t* m_pubParam;     // Points to callback parameter structure
+    int32_t m_cubParam;      // Size of data pointed to by m_pubParam
+};
+
+struct LicensesUpdated_t {
+    enum { k_iCallback = k_iCallback_LicensesUpdated };
+};
+
+struct EncryptedAppTicketResponse_t {
+    enum { k_iCallback = k_iCallback_EncryptedAppTicketResponse };
+    int32_t m_eResult;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(CallbackMsg_t) == (sizeof(void*) == 8 ? 24 : 16), "CallbackMsg_t layout drifted");
+static_assert(LicensesUpdated_t::k_iCallback == 125, "LicensesUpdated_t callback ID drifted");
+static_assert(EncryptedAppTicketResponse_t::k_iCallback == 154, "EncryptedAppTicketResponse_t callback ID drifted");
 // ==============================================================================
 // Competitive Anti-Cheat (VAC / EAC / BattlEye / ACE / Ricochet) Protected AppIDs
 // ==============================================================================

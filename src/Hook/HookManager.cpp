@@ -11,6 +11,10 @@ namespace Hooks_Decryption {
 void Install();
 void Uninstall();
 } // namespace Hooks_Decryption
+namespace Hooks_CallBack {
+void Install();
+void Uninstall();
+} // namespace Hooks_CallBack
 namespace Hooks_IPC {
 void Install();
 void Uninstall();
@@ -56,6 +60,7 @@ bool IsHookActive(const char* name) {
 void InstallHooks() {
     OmniPlatform::Detour::BeginTransaction();
 
+    Hooks_CallBack::Install();
     Hooks_Decryption::Install();
     Hooks_IPC::Install();
     Hooks_Manifest::Install();
@@ -71,6 +76,7 @@ void InstallHooks() {
 }
 
 void UninstallHooks() {
+    Hooks_CallBack::Uninstall();
     Hooks_Decryption::Uninstall();
     Hooks_IPC::Uninstall();
     Hooks_Manifest::Uninstall();

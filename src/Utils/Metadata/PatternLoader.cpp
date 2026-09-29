@@ -524,6 +524,19 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
         return itAddr->second;
     }
 
+    // Check if the symbol is directly exported by the target module
+    std::string modName = GetTargetModuleName();
+    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
+    if (hModule) {
+        void* proc = OmniPlatform::DynamicLibrary::GetFunction(hModule, functionName);
+        if (proc) {
+            uintptr_t addr = reinterpret_cast<uintptr_t>(proc);
+            g_resolvedAddresses[normalized] = addr;
+            spdlog::info("PatternLoader: Resolved exported symbol {} in {} at {:p}", functionName, modName, proc);
+            return addr;
+        }
+    }
+
     auto itPat = g_patterns.find(normalized);
     if (itPat == g_patterns.end()) {
         spdlog::warn("PatternLoader: Unknown function name: {}", functionName);

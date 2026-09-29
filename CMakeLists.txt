@@ -299,6 +299,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
+    src/Hook/Hooks_CallBack.cpp
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
     src/Hook/Hooks_Manifest.cpp
