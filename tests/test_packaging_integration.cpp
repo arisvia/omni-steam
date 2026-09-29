@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -48,8 +50,8 @@ void TestDeckyPluginSchema() {
 
 void TestSignatureAssetsIntegrity() {
     OMNI_CHECK(FindFile("signatures/anchor-map-windows.json"));
-    OMNI_CHECK(FindFile("signatures/linux-x64/abd32eb3d963afb1.toml"));
-    OMNI_CHECK(FindFile("signatures/macos-universal/42776e12adaa3114.toml"));
+    OMNI_CHECK(std::string(OmniEndpoints::SignatureDb::kJsDelivrBase).find("@data/signatures") != std::string::npos);
+    OMNI_CHECK(std::string(OmniEndpoints::SignatureDb::kRawBase).find("/data/signatures") != std::string::npos);
     std::cout << "[PASS] TestSignatureAssetsIntegrity\n";
 }
 

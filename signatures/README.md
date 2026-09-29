@@ -1,6 +1,8 @@
 # OmniSteam Signature Database
-# Regenerated from official Steam clients on 2026-09-29 02:02:18 UTC
-# Consumed by PatternLoader via cache/signatures/ (deployed by CoreInstaller)
 
-- signatures/macos-universal/035722a42c74989f.toml
-- signatures/windows-x64/caba4826aa350103.toml
+All dynamic client signatures are automatically harvested by CI and hosted on the **`data`** branch:
+- CDN Base: `https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/signatures/<platform-dir>/<sha256>.toml`
+- Raw Base: `https://raw.githubusercontent.com/arisvia/omni-steam/data/signatures/<platform-dir>/<sha256>.toml`
+
+## Repository Assets on `main`:
+- `anchor-map-windows.json`: Semantic RTTI Complete Object Locator (COL) vtable slot mapping rules used by `derive_signatures.py` to transfer function addresses across new Steam client versions.

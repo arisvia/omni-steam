@@ -318,6 +318,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: data
           fetch-depth: 0
 
       - name: Download all harvest outputs
@@ -364,5 +365,5 @@ jobs:
             echo "No signature changes to push"
             exit 0
           fi
-          git commit -m "chore(signatures): refresh harvested Steam client signatures [skip ci]"
-          git push
+          git commit -m "chore(signatures): update harvested client signatures [skip ci]"
+          git push origin data
