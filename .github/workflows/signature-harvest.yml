@@ -138,32 +138,40 @@ jobs:
           $lastHash = ""
           $stableCount = 0
           while ((Get-Date) -lt $deadline) {
-            if (-not (Test-Path (Join-Path $dir 'steamclient64.dll'))) {
+            $dll = Join-Path $dir 'steamclient64.dll'
+            if (-not (Test-Path $dll)) {
               if (Test-Path (Join-Path $dir 'steam.exe') -PathType Leaf) {
-                Start-Process (Join-Path $dir 'steam.exe') -ArgumentList '-silent' -ErrorAction SilentlyContinue
+                if (-not (Get-Process steam -ErrorAction SilentlyContinue)) {
+                  Start-Process (Join-Path $dir 'steam.exe') -ArgumentList '-silent' -ErrorAction SilentlyContinue
+                }
               }
               Start-Sleep -Seconds 15
               continue
             }
-            $h = (Get-FileHash (Join-Path $dir 'steamclient64.dll') -Algorithm SHA256).Hash
-            if (-not (Test-Path (Join-Path $dir 'ref_steamclient64.dll'))) {
-              # First sample becomes the derivation reference: the installer-era
-              # binary BEFORE runtime self-update replaces it.
-              Copy-Item (Join-Path $dir 'steamclient64.dll') (Join-Path $dir 'ref_steamclient64.dll')
-            }
-            if ($h -eq $lastHash) {
-              $stableCount++
-              if ($stableCount -ge 8) { break }  # 8 x 15s = 2 min unchanged
-            } else {
+            try {
+              $h = (Get-FileHash $dll -Algorithm SHA256 -ErrorAction Stop).Hash
+              $refPath = Join-Path $dir 'ref_steamclient64.dll'
+              if (-not (Test-Path $refPath)) {
+                Copy-Item $dll $refPath -ErrorAction SilentlyContinue
+              }
+              if ($h -eq $lastHash) {
+                $stableCount++
+                if ($stableCount -ge 6) { break }  # 6 x 15s = 1.5 min unchanged
+              } else {
+                $stableCount = 0
+                $lastHash = $h
+              }
+            } catch {
+              Write-Host "steamclient64.dll locked/updating, retrying..."
               $stableCount = 0
-              $lastHash = $h
             }
             Start-Sleep -Seconds 15
           }
           if (-not (Test-Path (Join-Path $dir 'steamclient64.dll'))) {
             throw "steamclient64.dll still missing after 12 min in $dir"
           }
-
+          Stop-Process -Name steam -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
       - name: Locate client libraries
         shell: pwsh
         run: |
