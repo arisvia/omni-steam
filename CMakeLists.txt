@@ -330,7 +330,11 @@ if(ENABLE_LOGGING)
 endif()
 # Windows proxy DLLs for seamless launch
 if(WIN32)
-    add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp src/Platform/Windows/Proxy/dwmapi.def)
+    if(MSVC)
+        add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
+    else()
+        add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp src/Platform/Windows/Proxy/dwmapi.def)
+    endif()
     set_target_properties(dwmapi PROPERTIES 
         PREFIX ""
         OUTPUT_NAME "dwmapi"
