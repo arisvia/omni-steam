@@ -49,10 +49,11 @@ jobs:
           if [ "${{ matrix.arch }}" = "i386" ]; then
             sudo dpkg --add-architecture i386
             sudo apt-get update
-            sudo apt-get install -y gcc-multilib g++-multilib libssl-dev:i386 libcurl4-openssl-dev:i386 ccache
+            sudo apt-get install -y gcc-multilib g++-multilib libssl-dev:i386 libcurl4-openssl-dev:i386
           else
-            sudo apt-get install -y libssl-dev libcurl4-openssl-dev ccache
+            sudo apt-get install -y libssl-dev libcurl4-openssl-dev
           fi
+          sudo apt-get install -y ccache
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
