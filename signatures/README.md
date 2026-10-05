@@ -1,5 +1,5 @@
 # OmniSteam Signature Database
-# Regenerated from official Steam clients on 2026-09-29 02:58:01 UTC
+# Regenerated from official Steam clients on 2026-10-05 10:13:53 UTC
 # Consumed by PatternLoader via cache/signatures/ (deployed by CoreInstaller)
 
 - signatures/macos-universal/035722a42c74989f.toml
