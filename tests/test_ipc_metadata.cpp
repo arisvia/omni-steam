@@ -47,13 +47,20 @@ void TestIPCHeaderValidation() {
     callHdr.interfaceID = SteamIPC::EIPCInterface::IClientUser;
     callHdr.funcHash = 0x12345678;
     callHdr.argc = 1; // Non-zero args (e.g. GetAuthSessionTicket)
+    OMNI_CHECK(!SteamIPC::IsCandidateGetSteamIDCall(callHdr));
 
-    bool isGetSteamID = (callHdr.interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr.argc == 0);
-    OMNI_CHECK(!isGetSteamID);
-
+    callHdr.interfaceID = SteamIPC::EIPCInterface::ISteamUser;
     callHdr.argc = 0;
-    isGetSteamID = (callHdr.interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr.argc == 0);
-    OMNI_CHECK(isGetSteamID);
+    OMNI_CHECK(!SteamIPC::IsCandidateGetSteamIDCall(callHdr));
+
+    callHdr.interfaceID = SteamIPC::EIPCInterface::IClientUser;
+    OMNI_CHECK(SteamIPC::IsCandidateGetSteamIDCall(callHdr));
+
+    // Response-size gate: only header + 8-byte SteamID qualifies.
+    OMNI_CHECK(SteamIPC::IsGetSteamIDResponse(static_cast<uint32_t>(SteamIPC::kGetSteamIDResponseSize)));
+    OMNI_CHECK(!SteamIPC::IsGetSteamIDResponse(static_cast<uint32_t>(SteamIPC::kGetSteamIDResponseSize - 1)));
+    OMNI_CHECK(!SteamIPC::IsGetSteamIDResponse(static_cast<uint32_t>(SteamIPC::kGetSteamIDResponseSize + 4)));
+    OMNI_CHECK(SteamIPC::kGetSteamIDResponseSize == sizeof(SteamIPC::IPCHeader) + sizeof(uint64_t));
 
     std::cout << "[PASS] TestIPCHeaderValidation\n";
 }

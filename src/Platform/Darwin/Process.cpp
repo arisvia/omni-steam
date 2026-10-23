@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <libproc.h>
 #include <string>
+#include <sys/proc.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
 #include <thread>
@@ -82,9 +83,11 @@ bool Process::IsProcessRunning(uint32_t pid) {
     proc_bsdshortinfo info{};
     int ret = proc_pidinfo(static_cast<int>(pid), PROC_PIDT_SHORTBSDINFO, 0, &info, sizeof(info));
     if (ret <= 0) {
+        // ESRCH / EINVAL: process gone or pid not visible.
         return false;
     }
-    return info.pbsi_status != 5; // 5 = SZOMB (zombie)
+    // kill(pid, 0) succeeds for zombies; pbsi_status distinguishes them.
+    return info.pbsi_status != SZOMB;
 }
 
 void Thread::StartDetached(std::function<void()> task) {

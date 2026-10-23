@@ -44,9 +44,8 @@ HOOK_FUNC(IPCProcessMessage, bool, void* pServer, int32_t hSteamPipe, void* pRea
                         if (reqHdr->command == SteamIPC::EIPCCommand::InterfaceCall) {
                             const auto* callHdr = reinterpret_cast<const SteamIPC::InterfaceCallHeader*>(
                                 readBuf->Base() + sizeof(SteamIPC::IPCHeader));
-                            if (callHdr->interfaceID == SteamIPC::EIPCInterface::IClientUser && callHdr->argc == 0) {
-                                constexpr size_t kExactResp = sizeof(SteamIPC::IPCHeader) + sizeof(uint64_t);
-                                if (writeBuf->TellPut() == static_cast<int32_t>(kExactResp)) {
+                            if (SteamIPC::IsCandidateGetSteamIDCall(*callHdr)) {
+                                if (SteamIPC::IsGetSteamIDResponse(static_cast<uint32_t>(writeBuf->TellPut()))) {
                                     uint64_t* pRespSteamId =
                                         reinterpret_cast<uint64_t*>(writeBuf->Base() + sizeof(SteamIPC::IPCHeader));
                                     if (*pRespSteamId != 0 && *pRespSteamId != spoofed) {

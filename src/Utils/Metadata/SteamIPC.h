@@ -106,4 +106,18 @@ struct InterfaceCallHeader {
     uint32_t argc;
 };
 
+// Single source of truth for the Denuvo SteamID spoof gate.
+// GetSteamID is the only IClientUser method with zero arguments, so an
+// IClientUser InterfaceCall with argc == 0 is the only safe rewrite target.
+inline bool IsCandidateGetSteamIDCall(const InterfaceCallHeader& header) {
+    return header.interfaceID == EIPCInterface::IClientUser && header.argc == 0;
+}
+
+// GetSteamID replies with exactly the IPC header plus one 64-bit SteamID.
+constexpr size_t kGetSteamIDResponseSize = sizeof(IPCHeader) + sizeof(uint64_t);
+
+inline bool IsGetSteamIDResponse(uint32_t responseSize) {
+    return responseSize == kGetSteamIDResponseSize;
+}
+
 } // namespace SteamIPC
