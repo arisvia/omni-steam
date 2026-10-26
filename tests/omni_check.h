@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
+
 // NDEBUG strips <cassert>, which would turn every check into a no-op and let
 // failures pass silently in Release CI builds (the exact fake-green class of
 // bug that once masked PicsTokenTests). This macro stays active in Release and

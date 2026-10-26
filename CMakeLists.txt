@@ -402,6 +402,11 @@ if(BUILD_TESTS)
     target_link_libraries(test_platform PRIVATE OmniPlatform)
     add_test(NAME PlatformTests COMMAND test_platform)
 
+    # 1b. HTTP Transport Contract (offline: URL allow-list, refusals, timeout budget)
+    add_executable(test_http tests/test_http.cpp)
+    target_link_libraries(test_http PRIVATE OmniPlatform)
+    add_test(NAME HttpTransportTests COMMAND test_http)
+
     # 2. Steam IPC Protocol & Signature / Manifest Metadata Engine
     add_executable(test_ipc_metadata tests/test_ipc_metadata.cpp src/Utils/Metadata/DlcStore.cpp src/Utils/Metadata/PatternLoader.cpp src/Utils/Metadata/ManifestClient.cpp src/Utils/Config/Config.cpp src/Utils/Config/LuaConfig.cpp ${SYMBOLTABLE_SOURCES} src/Utils/Security/AntiCheatGuard.cpp src/Utils/Tickets/LegacyCDKey.cpp src/Utils/Tickets/AppTicket.cpp src/Utils/Tickets/EticketClient.cpp)
     target_link_libraries(test_ipc_metadata PRIVATE OmniPlatform tomlplusplus::tomlplusplus ${LUA_LIB_TARGET})
