@@ -11,6 +11,10 @@ struct ConfigDto {
     std::string manifestUrl = "opensteamtool";
     bool statsEnableApi = true;
     std::vector<std::string> luaPaths;
+    // Mirrors the keys the core hook reads from the same file. The dashboard rewrites the
+    // whole config on every save, so any key missing here is deleted from omnisteam.toml.
+    bool autoUnlockDlc = true;
+    bool allowInsecureTls = false;
     bool cloudEnabled = false;
     std::string webdavServerUrl;
     std::string webdavUsername;

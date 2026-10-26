@@ -80,8 +80,13 @@ ConfigDto ConfigManager::ReadConfig() {
             dto.manifestUrl = *url;
         if (auto stats = tbl["stats"]["enable_api"].value<bool>())
             dto.statsEnableApi = *stats;
-        if (auto insecure = tbl["security"]["allow_insecure_tls"].value<bool>())
+        if (auto insecure = tbl["security"]["allow_insecure_tls"].value<bool>()) {
+            dto.allowInsecureTls = *insecure;
             OmniPlatform::Http::SetAllowInsecureTls(*insecure);
+        }
+        if (auto autoUnlock = tbl["dlc"]["auto_unlock"].value<bool>()) {
+            dto.autoUnlockDlc = *autoUnlock;
+        }
         if (auto cloud = tbl["cloud"]["enabled"].value<bool>())
             dto.cloudEnabled = *cloud;
         if (auto serverUrl = tbl["cloud"]["webdav_server_url"].value<std::string>())
@@ -122,6 +127,8 @@ bool ConfigManager::SaveConfig(const ConfigDto& dto) {
             out << "[log]\nlevel = \"" << EscapeTomlString(dto.logLevel) << "\"\nfile_output = true\n\n";
             out << "[manifest]\nurl = \"" << EscapeTomlString(dto.manifestUrl) << "\"\n\n";
             out << "[stats]\nenable_api = " << (dto.statsEnableApi ? "true" : "false") << "\n\n";
+            out << "[dlc]\nauto_unlock = " << (dto.autoUnlockDlc ? "true" : "false") << "\n\n";
+            out << "[security]\nallow_insecure_tls = " << (dto.allowInsecureTls ? "true" : "false") << "\n\n";
             out << "[lua]\npaths = [\n";
             for (const auto& p : dto.luaPaths) {
                 out << "    \"" << EscapeTomlString(p) << "\",\n";
