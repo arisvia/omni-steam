@@ -19,6 +19,10 @@ void TestEncoding() {
 
     std::string roundtrip = OmniPlatform::Encoding::BytesToHex(bytes.data(), bytes.size());
     OMNI_CHECK(roundtrip == hex);
+
+    const std::string escaped = OmniPlatform::Encoding::EscapeJson("C:\\Games\n\"Omni\"\t");
+    OMNI_CHECK(escaped == "C:\\\\Games\\n\\\"Omni\\\"\\t");
+    OMNI_CHECK(OmniPlatform::Encoding::EscapeJson(std::string("\x01", 1)) == "\\u0001");
     std::cout << "[PASS] TestEncoding\n";
 }
 

@@ -211,7 +211,7 @@ def main():
     total_issues = total_syntax_issues + missing_include_count + cmake_issue_count
     print("\n" + "=" * 50)
     if total_issues == 0:
-        print("🎉 [ALL CHECKS PASSED] 100% include integrity, syntax balance, and cleanliness!")
+        print("[ALL CHECKS PASSED] Include inference, delimiter balance, and CMake source coverage passed.")
         sys.exit(0)
     else:
         print(f"❌ [CHECK FAILED] Found {total_issues} issues. Run `python tools/check_code.py --fix` to auto-heal.")

@@ -2,8 +2,10 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <sstream>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "OmniPlatform/OmniBuildInfo.h"
@@ -27,39 +29,84 @@ void Init(const std::string& componentName = "omnisteam_core");
 }
 
 namespace {
+bool ReplaceFile(const fs::path& destination, std::string_view contents) {
+    std::error_code ec;
+    fs::create_directories(destination.parent_path(), ec);
+    if (ec) {
+        spdlog::warn("Cannot create status directory {}: {}", destination.parent_path().string(), ec.message());
+        return false;
+    }
+
+    fs::path temporary = destination;
+    temporary += "." + std::to_string(OmniPlatform::Process::GetCurrentProcessId()) + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            spdlog::warn("Cannot open temporary status file: {}", temporary.string());
+            return false;
+        }
+        out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        out.flush();
+        if (!out) {
+            spdlog::warn("Cannot write temporary status file: {}", temporary.string());
+            out.close();
+            fs::remove(temporary, ec);
+            return false;
+        }
+    }
+
+    fs::rename(temporary, destination, ec);
+    if (!ec)
+        return true;
+
+    // std::filesystem::rename cannot replace an existing file on Windows.
+    std::error_code removeError;
+    fs::remove(destination, removeError);
+    ec.clear();
+    fs::rename(temporary, destination, ec);
+    if (!ec)
+        return true;
+
+    spdlog::warn("Cannot replace status file {}: {}", destination.string(), ec.message());
+    fs::remove(temporary, removeError);
+    return false;
+}
+
 void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t luaCount = 0) {
     try {
-        std::string cacheDir = OmniPlatform::Paths::GetCacheDirectory();
-        std::string statusPath = (fs::path(cacheDir) / "core_status.json").generic_string();
+        const fs::path statusPath = fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "core_status.json";
         if (!active) {
             std::error_code ec;
             fs::remove(statusPath, ec);
             return;
         }
-        auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
-                       .count();
 
-        std::ofstream out(statusPath, std::ios::trunc);
-        if (out) {
-            out << "{\n"
-                << "  \"active\": true,\n"
-                << "  \"pid\": " << OmniPlatform::Process::GetCurrentProcessId() << ",\n"
-                << "  \"version\": \"" << OMNISTEAM_VERSION << "\",\n"
-                << "  \"commit\": \"" << OMNISTEAM_GIT_COMMIT << "\",\n"
-                << "  \"targetModule\": \"" << targetModule << "\",\n"
-                << "  \"hooks\": {\n"
-                << "    \"CheckAppOwnership\": " << (HookManager::IsHookActive("CheckAppOwnership") ? "true" : "false")
-                << ",\n"
-                << "    \"ConfigStore_GetBinary\": "
-                << (HookManager::IsHookActive("ConfigStoreGetBinary") ? "true" : "false") << ",\n"
-                << "    \"IPCProcessMessage\": " << (HookManager::IsHookActive("IPCProcessMessage") ? "true" : "false")
-                << "\n"
-                << "  },\n"
-                << "  \"luaFilesCount\": " << luaCount << ",\n"
-                << "  \"timestamp\": " << now << "\n"
-                << "}\n";
-        }
+        const auto now =
+            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                .count();
+        std::ostringstream json;
+        json << "{\n"
+             << "  \"active\": true,\n"
+             << "  \"pid\": " << OmniPlatform::Process::GetCurrentProcessId() << ",\n"
+             << "  \"version\": \"" << OmniPlatform::Encoding::EscapeJson(OMNISTEAM_VERSION) << "\",\n"
+             << "  \"commit\": \"" << OmniPlatform::Encoding::EscapeJson(OMNISTEAM_GIT_COMMIT) << "\",\n"
+             << "  \"targetModule\": \"" << OmniPlatform::Encoding::EscapeJson(targetModule) << "\",\n"
+             << "  \"hooks\": {\n"
+             << "    \"CheckAppOwnership\": "
+             << (HookManager::IsHookActive("CheckAppOwnership") ? "true" : "false") << ",\n"
+             << "    \"ConfigStore_GetBinary\": "
+             << (HookManager::IsHookActive("ConfigStoreGetBinary") ? "true" : "false") << ",\n"
+             << "    \"IPCProcessMessage\": "
+             << (HookManager::IsHookActive("IPCProcessMessage") ? "true" : "false") << "\n"
+             << "  },\n"
+             << "  \"luaFilesCount\": " << luaCount << ",\n"
+             << "  \"timestamp\": " << now << "\n"
+             << "}\n";
+        ReplaceFile(statusPath, json.str());
+    } catch (const std::exception& ex) {
+        spdlog::debug("Failed to update core status: {}", ex.what());
     } catch (...) {
+        spdlog::debug("Failed to update core status: unknown error");
     }
 }
 } // namespace
