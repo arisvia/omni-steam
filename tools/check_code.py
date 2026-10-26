@@ -214,7 +214,7 @@ def main():
         print("[ALL CHECKS PASSED] Include inference, delimiter balance, and CMake source coverage passed.")
         sys.exit(0)
     else:
-        print(f"❌ [CHECK FAILED] Found {total_issues} issues. Run `python tools/check_code.py --fix` to auto-heal.")
+        print(f"[CHECK FAILED] Found {total_issues} issues. Run `python tools/check_code.py --fix` to auto-heal.")
         sys.exit(1)
 
 if __name__ == '__main__':

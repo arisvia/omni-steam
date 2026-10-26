@@ -1,4 +1,6 @@
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -38,7 +40,12 @@ bool ReplaceFile(const fs::path& destination, std::string_view contents) {
     }
 
     fs::path temporary = destination;
-    temporary += "." + std::to_string(OmniPlatform::Process::GetCurrentProcessId()) + ".tmp";
+    // The PID alone is not unique enough: the process-exit writer (DllMain / library
+    // destructor) can race the init thread that is still booting, and both would then
+    // funnel two different payloads through one scratch file.
+    static std::atomic<uint64_t> scratchSequence{0};
+    temporary += "." + std::to_string(OmniPlatform::Process::GetCurrentProcessId()) + "." +
+                 std::to_string(scratchSequence.fetch_add(1, std::memory_order_relaxed)) + ".tmp";
     {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
         if (!out) {

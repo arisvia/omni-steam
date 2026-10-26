@@ -53,19 +53,19 @@ void ConfigureCommon(CURL* curl, const std::string& url, int timeoutMs, Http::Re
     }
 }
 
-bool Perform(CURL* curl, Http::Response& response) {
+void Perform(CURL* curl, Http::Response& response) {
     char errorBuffer[CURL_ERROR_SIZE] = {};
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
     const CURLcode code = curl_easy_perform(curl);
     if (code != CURLE_OK) {
+        // curl fills the buffer lazily; fall back to the generic description.
         response.error = errorBuffer[0] ? errorBuffer : curl_easy_strerror(code);
-        return false;
+        return;
     }
 
     long statusCode = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
     response.statusCode = static_cast<int>(statusCode);
-    return true;
 }
 } // namespace
 
