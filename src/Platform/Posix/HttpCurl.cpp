@@ -2,25 +2,19 @@
 #include <curl/curl.h>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <string>
 
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 
+#include "Platform/Posix/CurlRuntime.h"
+
 namespace OmniPlatform {
 namespace {
 std::atomic<bool> g_httpAllowInsecureTls{false};
-std::once_flag g_curlInitFlag;
-CURLcode g_curlInitResult = CURLE_FAILED_INIT;
 
 using CurlHandle = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>;
 using CurlHeaders = std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)>;
-
-bool EnsureCurlInitialized() {
-    std::call_once(g_curlInitFlag, [] { g_curlInitResult = curl_global_init(CURL_GLOBAL_DEFAULT); });
-    return g_curlInitResult == CURLE_OK;
-}
 
 size_t WriteResponse(void* contents, size_t size, size_t count, void* userData) {
     if (!userData || (size != 0 && count > std::numeric_limits<size_t>::max() / size))
@@ -85,7 +79,7 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         response.error = "URL is empty";
         return response;
     }
-    if (!EnsureCurlInitialized()) {
+    if (!CurlRuntime::EnsureInitialized()) {
         response.error = "curl_global_init failed";
         return response;
     }
@@ -108,7 +102,7 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
         response.error = "URL is empty";
         return response;
     }
-    if (!EnsureCurlInitialized()) {
+    if (!CurlRuntime::EnsureInitialized()) {
         response.error = "curl_global_init failed";
         return response;
     }

@@ -247,6 +247,7 @@ elseif(APPLE)
         src/Platform/Darwin/ByteSearch.cpp
         src/Platform/Darwin/DirectoryWatch.cpp
         src/Platform/Posix/HttpCurl.cpp
+        src/Platform/Posix/CurlRuntime.cpp
         src/Platform/Darwin/Hash.cpp
         src/Platform/Darwin/Process.cpp
         src/Platform/Darwin/CredentialStore.cpp
@@ -261,6 +262,7 @@ else()
         src/Platform/Linux/ByteSearch.cpp
         src/Platform/Linux/DirectoryWatch.cpp
         src/Platform/Posix/HttpCurl.cpp
+        src/Platform/Posix/CurlRuntime.cpp
         src/Platform/Linux/Hash.cpp
         src/Platform/Linux/Process.cpp
         src/Platform/Linux/CredentialStore.cpp

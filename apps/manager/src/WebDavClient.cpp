@@ -155,13 +155,19 @@ WebDavResponse WebDavClient::PropFind(const WebDavConfig& config, const std::str
 
 #else
 #include <curl/curl.h>
+#include <limits>
+
+#include "Platform/Posix/CurlRuntime.h"
 
 namespace Manager {
 
 namespace {
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    size_t total = size * nmemb;
-    reinterpret_cast<std::string*>(userp)->append(reinterpret_cast<char*>(contents), total);
+    if (!userp || (size != 0 && nmemb > std::numeric_limits<size_t>::max() / size))
+        return 0;
+
+    const size_t total = size * nmemb;
+    static_cast<std::string*>(userp)->append(static_cast<const char*>(contents), total);
     return total;
 }
 
@@ -175,15 +181,31 @@ std::string BuildFullUrl(const WebDavConfig& config, const std::string& remotePa
     return base + path;
 }
 
-void SetupAuth(CURL* curl, const WebDavConfig& config) {
+// userpwd must outlive the transfer: libcurl stores the pointer instead of copying
+// CURLOPT_USERPWD, so a string local to this function would dangle during perform().
+void SetupAuth(CURL* curl, const WebDavConfig& config, std::string& userpwd) {
     if (!config.username.empty()) {
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC | CURLAUTH_DIGEST);
-        std::string userpwd = config.username + ":" + config.password;
+        // CURLauth options are read as a long bitmask through varargs, same as the
+        // timeout options below.
+        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, static_cast<long>(CURLAUTH_BASIC | CURLAUTH_DIGEST));
+        userpwd = config.username + ":" + config.password;
         curl_easy_setopt(curl, CURLOPT_USERPWD, userpwd.c_str());
     }
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+    // The manager uploads from background threads; without NOSIGNAL libcurl may install
+    // a SIGALRM handler for hostname resolution and clobber the process' signal state.
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
+#if LIBCURL_VERSION_NUM >= 0x075500
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
 }
 
 enum class WebDavMethod { MkCol, Put, Get, Delete, PropFind };
@@ -213,6 +235,8 @@ size_t ReadCallback(char* dest, size_t size, size_t nmemb, void* userdata) {
     auto* ctx = static_cast<UploadCtx*>(userdata);
     size_t want = size * nmemb;
     size_t left = ctx->data->size() - ctx->pos;
+    if (want == 0 || left == 0)
+        return 0; // never memcpy through data() of an empty vector
     size_t count = want < left ? want : left;
     std::memcpy(dest, ctx->data->data() + ctx->pos, count);
     ctx->pos += count;
@@ -222,6 +246,10 @@ size_t ReadCallback(char* dest, size_t size, size_t nmemb, void* userdata) {
 WebDavResponse Perform(WebDavMethod method, const WebDavConfig& config, const std::string& remotePath,
                        const std::vector<uint8_t>* uploadData = nullptr) {
     WebDavResponse resp;
+    if (!OmniPlatform::CurlRuntime::EnsureInitialized()) {
+        resp.error = "curl_global_init failed";
+        return resp;
+    }
     CURL* curl = curl_easy_init();
     if (!curl) {
         resp.error = "curl init failed";
@@ -233,7 +261,8 @@ WebDavResponse Perform(WebDavMethod method, const WebDavConfig& config, const st
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, MethodName(method));
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-    SetupAuth(curl, config);
+    std::string userpwd;
+    SetupAuth(curl, config, userpwd);
 
     curl_slist* headers = nullptr;
     UploadCtx uploadCtx{uploadData, 0};
@@ -251,13 +280,15 @@ WebDavResponse Perform(WebDavMethod method, const WebDavConfig& config, const st
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     }
 
+    char errorBuffer[CURL_ERROR_SIZE] = {};
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
     CURLcode res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
         long code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
         resp.statusCode = static_cast<int>(code);
     } else {
-        resp.error = curl_easy_strerror(res);
+        resp.error = errorBuffer[0] ? errorBuffer : curl_easy_strerror(res);
     }
 
     if (headers) {
