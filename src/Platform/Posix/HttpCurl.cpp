@@ -40,15 +40,18 @@ void ConfigureCommon(CURL* curl, const std::string& url, int timeoutMs, Http::Re
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     if (timeoutMs > 0) {
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeoutMs);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutMs);
+        // curl reads these options as `long` through varargs; passing a bare `int` leaves the
+        // high half of the register slot undefined on ABIs like macOS arm64.
+        const long timeout = static_cast<long>(timeoutMs);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout);
     }
 #if LIBCURL_VERSION_NUM >= 0x075500
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
 #else
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
 #endif
     if (g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
