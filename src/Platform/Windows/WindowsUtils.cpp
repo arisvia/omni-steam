@@ -72,6 +72,26 @@ void Http::SetAllowInsecureTls(bool allowed) {
     g_httpAllowInsecureTls.store(allowed, std::memory_order_relaxed);
 }
 
+namespace {
+// Shared request hardening. Mirrors the allow-list the libcurl backend installs on
+// Posix (CURLOPT_PROTOCOLS / CURLOPT_REDIR_PROTOCOLS), so a poisoned or hand-edited
+// config can never make the core ask WinHTTP to fetch a non-HTTP scheme.
+bool IsSupportedHttpScheme(INTERNET_SCHEME scheme) {
+    return scheme == INTERNET_SCHEME_HTTP || scheme == INTERNET_SCHEME_HTTPS;
+}
+
+// The opt-in chain-validation bypass has to apply to POST as well as GET, otherwise
+// self-signed WebAPI endpoints work for manifest lookups and fail on submissions.
+void ApplyTlsVerification(HINTERNET hRequest, INTERNET_SCHEME scheme) {
+    if (scheme != INTERNET_SCHEME_HTTPS || !g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
+        return;
+    }
+    DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                     SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+}
+} // namespace
+
 bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Callback onChange) {
     if (directories.empty() || !onChange || g_watchRunning.load())
         return false;
@@ -130,8 +150,10 @@ void DirectoryWatch::StopWatch() {
 }
 Http::Response Http::Get(const std::string& url, int timeoutMs) {
     Response res;
-    if (url.empty())
+    if (url.empty()) {
+        res.error = "URL is empty";
         return res;
+    }
 
     std::string currentUrl = url;
     int maxRedirects = 8;
@@ -147,6 +169,10 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
 
         if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
             res.error = "Invalid URL format (error " + std::to_string(GetLastError()) + ")";
+            return res;
+        }
+        if (!IsSupportedHttpScheme(urlComp.nScheme)) {
+            res.error = "Unsupported URL scheme (only http and https are allowed)";
             return res;
         }
 
@@ -201,14 +227,9 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
         WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
 
-        if (urlComp.nScheme == INTERNET_SCHEME_HTTPS && g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
-            // Opt-in only (security.allow_insecure_tls): skipping chain
-            // validation lets a MITM tamper with manifest request codes,
-            // signature documents and depot keys.
-            DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                             SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
-            WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
-        }
+        // Opt-in only (security.allow_insecure_tls): skipping chain validation lets a MITM
+        // tamper with manifest request codes, signature documents and depot keys.
+        ApplyTlsVerification(hRequest, urlComp.nScheme);
 
         BOOL bResults =
             WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
@@ -281,8 +302,16 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
 Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType,
                           int timeoutMs) {
     Response res;
-    if (url.empty())
+    if (url.empty()) {
+        res.error = "URL is empty";
         return res;
+    }
+    // WinHttpSendRequest takes the payload length as DWORD; refuse rather than silently
+    // truncating a body whose size does not fit (the Posix backend uses *_LARGE).
+    if (body.size() > 0xFFFFFFFFULL) {
+        res.error = "POST body exceeds the 4 GiB WinHTTP limit";
+        return res;
+    }
 
     std::wstring wUrl = Encoding::Utf8ToWide(url);
     URL_COMPONENTS urlComp{};
@@ -294,6 +323,10 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
 
     if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.length()), 0, &urlComp)) {
         res.error = "Invalid URL format (error " + std::to_string(GetLastError()) + ")";
+        return res;
+    }
+    if (!IsSupportedHttpScheme(urlComp.nScheme)) {
+        res.error = "Unsupported URL scheme (only http and https are allowed)";
         return res;
     }
 
@@ -341,6 +374,8 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
         res.error = "WinHttpOpenRequest failed";
         return res;
     }
+
+    ApplyTlsVerification(hRequest, urlComp.nScheme);
 
     std::string headerStr = "Content-Type: " + contentType;
     std::wstring wHeaders = Encoding::Utf8ToWide(headerStr);
