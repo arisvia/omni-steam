@@ -83,6 +83,11 @@ public:
     // default: enabling it lets a MITM tamper with manifest request codes,
     // signature documents and depot keys.
     static void SetAllowInsecureTls(bool allowed);
+
+    // Read the same opt-in back so other transport users (the manager's WebDAV sync,
+    // which does not go through this class) honour security.allow_insecure_tls instead
+    // of silently verifying certificates while every other request does not.
+    static bool IsInsecureTlsAllowed();
 };
 
 class Hash {

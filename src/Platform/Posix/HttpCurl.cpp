@@ -47,7 +47,7 @@ void ConfigureCommon(CURL* curl, const std::string& url, int timeoutMs, Http::Re
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
 #endif
-    if (g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
+    if (Http::IsInsecureTlsAllowed()) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
@@ -71,6 +71,10 @@ bool Perform(CURL* curl, Http::Response& response) {
 
 void Http::SetAllowInsecureTls(bool allowed) {
     g_httpAllowInsecureTls.store(allowed, std::memory_order_relaxed);
+}
+
+bool Http::IsInsecureTlsAllowed() {
+    return g_httpAllowInsecureTls.load(std::memory_order_relaxed);
 }
 
 Http::Response Http::Get(const std::string& url, int timeoutMs) {

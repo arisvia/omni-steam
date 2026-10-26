@@ -68,6 +68,11 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
                               const void* bodyData = nullptr, size_t bodySize = 0,
                               const wchar_t* extraHeader = nullptr) {
     WebDavResponse resp;
+    // WinHttpSendRequest takes the payload length as DWORD; refuse rather than truncate.
+    if (bodySize > 0xFFFFFFFFULL) {
+        resp.error = "WebDAV payload exceeds the 4 GiB WinHTTP limit";
+        return resp;
+    }
     ParsedUrl base = ParseUrl(config.serverUrl);
     if (base.host.empty()) {
         resp.error = "Invalid server URL";
@@ -75,12 +80,18 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
     }
 
     std::wstring fullPath = BuildRemotePath(base.path, remotePath);
-    HINTERNET hSession = WinHttpOpen(L"OmniSteam-WebDAV/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET hSession = WinHttpOpen(OmniEndpoints::Http::kUserAgentW, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) {
         resp.error = "WinHttpOpen failed";
         return resp;
     }
+
+    // Match the libcurl branch: multi-megabyte save uploads do not fit WinHTTP's
+    // 30-second send/receive defaults, and TLS 1.0/1.1 must stay disabled.
+    WinHttpSetTimeouts(hSession, 10000, 30000, 120000, 120000);
+    DWORD secureProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+    WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secureProtocols, sizeof(secureProtocols));
 
     HINTERNET hConnect = WinHttpConnect(hSession, base.host.c_str(), base.port, 0);
     if (!hConnect) {
@@ -92,6 +103,12 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
     DWORD flags = base.isHttps ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hRequest =
         WinHttpOpenRequest(hConnect, method, fullPath.c_str(), nullptr, nullptr, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        resp.error = "WinHttpOpenRequest failed";
+        return resp;
+    }
     if (extraHeader) {
         WinHttpAddRequestHeaders(hRequest, extraHeader, static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
     }
@@ -100,6 +117,14 @@ WebDavResponse WinHttpRequest(const WebDavConfig& config, const std::string& rem
         std::wstring pass = Utf8ToWide(config.password);
         WinHttpSetCredentials(hRequest, WINHTTP_AUTH_TARGET_SERVER, WINHTTP_AUTH_SCHEME_BASIC, user.c_str(),
                               pass.c_str(), nullptr);
+    }
+
+    // Same opt-in switch the Http backend uses, so a self-signed WebDAV server is not
+    // accepted by one transport and rejected by the other.
+    if (base.isHttps && OmniPlatform::Http::IsInsecureTlsAllowed()) {
+        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                         SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
     }
 
     BOOL sendOk = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)bodyData, (DWORD)bodySize,
@@ -206,6 +231,12 @@ void SetupAuth(CURL* curl, const WebDavConfig& config, std::string& userpwd) {
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
 #endif
+    // Honour security.allow_insecure_tls here too: self-signed WebDAV hosts are the
+    // common case for personal nextCloud/Apache setups.
+    if (OmniPlatform::Http::IsInsecureTlsAllowed()) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
 }
 
 enum class WebDavMethod { MkCol, Put, Get, Delete, PropFind };

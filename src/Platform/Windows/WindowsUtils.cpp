@@ -72,6 +72,10 @@ void Http::SetAllowInsecureTls(bool allowed) {
     g_httpAllowInsecureTls.store(allowed, std::memory_order_relaxed);
 }
 
+bool Http::IsInsecureTlsAllowed() {
+    return g_httpAllowInsecureTls.load(std::memory_order_relaxed);
+}
+
 namespace {
 // Shared request hardening. Mirrors the allow-list the libcurl backend installs on
 // Posix (CURLOPT_PROTOCOLS / CURLOPT_REDIR_PROTOCOLS), so a poisoned or hand-edited
@@ -83,7 +87,7 @@ bool IsSupportedHttpScheme(INTERNET_SCHEME scheme) {
 // The opt-in chain-validation bypass has to apply to POST as well as GET, otherwise
 // self-signed WebAPI endpoints work for manifest lookups and fail on submissions.
 void ApplyTlsVerification(HINTERNET hRequest, INTERNET_SCHEME scheme) {
-    if (scheme != INTERNET_SCHEME_HTTPS || !g_httpAllowInsecureTls.load(std::memory_order_relaxed)) {
+    if (scheme != INTERNET_SCHEME_HTTPS || !Http::IsInsecureTlsAllowed()) {
         return;
     }
     DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
