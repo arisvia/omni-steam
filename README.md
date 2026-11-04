@@ -13,7 +13,7 @@ Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路与 Manager �
 
 ## 核心特性
 
-- **隐身注入**：Windows `dwmapi.dll` 代理劫持（透明转发系统 DWM 全部导出）；Linux `LD_PRELOAD`；macOS `DYLD_INSERT_LIBRARIES`。
+- **隐身注入**：Windows `xinput1_4.dll` 代理劫持（透明转发系统 XInput 全部导出；dwmapi 代理已退役，64 位 steam.exe 可能经 KnownDLLs 直取系统 dwmapi）；Linux `LD_PRELOAD`；macOS `DYLD_INSERT_LIBRARIES`。
 - **自适应特征寻址**：基于 Steam 二进制 SHA256 键控 RVA 缓存（`cache/pattern_<sha256>.cache`），
   版本不变零扫描直通；升级后自动重扫。Windows 特征码已与上游签名库逐一核对。
 - **全协议解锁链路**：
@@ -67,7 +67,7 @@ python tools/check_code.py --fix
 
 ### 1. 安装并运行核心注入 (Core)
 
-- **Windows**：在 Manager 中点击"安装核心"，或手动将 `libomnisteam.dll` 与 `dwmapi.dll` 复制到 Steam 安装根目录，正常启动 Steam 即可。
+- **Windows**：在 Manager 中点击"安装核心"，或手动将 `libomnisteam.dll` 与 `xinput1_4.dll` 复制到 Steam 安装根目录，正常启动 Steam 即可。
 - **Linux / 桌面 Linux**：
   ```bash
   ./scripts/omnisteam.sh
@@ -102,7 +102,7 @@ omnisteam backup [AppID]        # 云存档备份 / restore <AppID> 还原
 ```
 
 配置文件为 TOML 格式（参考 `omnisteam.example.toml`）：日志级别、Manifest 上游选择
-（opensteamtool / wudrm / steamrun / 自定义 URL）、DLC 自动发现开关、Lua 目录、WebDAV 凭据。
+（omnisteam / opensteamtool / wudrm / steamrun / 自定义 URL）、DLC 自动发现开关、Lua 目录、WebDAV 凭据。
 
 ---
 

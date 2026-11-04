@@ -13,7 +13,7 @@
 | **`IpcMetadataTests`** | `test_ipc_metadata` | `tests/test_ipc_metadata.cpp` | **Steam IPC 与元数据引擎**：结构偏移量断言（Ownership/PackageInfo 布局）、指令特征扫描 (`PatternLoader`)、IPC 序列化 (`SteamIPC`)、Manifest 解析 (`ManifestClient`)。 |
 | **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：AppID/DLC/Token 脚本生成、DepotKey 智能去重、Denuvo 票据语句生成、启用/停用/删除全生命周期、AppID=0 边界防御。 |
 | **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档引擎**：存档路径探测（userdata / Proton compatdata）、WebDAV 客户端配置。 |
-| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与系统整合**：发布资源定义、SteamOS 脚本、Decky 插件规范、全平台签名完整性校验、`dwmapi.def` 45 序数转发映射验证。 |
+| **`PackagingIntegrationTests`** | `test_packaging_integration` | `tests/test_packaging_integration.cpp` | **打包与系统整合**：发布资源定义、SteamOS 脚本、Decky 插件规范、全平台签名完整性校验、`xinput1_4.def` 序数转发映射验证。 |
 | **`DepotKeyTests`** | `test_depot_keys` | `tests/test_depot_keys.cpp` | **Depot 密钥仓库**：`depotkeys.bin` 二进制加载、二分查找、恶意头防护（数量上限/溢出）。 |
 | **`PicsTokenTests`** | `test_pics_token` | `tests/test_pics_token.cpp` | **PICS 令牌注入器**：eMsg 8903 报文改写（令牌注入/覆盖/已正确则跳过）、无关字段逐字节保留、畸形输入安全拒绝。 |
 | **`StatsProtoTests`** | `test_stats_proto` | `tests/test_stats_proto.cpp` | **protobuf 字段操作库**：varint 往返（含负数 10 字节编码）、fixed64 读取、追加覆盖语义、repeated 字段剥离、畸形输入安全拒绝。 |

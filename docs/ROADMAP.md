@@ -21,7 +21,7 @@
 - [x] SHA256 键控 RVA 缓存 (`cache/pattern_<sha256>.cache`)：版本不变零扫描；含 RVA 合理性校验。
 - [x] 手写 protobuf varint 编解码（无依赖、含越界防护），eMsg 151/147 服务方法拦截。
 - [x] `Hooks_Decryption`：ConfigStore_GetBinary 密钥回填（热路径零分配快速拒绝）。
-- [x] `ManifestClient`：多上游请求码解析（opensteamtool / wudrm / steamrun / 自定义）+ 持久化正缓存 + 负缓存 TTL。
+- [x] `ManifestClient`：多上游请求码解析（omnisteam / opensteamtool / wudrm / steamrun / 自定义）+ 持久化正缓存 + 负缓存 TTL。
 
 ## 阶段 3：Manager 面板 【✅ 已完成】
 - [x] 三层架构 WebServer / ApiRouter / StaticAssets；Steam Store 检索与 DLC 树抓取。

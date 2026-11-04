@@ -15,14 +15,15 @@
 
 | 方案 | 隐蔽性 | 稳定性 | 易用性 | 综合评价 |
 | :--- | :--- | :--- | :--- | :--- |
-| **DLL Proxying (`dwmapi.dll`)** | **极高** (OS 原生加载机制) | **极高** (Steam 启动即加载) | **高** (放置于 Steam 根目录) | **最优解 ✅ 已采用** |
+| **DLL Proxying (`xinput1_4.dll`)** | **极高** (OS 原生加载机制) | **极高** (Steam 启动即加载) | **高** (放置于 Steam 根目录) | **最优解 ✅ 已采用** |
+| DLL Proxying (`dwmapi.dll`) | 高 | 中 (64 位 steam.exe 可经 KnownDLLs 直取系统 dwmapi) | 高 | **已退役** |
 | 外部注入 (CreateRemoteThread 等) | 低 (易被杀软拦截) | 中 (依赖监听与时机) | 低 (需常驻 Injector) | 不推荐 |
 | AppInit_DLLs / 注册表劫持 | 低 | 低 | 极低 | 坚决避免 |
 | 快捷方式包装 (Launcher Wrapper) | 中 | 高 | 中 (自更新覆盖即失效) | 备选 |
 
 ### 实施状态：✅ 完整可用
-- `src/Platform/Windows/Proxy/dwmapi.cpp`：代理 DLL 完整转发 System32 `dwmapi.dll` 全部 32 个导出函数，
-  `DLL_PROCESS_ATTACH` 时加载同目录 `libomnisteam.dll`（绝对路径优先，失败回退默认搜索）。
+- `src/Platform/Windows/Proxy/xinput1_4.cpp`：代理 DLL 完整转发 System32 `xinput1_4.dll` 全部导出（含 100-108 序数），
+  `DLL_PROCESS_ATTACH` 时按自身模块绝对路径加载同目录 `libomnisteam.dll`（宿主 exe 目录与默认搜索为回退）。
 - Core 初始化线程等待 `steamclient64.dll` 加载（最长 60s，超时明确报错退出，不会半装状态）。
 - 特征签名与上游 opensteamtool 签名库逐项核对一致；RVA 缓存按二进制 SHA256 键控。
 - Manager `CoreInstaller` 支持本地产物一键部署与 Release/Nightly 远程下载解压（校验解压结果）。

@@ -3,7 +3,7 @@
 ## 1. Project Overview & Target Architecture
 - **Language**: C++20 standard, C11 standard.
 - **Targets**:
-  - **Windows (x64)**: Steamclient hook (`libomnisteam.dll`), Proxy DLL (`dwmapi.dll`), Native ImGui / Web Manager (`omnisteam.exe`).
+  - **Windows (x64)**: Steamclient hook (`libomnisteam.dll`), Proxy DLL (`xinput1_4.dll`), Native ImGui / Web Manager (`omnisteam.exe`).
   - **Linux (x86_64 & i386)**: Dynamic Preload hook (`libomnisteam.so` built for both 64-bit and 32-bit `ubuntu12_32`), CLI & Web GUI Manager.
   - **macOS (Apple Silicon arm64 & Intel x86_64)**: Universal binary Mach-O hook (`libomnisteam.dylib`).
 - **Hook Engine**: `funchook` (Capstone 5.0.1 based, universal across x86/x64/ARM64).

@@ -20,7 +20,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 
 | 能力 | Windows x64 | Linux x86_64/i386 | macOS arm64/x86_64 |
 | :--- | :--- | :--- | :--- |
-| 注入载体 | `dwmapi.dll` 代理劫持 | `LD_PRELOAD` | `DYLD_INSERT_LIBRARIES` |
+| 注入载体 | `xinput1_4.dll` 代理劫持 | `LD_PRELOAD` | `DYLD_INSERT_LIBRARIES` |
 | Hook 引擎 (funchook) | ✅ | ✅ | ✅ |
 | 函数特征签名库 | ✅（内置 + 远程 CDN 兜底） | ✅（已派生 x64 TOML） | ✅（已派生 Universal TOML） |
 | 所有权/解密/请求码解锁 | ✅ | ✅（加载 TOML 生效） | ✅（加载 TOML 生效） |
@@ -70,7 +70,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
                                              │
  ⑧ Manifest 授权 ◄─────────────── Hooks_NetPacket (eMsg 151/147)
         manifest_request_code      发送侧: 缓存命中→即时映射 jobid;
-                                   未命中→异步查上游(opensteamtool/
+                                   未命中→异步查上游(omnisteam/opensteamtool/
                                    wudrm/steamrun), 结果写持久缓存
                                    接收侧: 有界等待 2.5s, 追加字段方式
                                    注入 eresult=OK + request_code

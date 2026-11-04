@@ -101,7 +101,7 @@ jobs:
 
           # Windows packaging
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp build/bin/Release/*dwmapi* dist/core/ 2>/dev/null || true
+            cp build/bin/Release/*xinput* dist/core/ 2>/dev/null || true
             cp build/bin/Release/*omnisteam.dll dist/core/ 2>/dev/null || true
             cp build/lib/*omnisteam.dll dist/core/ 2>/dev/null || true
             7z a "packages/omnisteam-core-${{ matrix.platform_id }}.zip" ./dist/core/*
