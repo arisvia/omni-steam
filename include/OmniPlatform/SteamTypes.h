@@ -29,6 +29,12 @@ inline constexpr bool IsValveRedistributionAppId(AppId_t appId) {
     return appId >= 228980 && appId <= 228991;
 }
 
+// Depot scanning heuristics (used by DepotKeyStore when discovering depots from flat keys database)
+inline constexpr uint32_t kDefaultAppDepotScanRange = 25;
+inline constexpr uint32_t kDefaultDlcDepotScanRange = 10;
+// Depot IDs are assigned sequentially per app; a gap larger than this indicates a different app's depot cluster.
+inline constexpr uint32_t kMaxDepotIdGap = 5;
+
 // Default synthesized license count for unowned standalone apps & DLCs
 // Steam Protocol Network eMsg Constants
 inline constexpr uint32_t kMsgHdrProtoFlag = 0x80000000;
@@ -230,6 +236,16 @@ enum class EAppReleaseState : uint32_t {
 };
 
 enum class EPackageStatus : uint32_t { Available = 0, Preorder = 1, Unavailable = 2, Invalid = 3 };
+
+// CSteamApp::OwnershipFlags bits (Valve EAppOwnershipFlags). SteamUI's
+// ShouldShowAppInLibrary() gates on OwnsLicense; without it injected apps
+// never enter the library snapshot even with a synthetic PurchasedTime.
+enum EAppOwnershipFlags : uint32_t {
+    k_EAppOwnershipFlags_None = 0x0000,
+    k_EAppOwnershipFlags_OwnsLicense = 0x0001,
+    k_EAppOwnershipFlags_FreeLicense = 0x0002,
+    k_EAppOwnershipFlags_LicensePermanent = 0x0800,
+};
 // ==============================================================================
 // Steam Client Ownership & License Structures
 // ==============================================================================

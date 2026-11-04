@@ -25,6 +25,19 @@ void TestDepotKeyStore() {
     OMNI_CHECK(wukongKeys.count(3288261) > 0); // DLC 2 Depot 1
     OMNI_CHECK(wukongKeys.count(3288262) > 0); // DLC 2 Depot 2
     std::cout << "[INFO] Verified Black Myth Wukong & DLC Depots matched (" << wukongKeys.size() << " keys)\n";
+
+    // Hollow Knight: the scan must stop at its own contiguous depot block and
+    // never swallow the Starbound-Unstable block (367540+) that sits inside
+    // the +25 window - that misfile previously surfaced a foreign game in the
+    // Steam library via keyed-addappid unlock registration.
+    auto hkKeys = Manager::DepotKeyStore::FindDepotKeysForApp(367520, {598190, 916000});
+    OMNI_CHECK(hkKeys.count(367520) > 0);
+    OMNI_CHECK(hkKeys.count(367521) > 0);
+    OMNI_CHECK(hkKeys.count(367523) > 0);
+    OMNI_CHECK(hkKeys.count(916001) > 0);  // Gods & Nightmares depot
+    OMNI_CHECK(hkKeys.count(367540) == 0); // foreign app block excluded
+    OMNI_CHECK(hkKeys.count(367545) == 0);
+    std::cout << "[INFO] Verified Hollow Knight scan boundary (" << hkKeys.size() << " keys)\n";
     std::cout << "[PASS] TestDepotKeyStore (Binary format loaded & Depot 1 verified)\n";
 }
 

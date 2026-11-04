@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/SteamTypes.h"
 
 namespace fs = std::filesystem;
 
@@ -312,21 +313,25 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uin
     auto scanRange = [&](uint32_t baseId, uint32_t range) {
         auto it = std::lower_bound(g_records.begin(), g_records.end(), baseId,
                                    [](const DepotKeyRecord& r, uint32_t id) { return r.depot_id < id; });
+        uint32_t prev = baseId;
         while (it != g_records.end() && it->depot_id <= baseId + range) {
+            if (it->depot_id - prev > kMaxDepotIdGap)
+                break;
             if (!isCommonRedistOrInvalid(it->depot_id)) {
                 result[it->depot_id] = OmniPlatform::Encoding::BytesToHex(it->key, 32);
             }
+            prev = it->depot_id;
             ++it;
         }
     };
 
     if (appId > 0) {
-        scanRange(appId, 25);
+        scanRange(appId, kDefaultAppDepotScanRange);
     }
 
     for (uint32_t dlcId : dlcAppIds) {
         if (dlcId > 0) {
-            scanRange(dlcId, 10);
+            scanRange(dlcId, kDefaultDlcDepotScanRange);
         }
     }
 
