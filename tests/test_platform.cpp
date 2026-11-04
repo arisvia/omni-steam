@@ -5,8 +5,37 @@
 #include <string>
 #include <vector>
 
+#include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
 #include "OmniPlatform/SteamTypes.h"
+
+void TestClientIdentity() {
+    // Our own surfaces announce OmniSteam. Only the upstream provider's hosts get its
+    // inherited token back, because those answer a Cloudflare 403 to anything else - we
+    // run no request-code or donor-SteamID service, so that traffic must keep working.
+    std::string ourAgent = OmniEndpoints::Http::kUserAgent;
+    OMNI_CHECK(ourAgent.rfind("OmniSteam/", 0) == 0);
+    OMNI_CHECK(std::string(OmniEndpoints::Http::kUpstreamUserAgent) == "OpenSteamTool/1.0");
+
+    OMNI_CHECK(std::string(OmniEndpoints::Http::UserAgentForUrl("https://manifest.opensteamtool.com/440")) ==
+               OmniEndpoints::Http::kUpstreamUserAgent);
+    OMNI_CHECK(std::string(OmniEndpoints::Http::UserAgentForUrl("https://stats.opensteamtool.com/440")) ==
+               OmniEndpoints::Http::kUpstreamUserAgent);
+    OMNI_CHECK(std::string(OmniEndpoints::Http::UserAgentForUrl(
+                   "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin")) ==
+               OmniEndpoints::Http::kUserAgent);
+    OMNI_CHECK(std::string(OmniEndpoints::Http::UserAgentForUrl("http://gmrc.wudrm.com/manifest/440")) ==
+               OmniEndpoints::Http::kUserAgent);
+    OMNI_CHECK(std::string(OmniEndpoints::Http::UserAgentForUrl(
+                   "https://store.steampowered.com/api/appdetails?appids=440")) == OmniEndpoints::Http::kUserAgent);
+
+    // Default preset token is branded "omnisteam", and "opensteamtool" is retained as legacy alias.
+    OMNI_CHECK(std::string(OmniEndpoints::Manifest::kDefaultUpstream) == "omnisteam");
+    OMNI_CHECK(std::string(OmniEndpoints::Manifest::kLegacyUpstream) == "opensteamtool");
+    OMNI_CHECK(std::string(OmniEndpoints::Manifest::kSteamRunUpstream) == "steamrun");
+    OMNI_CHECK(std::string(OmniEndpoints::Manifest::kWuDrmUpstream) == "wudrm");
+    std::cout << "[PASS] TestClientIdentity\n";
+}
 
 void TestEncoding() {
     std::string hex = "5954562e";
@@ -63,6 +92,7 @@ void TestAntiCheatGuard() {
 
 int main() {
     std::cout << "Running OmniSteam Platform Tests...\n";
+    TestClientIdentity();
     TestEncoding();
     TestByteSearch();
     TestCredentialStore();

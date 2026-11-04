@@ -76,9 +76,13 @@ public:
         std::string error;
     };
 
-    static Response Get(const std::string& url, int timeoutMs = 5000);
+    static Response Get(const std::string& url, int timeoutMs = 5000, const char* userAgent = nullptr);
     static Response Post(const std::string& url, const std::string& body,
-                         const std::string& contentType = "application/json", int timeoutMs = 5000);
+                         const std::string& contentType = "application/json", int timeoutMs = 5000,
+                         const char* userAgent = nullptr);
+    // userAgent == nullptr picks the identity for the URL through
+    // OmniEndpoints::Http::UserAgentForUrl(): OmniSteam everywhere, except the upstream
+    // provider's own hosts which still require its legacy client token.
     // Opt-in chain-validation bypass for self-signed / test endpoints. Off by
     // default: enabling it lets a MITM tamper with manifest request codes,
     // signature documents and depot keys.

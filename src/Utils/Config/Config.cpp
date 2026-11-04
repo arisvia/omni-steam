@@ -13,7 +13,10 @@
 namespace {
 struct ConfigSnapshot {
     std::vector<std::string> luaPaths;
-    std::string manifestUrl = OmniEndpoints::Manifest::kOpenSteamToolUrl;
+    // Stored as the preset token, never as a resolved URL: ManifestClient owns the
+    // token -> provider expansion, so a user override and the built-in default follow the
+    // same path and the dashboard can round-trip the value it read.
+    std::string manifestUrl = OmniEndpoints::Manifest::kDefaultUpstream;
     bool statsEnabled = true;
     bool autoUnlockDlc = true;
     bool allowInsecureTls = false;

@@ -16,9 +16,9 @@ file_output = true
 
 [manifest]
 # Depot Manifest 授权请求码上游服务。
-# 预设可选 "opensteamtool" (默认), "steamrun", "wudrm"，或填写自建的完整 Base URL。
+# 预设可选 "omnisteam" (默认，映射到主服务), "opensteamtool" (兼容别名), "steamrun", "wudrm"，或填写自建的完整 Base URL。
 # 解析结果会持久缓存至 cache/manifest_request_codes.bin，失败结果 10 分钟内不重复请求。
-url = "opensteamtool"
+url = "omnisteam"
 
 [dlc]
 # 自动发现已拥有游戏的所有 DLC 并一并注入 Package 0 (依赖 Steam Store API)

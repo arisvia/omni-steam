@@ -152,7 +152,7 @@ void DirectoryWatch::StopWatch() {
         }
     }
 }
-Http::Response Http::Get(const std::string& url, int timeoutMs) {
+Http::Response Http::Get(const std::string& url, int timeoutMs, const char* userAgent) {
     Response res;
     if (url.empty()) {
         res.error = "URL is empty";
@@ -192,11 +192,13 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         }
 
         // Use WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY (4) on Windows 8.1+ to inherit system VPN / proxy settings
-        HINTERNET hSession = WinHttpOpen(OmniEndpoints::Http::kUserAgentW, 4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */,
+        const std::wstring requestAgent =
+            Encoding::Utf8ToWide(userAgent ? userAgent : OmniEndpoints::Http::UserAgentForUrl(currentUrl));
+        HINTERNET hSession = WinHttpOpen(requestAgent.c_str(), 4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */,
                                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (!hSession) {
-            hSession = WinHttpOpen(OmniEndpoints::Http::kUserAgentW, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            hSession = WinHttpOpen(requestAgent.c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                   WINHTTP_NO_PROXY_BYPASS, 0);
         }
         if (!hSession) {
             res.error = "WinHttpOpen failed";
@@ -304,7 +306,7 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
 }
 
 Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType,
-                          int timeoutMs) {
+                          int timeoutMs, const char* userAgent) {
     Response res;
     if (url.empty()) {
         res.error = "URL is empty";
@@ -344,11 +346,13 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     if (urlComp.dwExtraInfoLength > 0 && urlComp.lpszExtraInfo) {
         urlPath += std::wstring(urlComp.lpszExtraInfo, urlComp.dwExtraInfoLength);
     }
-    HINTERNET hSession = WinHttpOpen(OmniEndpoints::Http::kUserAgentW, 4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */,
+    const std::wstring requestAgent =
+        Encoding::Utf8ToWide(userAgent ? userAgent : OmniEndpoints::Http::UserAgentForUrl(url));
+    HINTERNET hSession = WinHttpOpen(requestAgent.c_str(), 4 /* WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY */,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) {
-        hSession = WinHttpOpen(OmniEndpoints::Http::kUserAgentW, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        hSession = WinHttpOpen(requestAgent.c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                               WINHTTP_NO_PROXY_BYPASS, 0);
     }
     if (!hSession) {
         res.error = "WinHttpOpen failed";

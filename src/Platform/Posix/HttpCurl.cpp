@@ -25,11 +25,12 @@ size_t WriteResponse(void* contents, size_t size, size_t count, void* userData) 
     return total;
 }
 
-void ConfigureCommon(CURL* curl, const std::string& url, int timeoutMs, Http::Response& response) {
+void ConfigureCommon(CURL* curl, const std::string& url, int timeoutMs, const char* userAgent,
+                     Http::Response& response) {
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteResponse);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, OmniEndpoints::Http::kUserAgent);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent ? userAgent : OmniEndpoints::Http::UserAgentForUrl(url));
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
@@ -77,7 +78,7 @@ bool Http::IsInsecureTlsAllowed() {
     return g_httpAllowInsecureTls.load(std::memory_order_relaxed);
 }
 
-Http::Response Http::Get(const std::string& url, int timeoutMs) {
+Http::Response Http::Get(const std::string& url, int timeoutMs, const char* userAgent) {
     Http::Response response;
     if (url.empty()) {
         response.error = "URL is empty";
@@ -93,14 +94,14 @@ Http::Response Http::Get(const std::string& url, int timeoutMs) {
         response.error = "curl_easy_init failed";
         return response;
     }
-    ConfigureCommon(curl.get(), url, timeoutMs, response);
+    ConfigureCommon(curl.get(), url, timeoutMs, userAgent, response);
 
     Perform(curl.get(), response);
     return response;
 }
 
 Http::Response Http::Post(const std::string& url, const std::string& body, const std::string& contentType,
-                          int timeoutMs) {
+                          int timeoutMs, const char* userAgent) {
     Http::Response response;
     if (url.empty()) {
         response.error = "URL is empty";
@@ -125,7 +126,7 @@ Http::Response Http::Post(const std::string& url, const std::string& body, const
     }
     headers.reset(rawHeaders);
 
-    ConfigureCommon(curl.get(), url, timeoutMs, response);
+    ConfigureCommon(curl.get(), url, timeoutMs, userAgent, response);
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
     curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body.data());
     curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));

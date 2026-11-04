@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 
 namespace OmniEndpoints {
 
@@ -31,8 +32,15 @@ inline constexpr const char* kDepotKeysGcore = "https://gcore.jsdelivr.net/gh/ar
 // 2. Manifest 上游授权请求码服务商列表
 // ==============================================================================
 namespace Manifest {
-inline constexpr const char* kDefaultUpstream = "opensteamtool";
-// Request-code endpoints: append "/<manifest_gid>" to the base URL.
+// Preset tokens stored in omnisteam.toml. The default preset is branded as
+// "omnisteam" for consistency across configs, with "opensteamtool" retained as a
+// backwards-compatible legacy alias for existing installations. Upstream providers
+// without an alias keep their service names ("steamrun", "wudrm").
+// ManifestClient::ResolveUpstreamBase() expands preset tokens into provider base URLs.
+inline constexpr const char* kDefaultUpstream = "omnisteam";
+inline constexpr const char* kLegacyUpstream = "opensteamtool";
+inline constexpr const char* kSteamRunUpstream = "steamrun";
+inline constexpr const char* kWuDrmUpstream = "wudrm";
 inline constexpr const char* kOpenSteamToolUrl = "https://manifest.opensteamtool.com";
 inline constexpr const char* kSteamRunUrl = "https://manifest.steam.run/api/manifest";
 inline constexpr const char* kWuDrmUrl = "http://gmrc.wudrm.com/manifest";
@@ -74,8 +82,26 @@ inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.co
 // 5. 全局统一网络通信请求头与客户端标识 (HTTP User-Agent)
 // ==============================================================================
 namespace Http {
-inline constexpr const char* kUserAgent = "OpenSteamTool/1.0";
-inline constexpr const wchar_t* kUserAgentW = L"OpenSteamTool/1.0";
+// Identity for everything we operate: the data branch assets (depotkeys.bin and the
+// signature TOMLs harvested by our own signature-harvest workflow), our GitHub releases,
+// the Steam public store API and the user's own WebDAV server. None of those gate on a
+// specific client token, so they should report OmniSteam.
+inline constexpr const char* kUserAgent = "OmniSteam/1.0";
+inline constexpr const wchar_t* kUserAgentW = L"OmniSteam/1.0";
+// The upstream project's client token, which we must keep presenting to the services it
+// runs - we have no request-code or donor-SteamID service of our own. Measured on
+// stats.opensteamtool.com/440: "OpenSteamTool/1.0" reaches the origin (HTTP 404 from
+// nginx), while "OmniSteam/1.0", "Mozilla/5.0" and "curl/*" all get an HTTP 403
+// "Just a moment..." Cloudflare challenge, i.e. the answer is thrown away before it ever
+// reaches the application. Same posture assumed for manifest.opensteamtool.com.
+inline constexpr const char* kUpstreamUserAgent = "OpenSteamTool/1.0";
+
+// Picks the identity for a URL: the inherited token on the upstream provider's hosts,
+// OmniSteam everywhere else. Keeping the choice here means a caller cannot accidentally
+// announce us to a service that only answers the upstream project.
+inline constexpr const char* UserAgentForUrl(std::string_view url) {
+    return url.find("opensteamtool.com") != std::string_view::npos ? kUpstreamUserAgent : kUserAgent;
+}
 } // namespace Http
 
 // ==============================================================================
