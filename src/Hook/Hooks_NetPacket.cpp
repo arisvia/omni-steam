@@ -52,6 +52,12 @@ void TryDeliverRPInject(void* pThis, CNetPacket* pPacket);
 void TryDeliverCloud(void* pThis, CNetPacket* pPacket);
 struct CNetPacket {
     void* m_pVTable;
+    // Current client generation inserts a qword between the vtable and the
+    // payload pointer: the wire-envelope getter (steamclient64 253e0a11,
+    // 0x5D250A0-relative helper) reads payload at +0x10 and length at +0x18.
+    // Keeping the stale +0x08 offset made m_pubData read a 0xFFFFFFFF
+    // sentinel and faulted UnpackRaw (crash dump evidence).
+    uint64_t m_reserved8;
     uint8_t* m_pubData;
     uint32_t m_cubData;
 };
@@ -1015,7 +1021,13 @@ void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const ui
 }
 
 HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
-    if (!pPacket || !pPacket->m_pubData) {
+    // Layout-drift guard: a sane payload pointer is non-null, 4-byte aligned
+    // and below the canonical user/kernel split. If a future client update
+    // moves the fields again we pass the packet through untouched instead of
+    // faulting inside UnpackRaw (crash dump 2026-10-31: m_pubData sentinel).
+    const uintptr_t rawPtr = reinterpret_cast<uintptr_t>(pPacket ? pPacket->m_pubData : nullptr);
+    if (!pPacket || !pPacket->m_pubData || (rawPtr & 0x3) != 0 || rawPtr >= 0x00007FFFFFFFFFFFull ||
+        pPacket->m_cubData > (16u << 20)) {
         return oRecvPkt ? oRecvPkt(pThis, pPacket) : nullptr;
     }
 
