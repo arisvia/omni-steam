@@ -17,9 +17,15 @@ HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* 
     if (pApp) {
         uint32_t appId = pApp->nAppID;
         if (appId > 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId))) {
+            // SteamUI builds the library snapshot from these CSteamApp fields;
+            // ShouldShowAppInLibrary() gates on OwnsLicense. The controller
+            // derives them from licenses the server never issued for injected
+            // ids, so force the owned+released view here (upstream parity).
             pApp->PurchasedTime = kSteamSyntheticPurchasedTime;
-            spdlog::info("Hooks_SteamUI: Injected PurchasedTime for AppID {} (PurchasedTime={})", appId,
-                         pApp->PurchasedTime);
+            pApp->ReleaseState = EAppReleaseState::Released;
+            pApp->OwnershipFlags = k_EAppOwnershipFlags_OwnsLicense | k_EAppOwnershipFlags_LicensePermanent;
+            spdlog::info("Hooks_SteamUI: Injected overview fields for AppID {} (PurchasedTime={}, Flags=0x{:X})", appId,
+                         pApp->PurchasedTime, pApp->OwnershipFlags);
         }
     }
     return oFillInAppOverview ? oFillInAppOverview(pThis, pAppOverview, pApp) : nullptr;
