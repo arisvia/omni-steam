@@ -336,20 +336,15 @@ if(ENABLE_LOGGING)
     target_compile_definitions(omnisteam_core PRIVATE OMNI_LOGGING_ENABLED)
     target_compile_definitions(OmniPlatform PRIVATE OMNI_LOGGING_ENABLED)
 endif()
-# Windows proxy DLLs for seamless launch
+# Windows proxy DLL for seamless launch. dwmapi was retired: 64-bit steam.exe
+# can resolve it straight to System32 via KnownDLLs search-order protection,
+# while xinput1_4.dll is not in that list and loads reliably from the Steam root.
 if(WIN32)
     if(MSVC)
-        add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp)
         add_library(xinput1_4 SHARED src/Platform/Windows/Proxy/xinput1_4.cpp)
     else()
-        add_library(dwmapi SHARED src/Platform/Windows/Proxy/dwmapi.cpp src/Platform/Windows/Proxy/dwmapi.def)
         add_library(xinput1_4 SHARED src/Platform/Windows/Proxy/xinput1_4.cpp src/Platform/Windows/Proxy/xinput1_4.def)
     endif()
-    set_target_properties(dwmapi PROPERTIES 
-        PREFIX ""
-        OUTPUT_NAME "dwmapi"
-    )
-    target_include_directories(dwmapi PRIVATE src)
 
     set_target_properties(xinput1_4 PROPERTIES 
         PREFIX ""

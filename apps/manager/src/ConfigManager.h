@@ -8,7 +8,9 @@ namespace Manager {
 
 struct ConfigDto {
     std::string logLevel = "info";
-    std::string manifestUrl = "opensteamtool";
+    // Round-tripped verbatim: the dashboard stores the preset token, and
+    // ManifestClient::ResolveUpstreamBase() expands it. See OmniEndpoints::Manifest.
+    std::string manifestUrl = OmniEndpoints::Manifest::kDefaultUpstream;
     bool statsEnableApi = true;
     std::vector<std::string> luaPaths;
     // Mirrors the keys the core hook reads from the same file. The dashboard rewrites the

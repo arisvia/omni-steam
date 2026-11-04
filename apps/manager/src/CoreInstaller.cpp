@@ -132,7 +132,7 @@ CoreStatusInfo CoreInstaller::GetStatus() {
 
 #if defined(OMNI_PLATFORM_WINDOWS)
     std::string coreDll = (fs::path(info.steamInstallPath) / "libomnisteam.dll").generic_string();
-    std::string proxyDll = (fs::path(info.steamInstallPath) / "dwmapi.dll").generic_string();
+    std::string proxyDll = (fs::path(info.steamInstallPath) / "xinput1_4.dll").generic_string();
     info.installed = fs::exists(coreDll) || fs::exists(proxyDll);
 #elif defined(OMNI_PLATFORM_MACOS)
     std::string coreDylib = (fs::path(info.steamInstallPath) / "libomnisteam.dylib").generic_string();
@@ -234,14 +234,14 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
         (fs::path(OmniPlatform::Process::GetExecutablePath()).parent_path()).generic_string()};
     for (const auto& d : localSearchDirs) {
         std::string coreDll = (fs::path(d) / "libomnisteam.dll").generic_string();
-        std::string proxyDll = (fs::path(d) / "dwmapi.dll").generic_string();
+        std::string proxyDll = (fs::path(d) / "xinput1_4.dll").generic_string();
         if (fs::exists(coreDll) && fs::exists(proxyDll)) {
             fs::copy_file(coreDll, fs::path(steamPath) / "libomnisteam.dll", fs::copy_options::overwrite_existing);
-            fs::copy_file(proxyDll, fs::path(steamPath) / "dwmapi.dll", fs::copy_options::overwrite_existing);
+            fs::copy_file(proxyDll, fs::path(steamPath) / "xinput1_4.dll", fs::copy_options::overwrite_existing);
             SyncSignatureFiles();
             spdlog::info("CoreInstaller: Successfully deployed local Core binaries from {} to {}", d, steamPath);
             return {true, "已成功从本地构建产物 (" + d +
-                              ") 部署 Core 拦截引擎 (libomnisteam.dll + dwmapi.dll) 到 Steam 目录！"};
+                              ") 部署 Core 拦截引擎 (libomnisteam.dll + xinput1_4.dll) 到 Steam 目录！"};
         }
     }
 #endif
@@ -300,7 +300,7 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
 
     spdlog::warn("CoreInstaller: All remote asset candidate downloads failed");
     return {false, "未检测到远程每夜版资产（GitHub 仓库暂未发布 Release 产物）。如为本地源码开发，请先在 build/ "
-                   "目录编译生成 Core 动态库 (libomnisteam.dll / dwmapi.dll) 后点击安装。"};
+                   "目录编译生成 Core 动态库 (libomnisteam.dll / xinput1_4.dll) 后点击安装。"};
 }
 
 bool CoreInstaller::UninstallCore() {

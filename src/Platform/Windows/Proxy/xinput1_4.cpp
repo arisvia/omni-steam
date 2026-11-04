@@ -6,6 +6,7 @@
 namespace {
 
 static HMODULE g_hRealXInput = nullptr;
+static HMODULE g_selfModule = nullptr;
 
 typedef DWORD(WINAPI* XInputGetState_t)(DWORD, void*);
 typedef DWORD(WINAPI* XInputSetState_t)(DWORD, void*);
@@ -69,7 +70,10 @@ void LoadOmniSteamCore() {
     loaded = true;
 
     char exePath[MAX_PATH] = {};
-    if (!GetModuleFileNameA(nullptr, exePath, MAX_PATH))
+    const DWORD exeLen = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+    // A truncated or unreadable host path is not trustworthy: skip injection
+    // rather than risk loading the core into the wrong process.
+    if (exeLen == 0 || exeLen >= MAX_PATH)
         return;
 
     std::string exeName(exePath);
@@ -82,15 +86,27 @@ void LoadOmniSteamCore() {
         return; // Never inject into steamwebhelper.exe
     }
 
-    char modulePath[MAX_PATH];
-    if (GetModuleFileNameA(nullptr, modulePath, MAX_PATH)) {
-        std::string dir(modulePath);
-        size_t pos = dir.find_last_of("\\/");
-        if (pos != std::string::npos) {
-            std::string fullCorePath = dir.substr(0, pos + 1) + "libomnisteam.dll";
-            if (LoadLibraryA(fullCorePath.c_str()))
-                return;
+    // Prefer the proxy's own directory: the core ships beside the proxy in the
+    // Steam root, so this is immune to host CWD/exe relocation. Fall back to
+    // the host exe directory and finally the default search order.
+    if (g_selfModule) {
+        char selfPath[MAX_PATH] = {};
+        const DWORD selfLen = GetModuleFileNameA(g_selfModule, selfPath, MAX_PATH);
+        if (selfLen != 0 && selfLen < MAX_PATH) {
+            std::string dir(selfPath);
+            const size_t pos = dir.find_last_of("\\/");
+            if (pos != std::string::npos) {
+                if (LoadLibraryA((dir.substr(0, pos + 1) + "libomnisteam.dll").c_str()))
+                    return;
+            }
         }
+    }
+
+    std::string dir(exePath);
+    const size_t pos = dir.find_last_of("\\/");
+    if (pos != std::string::npos) {
+        if (LoadLibraryA((dir.substr(0, pos + 1) + "libomnisteam.dll").c_str()))
+            return;
     }
     LoadLibraryA("libomnisteam.dll");
 }
@@ -191,6 +207,7 @@ DWORD WINAPI XInputOrdinal108(DWORD a1, void* a2, void* a3, void* a4, void* a5) 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID /*lpReserved*/) {
     if (dwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
+        g_selfModule = hModule;
 
         HMODULE pinnedSelf = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
