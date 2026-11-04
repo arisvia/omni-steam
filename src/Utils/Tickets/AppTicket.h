@@ -24,6 +24,12 @@ struct AppOwnershipTicket {
 // Extracts 64-bit SteamID from an AppOwnershipTicket binary payload
 uint64_t ExtractSteamIdFromTicket(const std::vector<uint8_t>& ticket);
 
+// Pure parsers over Steam VDF text, exposed for unit tests.
+// loginusers.vdf: SteamID64 of the entry flagged "mostrecent" "1" (0 if none).
+uint64_t ParseMostRecentSteamId64(const std::string& loginUsersVdf);
+// localconfig.vdf: (appid, hex ticket) pairs from the "apptickets" block.
+std::vector<std::pair<uint32_t, std::string>> ParseAppTicketHexEntries(const std::string& localConfigVdf);
+
 // Returns spoofed SteamID from ticket in CredentialStore for the app (0 if none)
 uint64_t GetSpoofSteamID(uint32_t appId);
 

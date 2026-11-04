@@ -223,10 +223,13 @@ void TestAppTicketSteamIdExtraction() {
     std::vector<uint8_t> shortTicket(8, 0);
     OMNI_CHECK(AppTicket::ExtractSteamIdFromTicket(shortTicket) == 0);
 
-    // Test AppID 7 forgery via mock provider
+    // Test AppID 7 forgery via mock provider. The embedded SteamID is left
+    // zero so the active-account filter accepts the base on any machine.
     AppTicket::SetCacheTicketProvider([](uint32_t aid) -> std::vector<uint8_t> {
         if (aid == 7) {
-            return std::vector<uint8_t>(160, 0xBB);
+            std::vector<uint8_t> base(160, 0xBB);
+            std::memset(base.data() + 8, 0, sizeof(uint64_t));
+            return base;
         }
         return {};
     });
@@ -242,6 +245,33 @@ void TestAppTicketSteamIdExtraction() {
     AppTicket::SetCacheTicketProvider(nullptr);
 
     std::cout << "[PASS] TestAppTicketSteamIdExtraction\n";
+}
+
+void TestForgeBaseVdfParsers() {
+    // loginusers.vdf: mostrecent flag wins over file order.
+    const std::string loginUsers =
+        "\"users\"\n{\n\t\"76561198000000001\"\n\t{\n\t\t\"AccountName\"\t\t\"old\"\n\t\t\"mostrecent\"\t\t\"0\"\n\t}\n"
+        "\t\"76561198000000002\"\n\t{\n\t\t\"AccountName\"\t\t\"new\"\n\t\t\"mostrecent\"\t\t\"1\"\n\t}\n}\n";
+    OMNI_CHECK(AppTicket::ParseMostRecentSteamId64(loginUsers) == 76561198000000002ull);
+
+    // No mostrecent flag: falls back to the last listed account.
+    const std::string noRecent =
+        "\"users\"\n{\n\t\"76561198000000003\"\n\t{\n\t}\n\t\"76561198000000004\"\n\t{\n\t}\n}\n";
+    OMNI_CHECK(AppTicket::ParseMostRecentSteamId64(noRecent) == 76561198000000004ull);
+    OMNI_CHECK(AppTicket::ParseMostRecentSteamId64("") == 0);
+
+    // localconfig.vdf apptickets block: hex pairs only, nested blocks ignored.
+    const std::string localConfig =
+        "\"UserLocalConfigStore\"\n{\n\t\"apptickets\"\n\t{\n\t\t\"7\"\t\t\"0102030405060708090a\"\n"
+        "\t\t\"440\"\t\t\"deadbeefcafebabe\"\n\t\t\"nested\"\n\t\t{\n\t\t\t\"999\"\t\t\"00\"\n\t\t}\n"
+        "\t\t\"notahex\"\t\t\"zz\"\n\t}\n\t\"Other\"\n\t{\n\t\t\"555\"\t\t\"11\"\n\t}\n}\n";
+    auto entries = AppTicket::ParseAppTicketHexEntries(localConfig);
+    OMNI_CHECK(entries.size() == 2);
+    OMNI_CHECK(entries[0].first == 7 && entries[0].second == "0102030405060708090a");
+    OMNI_CHECK(entries[1].first == 440 && entries[1].second == "deadbeefcafebabe");
+    OMNI_CHECK(AppTicket::ParseAppTicketHexEntries("").empty());
+
+    std::cout << "[PASS] TestForgeBaseVdfParsers\n";
 }
 
 void TestEticketClientOfflineFallback() {
@@ -269,6 +299,7 @@ int main() {
     TestAntiCheatGuardWhitelist();
     TestLegacyCDKeySynthesizer();
     TestAppTicketSteamIdExtraction();
+    TestForgeBaseVdfParsers();
     TestEticketClientOfflineFallback();
     std::cout << "All IPC & Metadata Tests Passed!\n";
     return 0;
