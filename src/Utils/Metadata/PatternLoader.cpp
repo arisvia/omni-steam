@@ -61,7 +61,7 @@ void RegisterCoreSignatures() {
     RegisterPattern("GetPackageInfo", "steamclient64.dll",
                     "48 89 5C 24 18 89 54 24 10 55 56 57 48 83 EC 20 44 8B 49 20", 0);
     RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 98 24 00 00 00",
+    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 ?? ?? ?? ?? 00",
                     0);
     RegisterPattern("CUtlMemoryGrow", "steamclient64.dll",
                     "48 89 5C 24 10 57 48 83 EC 30 8B FA 48 8B D9 8B 51 08 8B 49 10 8D 04 39", 0);
@@ -256,21 +256,36 @@ std::optional<toml::table> ParseTomlDocument(const std::string& source, bool fro
 #endif
 }
 
+// Reads one RVA value out of a signature node. harvest_signatures.py and
+// derive_signatures.py emit inline tables (`name = { rva = "0x..", source = .. }`),
+// while hand-written or legacy documents may use a bare string/integer scalar;
+// accept both so a schema drift can never silently drop every entry again.
+uint64_t ParseRvaNode(const toml::node& node) {
+    const toml::node* valueNode = &node;
+    if (auto* table = node.as_table()) {
+        valueNode = table->get("rva");
+        if (!valueNode)
+            return 0;
+    }
+    if (auto text = valueNode->value<std::string>()) {
+        try {
+            return std::stoull(*text, nullptr, 0);
+        } catch (...) {
+            return 0;
+        }
+    }
+    if (auto number = valueNode->value<int64_t>()) {
+        return static_cast<uint64_t>(*number);
+    }
+    return 0;
+}
+
 // Applies a parsed signature document ([functions] table of name -> rva).
 size_t ApplyParsedSignatures(const toml::table& parsed, uintptr_t moduleBase) {
     size_t applied = 0;
     if (auto* functions = parsed["functions"].as_table()) {
         for (const auto& [name, node] : *functions) {
-            uint64_t rva = 0;
-            if (auto text = node.value<std::string>()) {
-                try {
-                    rva = std::stoull(*text, nullptr, 0);
-                } catch (...) {
-                    continue;
-                }
-            } else if (auto number = node.value<int64_t>()) {
-                rva = static_cast<uint64_t>(*number);
-            }
+            uint64_t rva = ParseRvaNode(node);
             if (rva == 0 || rva > (512ull << 20))
                 continue;
             g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
@@ -287,6 +302,16 @@ bool DeclaresMatchingHash(const toml::table& parsed, const std::string& moduleHa
                       // than a dormant one)
     auto declaredHash = parsed["binary_sha256"].value<std::string>();
     return declaredHash && *declaredHash == moduleHash;
+}
+
+// Parse + hash-gate + apply for an in-memory TOML document. Callers inside
+// Initialize already hold g_patternMutex; the public wrapper takes the lock.
+size_t ApplySignatureDocumentUnlocked(const std::string& tomlText, uintptr_t moduleBase,
+                                      const std::string& moduleHash) {
+    auto parsed = ParseTomlDocument(tomlText, false);
+    if (!parsed || !DeclaresMatchingHash(*parsed, moduleHash))
+        return 0;
+    return ApplyParsedSignatures(*parsed, moduleBase);
 }
 
 // Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
@@ -351,7 +376,8 @@ void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) 
     const std::string platformDir = GetSignaturePlatformDir();
     const std::string shortHash = moduleHash.substr(0, 16);
 
-    const char* bases[] = {OmniEndpoints::SignatureDb::kJsDelivrBase, OmniEndpoints::SignatureDb::kRawBase};
+    const char* bases[] = {OmniEndpoints::SignatureDb::kGhProxyBase, OmniEndpoints::SignatureDb::kJsDelivrBase,
+                           OmniEndpoints::SignatureDb::kRawBase};
     const char* fileNames[] = {moduleHash.c_str(), shortHash.c_str()};
 
     for (const char* base : bases) {
@@ -361,11 +387,7 @@ void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) 
             if (resp.statusCode != 200 || resp.body.empty())
                 continue;
 
-            auto parsed = ParseTomlDocument(resp.body, false);
-            if (!parsed || !DeclaresMatchingHash(*parsed, moduleHash))
-                continue;
-
-            size_t applied = ApplyParsedSignatures(*parsed, moduleBase);
+            size_t applied = ApplySignatureDocumentUnlocked(resp.body, moduleBase, moduleHash);
             if (applied > 0) {
                 spdlog::info("PatternLoader: Fetched {} signatures from {}", applied, url);
                 return;
@@ -441,6 +463,24 @@ void ResolveViaSymbolTable(const std::string& moduleName, uintptr_t moduleBase) 
 
 } // namespace
 
+// True when every registered pattern target already has a resolved address.
+// Used to decide whether a cache hit or a signature top-up is sufficient, or
+// whether the symbol-table / scan / remote stages still need to run.
+bool AllRegisteredTargetsResolved() {
+    for (const auto& [name, entry] : g_patterns) {
+        (void)entry;
+        auto it = g_resolvedAddresses.find(name);
+        if (it == g_resolvedAddresses.end() || it->second == 0)
+            return false;
+    }
+    return true;
+}
+
+size_t ApplySignatureDocumentText(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash) {
+    std::lock_guard<std::mutex> lock(g_patternMutex);
+    return ApplySignatureDocumentUnlocked(tomlText, moduleBase, moduleHash);
+}
+
 void Initialize(const std::string& /*unused*/) {
     std::lock_guard<std::mutex> lock(g_patternMutex);
     g_patterns.clear();
@@ -468,7 +508,14 @@ void Initialize(const std::string& /*unused*/) {
     if (LoadRvaCache(cacheFile)) {
         spdlog::info("PatternLoader: Hash {} matched, all RVAs loaded from local cache in 0.01ms (Zero Scan)",
                      moduleHash);
-        return;
+        // A cache written before a signature drop can lack entries the shipped
+        // TOMLs now carry for the same hash; top those up without rescanning.
+        LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
+        LoadExternalSignatures("signatures", moduleBase, moduleHash);
+        if (AllRegisteredTargetsResolved()) {
+            return;
+        }
+        spdlog::info("PatternLoader: cache incomplete for {}, continuing resolution", moduleHash);
     }
 
     // 2. Merge harvested signature TOMLs shipped with the deployment

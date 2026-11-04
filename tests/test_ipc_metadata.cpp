@@ -25,6 +25,32 @@ void TestPatternLoader() {
     std::cout << "[PASS] TestPatternLoader\n";
 }
 
+void TestSignatureDocumentSchema() {
+    // harvest_signatures.py / derive_signatures.py (and upstream steam-monitor)
+    // emit inline tables per function; legacy docs use bare scalars. The
+    // applier must accept both or every entry is silently dropped.
+    const uintptr_t base = 0x100000;
+    const std::string hash = "deadbeefdeadbeef";
+    const std::string doc = R"toml(
+binary_sha256 = "deadbeefdeadbeef"
+kind = "pe"
+
+[functions]
+SchemaProbeTable = { rva = "0x1000", source = "derived:vtable-slot-transfer" }
+SchemaProbeScalar = "0x2000"
+SchemaProbeInt = 0x3000
+)toml";
+
+    OMNI_CHECK(PatternLoader::ApplySignatureDocumentText(doc, base, hash) == 3);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("SchemaProbeTable") == base + 0x1000);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("SchemaProbeScalar") == base + 0x2000);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("SchemaProbeInt") == base + 0x3000);
+
+    // Fail-closed: a document for another binary must apply nothing.
+    OMNI_CHECK(PatternLoader::ApplySignatureDocumentText(doc, base, "0123456789abcdef") == 0);
+    std::cout << "[PASS] TestSignatureDocumentSchema\n";
+}
+
 void TestSteamIPCBuffer() {
     SteamIPC::BufferWriter writer;
     writer.Write<uint32_t>(1361510);
@@ -220,6 +246,7 @@ void TestEticketClientOfflineFallback() {
 int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
+    TestSignatureDocumentSchema();
     TestSteamIPCBuffer();
     TestIPCHeaderValidation();
     TestManifestClientResolution();

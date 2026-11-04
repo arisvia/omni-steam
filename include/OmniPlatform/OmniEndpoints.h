@@ -53,6 +53,13 @@ inline constexpr const char* kManifestDownloadBase = "https://manifest.opensteam
 //     路径格式: <base>/<platform-dir>/<sha256>.toml
 // ==============================================================================
 namespace SignatureDb {
+// Harvested by our own signature-harvest workflow on each platform and written back to
+// the data branch - ours, so requests carry the OmniSteam identity.
+// gh-proxy is a pass-through mirror of raw.githubusercontent (no CDN cache, so a
+// republished TOML for the same hash is visible immediately); jsDelivr and raw
+// GitHub stay as ordered fallbacks.
+inline constexpr const char* kGhProxyBase =
+    "https://gh-proxy.com/https://raw.githubusercontent.com/arisvia/omni-steam/data/signatures";
 inline constexpr const char* kJsDelivrBase = "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/signatures";
 inline constexpr const char* kRawBase = "https://raw.githubusercontent.com/arisvia/omni-steam/data/signatures";
 } // namespace SignatureDb
