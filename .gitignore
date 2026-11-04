@@ -31,3 +31,9 @@ dump*.txt
 
 # Local depot key database (6MB binary) - fetched from CDN at runtime
 depotkeys.bin
+
+# Local signature harvest and derivation artifacts
+/signatures/*.toml
+/signatures/report-*.json
+/signatures_test/
+/test_harvest/
