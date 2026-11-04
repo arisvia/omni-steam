@@ -1,5 +1,6 @@
 #include "ManifestClient.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -114,24 +115,6 @@ void AppendDiskCache(uint64_t gid, uint64_t code) {
     }
 }
 
-std::string ResolveUpstreamBase(const std::string& upstreamEndpoint) {
-    if (!upstreamEndpoint.empty()) {
-        return upstreamEndpoint;
-    }
-
-    std::string configured = Config::GetManifestApiUrl();
-    if (configured == "opensteamtool") {
-        return OmniEndpoints::Manifest::kOpenSteamToolUrl;
-    } else if (configured == "steamrun") {
-        return OmniEndpoints::Manifest::kSteamRunUrl;
-    } else if (configured == "wudrm") {
-        return OmniEndpoints::Manifest::kWuDrmUrl;
-    } else if (!configured.empty()) {
-        return configured;
-    }
-    return OmniEndpoints::Manifest::kOpenSteamToolUrl;
-}
-
 bool ParsePlainUint(const std::string& body, uint64_t* out) {
     if (body.empty())
         return false;
@@ -152,69 +135,125 @@ struct UpstreamResult {
     uint64_t code = 0;
 };
 
-UpstreamResult QueryOpenSteamTool(const std::string& gidStr) {
-    std::string url = std::string(OmniEndpoints::Manifest::kOpenSteamToolUrl) + "/" + gidStr;
-    auto resp = OmniPlatform::Http::Get(url, 6000);
-    UpstreamResult r;
-    if (resp.statusCode == 200 && !resp.body.empty())
-        r.success = ParsePlainUint(resp.body, &r.code);
-    return r;
+// Built-in manifest providers, canonical order. A configured preset token
+// picks the primary; the rest stay as ordered fallbacks.
+const char* const kManifestProviderChain[] = {OmniEndpoints::Manifest::kOpenSteamToolUrl,
+                                              OmniEndpoints::Manifest::kSteamRunUrl,
+                                              OmniEndpoints::Manifest::kWuDrmUrl};
+
+std::mutex g_failoverMutex;
+std::string g_lastGoodManifestBase;
+int g_lastGoodCodeSource = -1;
+
+bool IsBuiltInProvider(const std::string& base) {
+    for (const char* candidate : kManifestProviderChain) {
+        if (base == candidate)
+            return true;
+    }
+    return false;
 }
 
-UpstreamResult QueryWuDrm(const std::string& gidStr) {
-    std::string url = std::string(OmniEndpoints::Manifest::kWuDrmUrl) + "/" + gidStr;
-    auto resp = OmniPlatform::Http::Get(url, 6000);
+UpstreamResult QueryProviderBase(const std::string& base, const std::string& gidStr) {
     UpstreamResult r;
-    if (resp.statusCode == 200 && !resp.body.empty())
-        r.success = ParsePlainUint(resp.body, &r.code);
-    return r;
-}
-
-UpstreamResult QuerySteamRun(const std::string& gidStr) {
-    std::string url = std::string(OmniEndpoints::Manifest::kSteamRunUrl) + "/" + gidStr;
+    if (base.empty())
+        return r;
+    std::string url = base + "/" + gidStr;
     auto resp = OmniPlatform::Http::Get(url, 6000);
-    UpstreamResult r;
     if (resp.statusCode != 200 || resp.body.empty())
         return r;
-    size_t pos = resp.body.find("\"content\"");
-    if (pos == std::string::npos)
+    if (base == OmniEndpoints::Manifest::kSteamRunUrl) {
+        // steamrun answers a JSON envelope: {"content": "<code>"}
+        size_t pos = resp.body.find("\"content\"");
+        if (pos == std::string::npos)
+            return r;
+        size_t q1 = resp.body.find('"', pos + 9);
+        if (q1 == std::string::npos)
+            return r;
+        size_t q2 = resp.body.find('"', q1 + 1);
+        if (q2 == std::string::npos)
+            return r;
+        r.success = ParsePlainUint(resp.body.substr(q1 + 1, q2 - q1 - 1), &r.code);
         return r;
-    size_t q1 = resp.body.find('"', pos + 9);
-    if (q1 == std::string::npos)
-        return r;
-    size_t q2 = resp.body.find('"', q1 + 1);
-    if (q2 == std::string::npos)
-        return r;
-    r.success = ParsePlainUint(resp.body.substr(q1 + 1, q2 - q1 - 1), &r.code);
+    }
+    r.success = ParsePlainUint(resp.body, &r.code);
     return r;
 }
 
 } // namespace
+
+// Defined here rather than in the anonymous namespace above so the preset table can be
+// unit-tested without performing a request (see tests/test_ipc_metadata.cpp).
+std::string ResolveUpstreamBase(const std::string& upstreamEndpoint) {
+    std::string configured = upstreamEndpoint;
+    if (configured.empty()) {
+        configured = Config::GetManifestApiUrl();
+    }
+
+    // Preset tokens resolve to a provider base URL; an empty value falls back to the
+    // primary provider. Anything else is already a full base URL (self-hosted mirror).
+    if (configured.empty() || configured == OmniEndpoints::Manifest::kDefaultUpstream ||
+        configured == OmniEndpoints::Manifest::kLegacyUpstream) {
+        return OmniEndpoints::Manifest::kOpenSteamToolUrl;
+    }
+    if (configured == OmniEndpoints::Manifest::kSteamRunUpstream) {
+        return OmniEndpoints::Manifest::kSteamRunUrl;
+    }
+    if (configured == OmniEndpoints::Manifest::kWuDrmUpstream) {
+        return OmniEndpoints::Manifest::kWuDrmUrl;
+    }
+    return configured;
+}
 
 ManifestDownloadResult RequestManifest(uint32_t depotId, uint64_t manifestId, const std::string& upstreamEndpoint) {
     ManifestDownloadResult res;
     res.depotId = depotId;
     res.manifestId = manifestId;
 
-    std::string baseUrl = ResolveUpstreamBase(upstreamEndpoint);
-    std::string requestUrl = baseUrl + "/manifest/" + std::to_string(depotId) + "/" + std::to_string(manifestId);
-    res.requestUrl = requestUrl;
+    const std::string primary = ResolveUpstreamBase(upstreamEndpoint);
 
-    spdlog::info("ManifestClient: Fetching manifest for depot {} (manifest_gid: {}) from {}", depotId, manifestId,
-                 requestUrl);
-
-    auto httpResp = OmniPlatform::Http::Get(requestUrl, 8000);
-    if (httpResp.statusCode == 200 && !httpResp.body.empty()) {
-        res.success = true;
-        res.payload.assign(httpResp.body.begin(), httpResp.body.end());
-        spdlog::info("ManifestClient: Successfully downloaded manifest for depot {} ({} bytes)", depotId,
-                     res.payload.size());
-    } else {
-        res.success = false;
-        res.errorMessage = httpResp.error.empty() ? ("HTTP " + std::to_string(httpResp.statusCode)) : httpResp.error;
-        spdlog::warn("ManifestClient: Failed to fetch manifest for depot {}: {}", depotId, res.errorMessage);
+    // Ordered candidate bases: sticky last-good first, then the configured
+    // primary, then the remaining built-in providers. A self-hosted base URL
+    // (anything not in the built-in chain) is authoritative and never gets
+    // implicit fallbacks - its operator controls mirroring.
+    std::vector<std::string> candidates;
+    {
+        std::lock_guard<std::mutex> lock(g_failoverMutex);
+        if (!g_lastGoodManifestBase.empty() && g_lastGoodManifestBase != primary)
+            candidates.push_back(g_lastGoodManifestBase);
+    }
+    candidates.push_back(primary);
+    if (IsBuiltInProvider(primary)) {
+        for (const char* base : kManifestProviderChain) {
+            if (std::find(candidates.begin(), candidates.end(), base) == candidates.end())
+                candidates.emplace_back(base);
+        }
     }
 
+    for (const std::string& baseUrl : candidates) {
+        std::string requestUrl = baseUrl + "/manifest/" + std::to_string(depotId) + "/" + std::to_string(manifestId);
+        res.requestUrl = requestUrl;
+        spdlog::info("ManifestClient: Fetching manifest for depot {} (manifest_gid: {}) from {}", depotId, manifestId,
+                     requestUrl);
+
+        auto httpResp = OmniPlatform::Http::Get(requestUrl, 8000);
+        if (httpResp.statusCode == 200 && !httpResp.body.empty()) {
+            res.success = true;
+            res.payload.assign(httpResp.body.begin(), httpResp.body.end());
+            {
+                std::lock_guard<std::mutex> lock(g_failoverMutex);
+                g_lastGoodManifestBase = baseUrl;
+            }
+            spdlog::info("ManifestClient: Successfully downloaded manifest for depot {} ({} bytes)", depotId,
+                         res.payload.size());
+            return res;
+        }
+        res.errorMessage = httpResp.error.empty() ? ("HTTP " + std::to_string(httpResp.statusCode)) : httpResp.error;
+        spdlog::warn("ManifestClient: Failed to fetch manifest for depot {} from {}: {}", depotId, baseUrl,
+                     res.errorMessage);
+    }
+
+    spdlog::warn("ManifestClient: Failed to fetch manifest for depot {} across {} providers", depotId,
+                 candidates.size());
     return res;
 }
 
@@ -282,29 +321,28 @@ bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
 
     std::string gidStr = std::to_string(manifestGid);
 
-    UpstreamResult r1 = QueryOpenSteamTool(gidStr);
-    if (r1.success) {
-        StoreRequestCode(manifestGid, r1.code);
-        *outCode = r1.code;
-        spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via OpenSteamTool", *outCode,
-                     manifestGid);
-        return true;
+    // Ordered provider chain with sticky last-good: a provider that answered
+    // last time is tried first, so a dead primary costs nothing on hot paths.
+    constexpr size_t kChainSize = sizeof(kManifestProviderChain) / sizeof(kManifestProviderChain[0]);
+    int start = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_failoverMutex);
+        if (g_lastGoodCodeSource >= 0 && g_lastGoodCodeSource < static_cast<int>(kChainSize))
+            start = g_lastGoodCodeSource;
     }
-
-    UpstreamResult r2 = QueryWuDrm(gidStr);
-    if (r2.success) {
-        StoreRequestCode(manifestGid, r2.code);
-        *outCode = r2.code;
-        spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via WuDrm", *outCode, manifestGid);
-        return true;
-    }
-
-    UpstreamResult r3 = QuerySteamRun(gidStr);
-    if (r3.success) {
-        StoreRequestCode(manifestGid, r3.code);
-        *outCode = r3.code;
-        spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via SteamRun", *outCode,
-                     manifestGid);
+    for (size_t step = 0; step < kChainSize; ++step) {
+        const size_t index = (static_cast<size_t>(start) + step) % kChainSize;
+        UpstreamResult r = QueryProviderBase(kManifestProviderChain[index], gidStr);
+        if (!r.success)
+            continue;
+        StoreRequestCode(manifestGid, r.code);
+        *outCode = r.code;
+        {
+            std::lock_guard<std::mutex> lock(g_failoverMutex);
+            g_lastGoodCodeSource = static_cast<int>(index);
+        }
+        spdlog::info("ManifestClient: Resolved manifest request code {} for GID {} via {}", *outCode, manifestGid,
+                     kManifestProviderChain[index]);
         return true;
     }
 

@@ -94,6 +94,19 @@ void TestIPCHeaderValidation() {
 void TestManifestClientResolution() {
     std::string gid = ManifestClient::QueryManifestIdByDepot(999999);
     OMNI_CHECK(gid.empty());
+    // Preset tokens must expand to a provider base URL. "omnisteam" is the modern
+    // default preset, while the legacy "opensteamtool" spelling is what already-published
+    // omnisteam.toml files contain. Both must resolve to the primary provider endpoint.
+    using namespace OmniEndpoints::Manifest;
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase(kDefaultUpstream) == kOpenSteamToolUrl);
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase(kLegacyUpstream) == kOpenSteamToolUrl);
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase(kSteamRunUpstream) == kSteamRunUrl);
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase(kWuDrmUpstream) == kWuDrmUrl);
+    // Empty falls back to the configured default, which is itself a preset token.
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase("") == kOpenSteamToolUrl);
+    // A self-hosted mirror stays untouched.
+    OMNI_CHECK(ManifestClient::ResolveUpstreamBase("https://mirror.lan:8443/manifest") ==
+               "https://mirror.lan:8443/manifest");
     std::cout << "[PASS] TestManifestClientResolution\n";
 }
 void TestSteamStructureInvariants() {

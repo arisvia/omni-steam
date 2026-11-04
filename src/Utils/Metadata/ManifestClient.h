@@ -15,6 +15,12 @@ struct ManifestDownloadResult {
 };
 
 ManifestDownloadResult RequestManifest(uint32_t depotId, uint64_t manifestId, const std::string& upstreamEndpoint = "");
+
+// Expands a preset token ("omnisteam", the legacy "opensteamtool", "steamrun", "wudrm")
+// into a provider base URL. Any other non-empty value is already a base URL and is
+// returned unchanged, which is how self-hosted mirrors stay configurable. An empty
+// argument falls back to the loaded configuration value.
+std::string ResolveUpstreamBase(const std::string& upstreamEndpoint);
 std::string QueryManifestIdByDepot(uint32_t depotId);
 bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode);
 uint64_t GetCachedRequestCode(uint64_t manifestGid);
