@@ -1117,107 +1117,57 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
 
 // Deliver queued Legacy CD-Key responses by borrowing the carrier packet for one
 // oRecvPkt call each, then restoring the original carrier packet buffers.
-void TryDeliverLegacyKey(void* pThis, CNetPacket* pPacket) {
+// Drains a synthesized-response queue by borrowing the carrier packet for one
+// oRecvPkt call per entry, then restoring the carrier's own buffers. Shared by
+// the LegacyKey / cloud / stats paths, which differ only in their queue.
+void TryDeliverQueue(void* pThis, CNetPacket* pPacket, std::deque<std::vector<uint8_t>>& queue, std::mutex& mutex,
+                     const char* label) {
     if (!pPacket || !pPacket->m_pubData)
         return;
     for (;;) {
         std::vector<uint8_t> respPkt;
         {
-            std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
-            if (g_LegacyKeyQueue.empty())
+            std::lock_guard<std::mutex> lock(mutex);
+            if (queue.empty())
                 return;
-            respPkt = std::move(g_LegacyKeyQueue.front());
-            g_LegacyKeyQueue.pop_front();
+            respPkt = std::move(queue.front());
+            queue.pop_front();
         }
         if (respPkt.empty())
             continue;
 
         uint8_t* origData = pPacket->m_pubData;
-        uint32_t origSize = pPacket->m_cubData;
-        if (uint8_t* poolBuf = AcquirePacketSlot(respPkt.size())) {
-            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
-            pPacket->m_pubData = poolBuf;
-            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
-            if (oRecvPkt)
-                oRecvPkt(pThis, pPacket);
-            pPacket->m_pubData = origData;
-            pPacket->m_cubData = origSize;
-            spdlog::debug("Hooks_NetPacket: Delivered synthesized LegacyKey response ({} bytes)", respPkt.size());
-        } else {
-            std::lock_guard<std::mutex> lock(g_LegacyKeyMutex);
-            g_LegacyKeyQueue.push_front(std::move(respPkt));
-            break;
+        const uint32_t origSize = pPacket->m_cubData;
+        uint8_t* poolBuf = AcquirePacketSlot(respPkt.size());
+        if (!poolBuf) {
+            // Pool exhausted: requeue and retry on the next carrier packet.
+            std::lock_guard<std::mutex> lock(mutex);
+            queue.push_front(std::move(respPkt));
+            return;
         }
+        std::memcpy(poolBuf, respPkt.data(), respPkt.size());
+        pPacket->m_pubData = poolBuf;
+        pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
+        if (oRecvPkt)
+            oRecvPkt(pThis, pPacket);
+        pPacket->m_pubData = origData;
+        pPacket->m_cubData = origSize;
+        spdlog::debug("Hooks_NetPacket: Delivered synthesized {} response ({} bytes)", label, respPkt.size());
     }
+}
+
+void TryDeliverLegacyKey(void* pThis, CNetPacket* pPacket) {
+    TryDeliverQueue(pThis, pPacket, g_LegacyKeyQueue, g_LegacyKeyMutex, "LegacyKey");
 }
 
 void TryDeliverCloud(void* pThis, CNetPacket* pPacket) {
-    if (!pPacket || !pPacket->m_pubData)
-        return;
-    for (;;) {
-        std::vector<uint8_t> respPkt;
-        {
-            std::lock_guard<std::mutex> lock(g_CloudMutex);
-            if (g_CloudResponseQueue.empty())
-                return;
-            respPkt = std::move(g_CloudResponseQueue.front());
-            g_CloudResponseQueue.pop_front();
-        }
-        if (respPkt.empty())
-            continue;
-
-        uint8_t* origData = pPacket->m_pubData;
-        uint32_t origSize = pPacket->m_cubData;
-        if (uint8_t* poolBuf = AcquirePacketSlot(respPkt.size())) {
-            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
-            pPacket->m_pubData = poolBuf;
-            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
-            if (oRecvPkt)
-                oRecvPkt(pThis, pPacket);
-            pPacket->m_pubData = origData;
-            pPacket->m_cubData = origSize;
-            spdlog::debug("Hooks_NetPacket: Delivered synthesized Cloud response ({} bytes)", respPkt.size());
-        } else {
-            std::lock_guard<std::mutex> lock(g_CloudMutex);
-            g_CloudResponseQueue.push_front(std::move(respPkt));
-            break;
-        }
-    }
+    TryDeliverQueue(pThis, pPacket, g_CloudResponseQueue, g_CloudMutex, "Cloud");
 }
 
 void TryDeliverStats(void* pThis, CNetPacket* pPacket) {
-    if (!pPacket || !pPacket->m_pubData)
-        return;
-    for (;;) {
-        std::vector<uint8_t> respPkt;
-        {
-            std::lock_guard<std::mutex> lock(g_StatsMutex);
-            if (g_StatsResponseQueue.empty())
-                return;
-            respPkt = std::move(g_StatsResponseQueue.front());
-            g_StatsResponseQueue.pop_front();
-        }
-        if (respPkt.empty())
-            continue;
-
-        uint8_t* origData = pPacket->m_pubData;
-        uint32_t origSize = pPacket->m_cubData;
-        if (uint8_t* poolBuf = AcquirePacketSlot(respPkt.size())) {
-            std::memcpy(poolBuf, respPkt.data(), respPkt.size());
-            pPacket->m_pubData = poolBuf;
-            pPacket->m_cubData = static_cast<uint32_t>(respPkt.size());
-            if (oRecvPkt)
-                oRecvPkt(pThis, pPacket);
-            pPacket->m_pubData = origData;
-            pPacket->m_cubData = origSize;
-            spdlog::debug("Hooks_NetPacket: Delivered synthesized Stats response ({} bytes)", respPkt.size());
-        } else {
-            std::lock_guard<std::mutex> lock(g_StatsMutex);
-            g_StatsResponseQueue.push_front(std::move(respPkt));
-            break;
-        }
-    }
+    TryDeliverQueue(pThis, pPacket, g_StatsResponseQueue, g_StatsMutex, "Stats");
 }
+
 // Defined after the RecvPkt hook so the oRecvPkt trampoline exists. Borrowing
 // the carrier's data pointer for exactly one original call keeps the packet
 // pipeline consistent (upstream RichPresence TryInject pattern).
