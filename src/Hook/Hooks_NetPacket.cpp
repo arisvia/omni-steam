@@ -22,6 +22,7 @@
 #include "Utils/Metadata/PicsTokenInjector.h"
 #include "Utils/Metadata/ProtoFields.h"
 #include "Utils/Metadata/StatsClient.h"
+#include "Utils/Metadata/StatsResponse.h"
 #include "Utils/Tickets/AppTicket.h"
 #include "Utils/Tickets/LegacyCDKey.h"
 
@@ -62,13 +63,6 @@ struct CNetPacket {
     uint8_t* m_pubData;
     uint32_t m_cubData;
 };
-
-#pragma pack(push, 1)
-struct MsgHdr {
-    uint32_t eMsg;
-    uint32_t headerLength;
-};
-#pragma pack(pop)
 
 uint8_t g_RecvPacketPool[kPacketPoolSize][kMaxPacketSize];
 int g_RecvPacketPoolIdx = 0;
@@ -445,8 +439,13 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                 bool isSchemaRequest = ProtoFields::HasField(pBody, cbBody, 3); // sha_schema
 
                 if (appId != 0 && LuaConfig::Has(appId) && !isSchemaRequest) {
-                    uint64_t donor = 0;
-                    if (StatsClient::GetDonorSteamId(appId, &donor) && donor != 0) {
+                    uint64_t donor = StatsClient::TryGetDonorSteamId(appId);
+                    if (donor == 0) {
+                        // No donor cached yet: warm it up in the background for
+                        // the next request instead of stalling this thread.
+                        StatsClient::PrefetchDonorSteamId(appId);
+                    }
+                    if (donor != 0) {
                         // Tier 1 & 2: Spoof donor SteamID in request
                         std::vector<uint8_t> patched(pBody, pBody + cbBody);
                         ProtoFields::AppendVarintField(patched, 1, donor);
@@ -462,22 +461,10 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                                        : false;
                         }
                     } else {
-                        // Tier 3: No donor SteamID available (offline / stats server unreachable / no donor).
-                        // Synthesize an immediate empty CPlayer_GetUserStats_Response with k_EResultOK locally.
-                        std::vector<uint8_t> respHdr;
-                        ProtoFields::AppendFixed64Field(respHdr, 11, jobid_source);
-                        ProtoFields::AppendVarintField(respHdr, 13, k_EResultOK);
-                        ProtoFields::AppendBytesField(respHdr, 12,
-                                                      reinterpret_cast<const uint8_t*>(target_job_name.data()),
-                                                      target_job_name.size());
-
-                        uint32_t totalSize = sizeof(MsgHdr) + static_cast<uint32_t>(respHdr.size());
-                        std::vector<uint8_t> respPkt(totalSize);
-                        auto* mhdr = reinterpret_cast<MsgHdr*>(respPkt.data());
-                        mhdr->eMsg = k_EMsgServiceMethodResponse | kMsgHdrProtoFlag;
-                        mhdr->headerLength = static_cast<uint32_t>(respHdr.size());
-                        std::memcpy(respPkt.data() + sizeof(MsgHdr), respHdr.data(), respHdr.size());
-
+                        // Tier 3: no donor SteamID yet (offline / cache miss).
+                        // Answer locally with an empty k_EResultOK response.
+                        std::vector<uint8_t> respPkt =
+                            StatsResponse::BuildServiceResponse(jobid_source, target_job_name);
                         {
                             std::lock_guard<std::mutex> lock(g_StatsMutex);
                             if (g_StatsResponseQueue.size() < 64) {
@@ -530,8 +517,10 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             if (gameId && wire == ProtoFields::WireFixed64) {
                 AppId_t appId = static_cast<AppId_t>(*gameId & 0xFFFFFFFFull);
                 if (LuaConfig::Has(appId)) {
-                    uint64_t donor = 0;
-                    if (StatsClient::GetDonorSteamId(appId, &donor) && donor != 0) {
+                    uint64_t donor = StatsClient::TryGetDonorSteamId(appId);
+                    if (donor == 0)
+                        StatsClient::PrefetchDonorSteamId(appId);
+                    if (donor != 0) {
                         // Tier 1 & 2: Spoof donor SteamID in request
                         std::vector<uint8_t> patched(pBody, pBody + cbBody);
                         ProtoFields::AppendVarintField(patched, 3,
@@ -548,20 +537,8 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                                        : false;
                         }
                     } else {
-                        // Tier 3: Synthesize local CMsgClientGetUserStatsResponse with k_EResultOK
-                        std::vector<uint8_t> respBody;
-                        ProtoFields::AppendFixed64Field(respBody, 1, *gameId);
-                        ProtoFields::AppendVarintField(respBody, 2, static_cast<uint64_t>(k_EResultOK));
-                        ProtoFields::AppendVarintField(respBody, 3, 0); // crc_stats = 0
-
-                        uint32_t totalSize = sizeof(MsgHdr) + cbHdr + static_cast<uint32_t>(respBody.size());
-                        std::vector<uint8_t> respPkt(totalSize);
-                        auto* mhdr = reinterpret_cast<MsgHdr*>(respPkt.data());
-                        mhdr->eMsg = k_EMsgClientGetUserStatsResponse | kMsgHdrProtoFlag;
-                        mhdr->headerLength = cbHdr;
-                        std::memcpy(respPkt.data() + sizeof(MsgHdr), pHdr, cbHdr);
-                        std::memcpy(respPkt.data() + sizeof(MsgHdr) + cbHdr, respBody.data(), respBody.size());
-
+                        // Tier 3: answer locally with an empty k_EResultOK response.
+                        std::vector<uint8_t> respPkt = StatsResponse::BuildLegacyResponse(pHdr, cbHdr, *gameId);
                         {
                             std::lock_guard<std::mutex> lock(g_StatsMutex);
                             if (g_StatsResponseQueue.size() < 64) {

@@ -1,12 +1,14 @@
 #include "omni_check.h"
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "Utils/Metadata/ProtoFields.h"
+#include "Utils/Metadata/StatsResponse.h"
 
 namespace {
 
@@ -111,37 +113,43 @@ void TestMalformedInputSafe() {
 }
 
 void TestSynthesizedGetUserStatsResponse() {
-    // 1. Service Method Header for Player.GetUserStats#1
+    // Service-method path: Player.GetUserStats#1 answered locally.
     const std::string jobName = "Player.GetUserStats#1";
     const uint64_t jobId = 123456789;
-    std::vector<uint8_t> respHdr;
-    ProtoFields::AppendFixed64Field(respHdr, 11, jobId);
-    ProtoFields::AppendVarintField(respHdr, 13, 1); // k_EResultOK
-    ProtoFields::AppendBytesField(respHdr, 12, reinterpret_cast<const uint8_t*>(jobName.data()), jobName.size());
+    auto svcPkt = StatsResponse::BuildServiceResponse(jobId, jobName);
 
+    const MsgHdr* mhdr = reinterpret_cast<const MsgHdr*>(svcPkt.data());
+    OMNI_CHECK((mhdr->eMsg & kMsgHdrProtoFlag) != 0);
+    OMNI_CHECK((mhdr->eMsg & ~kMsgHdrProtoFlag) == k_EMsgServiceMethodResponse);
+    OMNI_CHECK(svcPkt.size() == sizeof(MsgHdr) + mhdr->headerLength);
+
+    const uint8_t* hdr = svcPkt.data() + sizeof(MsgHdr);
     uint32_t wire = 0;
-    auto targetJobId = ProtoFields::GetScalarField(respHdr.data(), static_cast<uint32_t>(respHdr.size()), 11, &wire);
+    auto targetJobId = ProtoFields::GetScalarField(hdr, mhdr->headerLength, StatsResponse::kHdrFieldJobIdTarget, &wire);
     OMNI_CHECK(targetJobId && *targetJobId == jobId);
     OMNI_CHECK(wire == ProtoFields::WireFixed64);
 
-    auto eresult = ProtoFields::GetVarintField(respHdr.data(), static_cast<uint32_t>(respHdr.size()), 13);
-    OMNI_CHECK(eresult && *eresult == 1);
+    auto eresult = ProtoFields::GetVarintField(hdr, mhdr->headerLength, StatsResponse::kHdrFieldEResult);
+    OMNI_CHECK(eresult && *eresult == static_cast<uint64_t>(k_EResultOK));
 
-    // 2. Legacy CMsgClientGetUserStatsResponse
+    // Legacy path: preserved proto header, rebuilt body.
     const uint64_t gameId = 1086940;
-    std::vector<uint8_t> legacyBody;
-    ProtoFields::AppendFixed64Field(legacyBody, 1, gameId);
-    ProtoFields::AppendVarintField(legacyBody, 2, 1); // k_EResultOK
-    ProtoFields::AppendVarintField(legacyBody, 3, 0); // crc_stats
+    std::vector<uint8_t> reqHdr;
+    ProtoFields::AppendFixed64Field(reqHdr, 10, 42); // jobid_source passthrough
+    auto legacyPkt = StatsResponse::BuildLegacyResponse(reqHdr.data(), static_cast<uint32_t>(reqHdr.size()), gameId);
 
-    auto parsedGameId =
-        ProtoFields::GetScalarField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 1, &wire);
+    const MsgHdr* lmhdr = reinterpret_cast<const MsgHdr*>(legacyPkt.data());
+    OMNI_CHECK((lmhdr->eMsg & ~kMsgHdrProtoFlag) == k_EMsgClientGetUserStatsResponse);
+    OMNI_CHECK(lmhdr->headerLength == reqHdr.size());
+    OMNI_CHECK(std::memcmp(legacyPkt.data() + sizeof(MsgHdr), reqHdr.data(), reqHdr.size()) == 0);
+
+    const uint8_t* lbody = legacyPkt.data() + sizeof(MsgHdr) + lmhdr->headerLength;
+    const uint32_t lbodyLen = static_cast<uint32_t>(legacyPkt.size() - sizeof(MsgHdr) - lmhdr->headerLength);
+    auto parsedGameId = ProtoFields::GetScalarField(lbody, lbodyLen, StatsResponse::kLegacyFieldGameId, &wire);
     OMNI_CHECK(parsedGameId && *parsedGameId == gameId);
-
-    auto parsedEresult = ProtoFields::GetVarintField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 2);
-    OMNI_CHECK(parsedEresult && *parsedEresult == 1);
-
-    auto parsedCrc = ProtoFields::GetVarintField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 3);
+    auto parsedEresult = ProtoFields::GetVarintField(lbody, lbodyLen, StatsResponse::kLegacyFieldEResult);
+    OMNI_CHECK(parsedEresult && *parsedEresult == static_cast<uint64_t>(k_EResultOK));
+    auto parsedCrc = ProtoFields::GetVarintField(lbody, lbodyLen, StatsResponse::kLegacyFieldCrcStats);
     OMNI_CHECK(parsedCrc && *parsedCrc == 0);
 
     std::cout << "[PASS] TestSynthesizedGetUserStatsResponse\n";

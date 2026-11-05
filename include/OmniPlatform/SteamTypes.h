@@ -110,6 +110,13 @@ struct CAppData {
 };
 
 #pragma pack(push, 1)
+// Protobuf-framed message header. eMsg carries kMsgHdrProtoFlag in its
+// high bit; headerLength is the size of the proto header that follows.
+struct MsgHdr {
+    uint32_t eMsg;
+    uint32_t headerLength;
+};
+
 struct ExtendedMsgHdr {
     uint32_t eMsg;
     uint8_t cubHeader;

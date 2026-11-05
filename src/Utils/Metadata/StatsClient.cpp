@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
@@ -32,6 +33,7 @@ struct FailureRecord {
 std::mutex g_mutex;
 std::unordered_map<uint32_t, uint64_t> g_cache;
 std::unordered_map<uint32_t, FailureRecord> g_failures;
+std::unordered_set<uint32_t> g_inFlight;
 bool g_diskLoaded = false;
 
 std::string DiskCachePath() {
@@ -129,32 +131,60 @@ void StoreSteamId(uint32_t appId, uint64_t steamId) {
     }
 }
 
-bool GetDonorSteamId(uint32_t appId, uint64_t* outSteamId) {
-    if (!outSteamId || appId == 0)
-        return false;
-    *outSteamId = 0;
+uint64_t TryGetDonorSteamId(uint32_t appId) {
+    if (appId == 0)
+        return 0;
 
     // Lua per-app override wins over everything.
     std::string luaOverride = LuaConfig::GetStatSteamId(appId);
     if (!luaOverride.empty()) {
         try {
             uint64_t parsed = std::stoull(luaOverride);
-            if (parsed != 0) {
-                *outSteamId = parsed;
-                return true;
-            }
+            if (parsed != 0)
+                return parsed;
         } catch (...) {
         }
     }
 
-    if (!Config::IsStatsApiEnabled())
-        return false;
+    return GetCachedSteamId(appId);
+}
 
-    uint64_t cached = GetCachedSteamId(appId);
-    if (cached != 0) {
-        *outSteamId = cached;
+void PrefetchDonorSteamId(uint32_t appId) {
+    if (appId == 0 || !Config::IsStatsApiEnabled() || GetCachedSteamId(appId) != 0)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto it = g_failures.find(appId);
+        if (it != g_failures.end() && std::chrono::steady_clock::now() - it->second.at < kFailureTtl)
+            return;
+        if (!g_inFlight.insert(appId).second)
+            return; // a fetch for this app is already running
+    }
+
+    // Resolving a donor performs an HTTP GET that can stall for the whole
+    // timeout. Never run that on the caller's thread: Steam's packet-send path
+    // calls into the hook, so a stall surfaces as visible client lag.
+    OmniPlatform::Thread::StartDetached([appId]() {
+        uint64_t donor = 0;
+        GetDonorSteamId(appId, &donor);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_inFlight.erase(appId);
+    });
+}
+
+bool GetDonorSteamId(uint32_t appId, uint64_t* outSteamId) {
+    if (!outSteamId || appId == 0)
+        return false;
+    *outSteamId = 0;
+
+    if (uint64_t known = TryGetDonorSteamId(appId)) {
+        *outSteamId = known;
         return true;
     }
+
+    if (!Config::IsStatsApiEnabled())
+        return false;
 
     {
         std::lock_guard<std::mutex> lock(g_mutex);
