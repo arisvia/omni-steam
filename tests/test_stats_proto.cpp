@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <iostream>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "Utils/Metadata/ProtoFields.h"
@@ -109,6 +110,43 @@ void TestMalformedInputSafe() {
     std::cout << "[PASS] TestMalformedInputSafe\n";
 }
 
+void TestSynthesizedGetUserStatsResponse() {
+    // 1. Service Method Header for Player.GetUserStats#1
+    const std::string jobName = "Player.GetUserStats#1";
+    const uint64_t jobId = 123456789;
+    std::vector<uint8_t> respHdr;
+    ProtoFields::AppendFixed64Field(respHdr, 11, jobId);
+    ProtoFields::AppendVarintField(respHdr, 13, 1); // k_EResultOK
+    ProtoFields::AppendBytesField(respHdr, 12, reinterpret_cast<const uint8_t*>(jobName.data()), jobName.size());
+
+    uint32_t wire = 0;
+    auto targetJobId = ProtoFields::GetScalarField(respHdr.data(), static_cast<uint32_t>(respHdr.size()), 11, &wire);
+    OMNI_CHECK(targetJobId && *targetJobId == jobId);
+    OMNI_CHECK(wire == ProtoFields::WireFixed64);
+
+    auto eresult = ProtoFields::GetVarintField(respHdr.data(), static_cast<uint32_t>(respHdr.size()), 13);
+    OMNI_CHECK(eresult && *eresult == 1);
+
+    // 2. Legacy CMsgClientGetUserStatsResponse
+    const uint64_t gameId = 1086940;
+    std::vector<uint8_t> legacyBody;
+    ProtoFields::AppendFixed64Field(legacyBody, 1, gameId);
+    ProtoFields::AppendVarintField(legacyBody, 2, 1); // k_EResultOK
+    ProtoFields::AppendVarintField(legacyBody, 3, 0); // crc_stats
+
+    auto parsedGameId =
+        ProtoFields::GetScalarField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 1, &wire);
+    OMNI_CHECK(parsedGameId && *parsedGameId == gameId);
+
+    auto parsedEresult = ProtoFields::GetVarintField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 2);
+    OMNI_CHECK(parsedEresult && *parsedEresult == 1);
+
+    auto parsedCrc = ProtoFields::GetVarintField(legacyBody.data(), static_cast<uint32_t>(legacyBody.size()), 3);
+    OMNI_CHECK(parsedCrc && *parsedCrc == 0);
+
+    std::cout << "[PASS] TestSynthesizedGetUserStatsResponse\n";
+}
+
 } // namespace
 
 int main() {
@@ -119,6 +157,7 @@ int main() {
     TestAppendOverrideLastWins();
     TestWithoutFields();
     TestMalformedInputSafe();
+    TestSynthesizedGetUserStatsResponse();
     std::cout << "All StatsProtoTests Passed!\n";
     return 0;
 }
