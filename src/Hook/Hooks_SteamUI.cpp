@@ -16,7 +16,7 @@ namespace {
 HOOK_FUNC(FillInAppOverview, void*, void* pThis, void* pAppOverview, CSteamApp* pApp) {
     if (pApp) {
         uint32_t appId = pApp->nAppID;
-        if (appId > 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId))) {
+        if (appId > 0 && LuaConfig::Has(appId)) {
             // SteamUI builds the library snapshot from these CSteamApp fields;
             // ShouldShowAppInLibrary() gates on OwnsLicense. The controller
             // derives them from licenses the server never issued for injected

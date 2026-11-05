@@ -331,18 +331,14 @@ void ReloadDirectories(const std::vector<std::string>& dirPaths) {
     spdlog::info("LuaConfig: Configuration snapshot activated");
 }
 
-bool HasDepot(uint32_t depotId) {
+// App and depot IDs are matched against both maps: parsing can file an id
+// under either (a depot key's appid, an unlock's dlc list), so callers only
+// ever ask "did the user configure this id?".
+bool Has(uint32_t id) {
     std::lock_guard<std::mutex> lock(g_luaMutex);
     const LuaData& active = g_slots[g_activeSlot];
-    return active.depotKeys.find(depotId) != active.depotKeys.end() ||
-           active.unlockedApps.find(depotId) != active.unlockedApps.end();
-}
-
-bool HasApp(uint32_t appId) {
-    std::lock_guard<std::mutex> lock(g_luaMutex);
-    const LuaData& active = g_slots[g_activeSlot];
-    return active.unlockedApps.find(appId) != active.unlockedApps.end() ||
-           active.depotKeys.find(appId) != active.depotKeys.end();
+    return active.unlockedApps.find(id) != active.unlockedApps.end() ||
+           active.depotKeys.find(id) != active.depotKeys.end();
 }
 std::vector<uint8_t> GetDecryptionKey(uint32_t depotId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);

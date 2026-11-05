@@ -11,8 +11,8 @@ void ParseDirectory(const std::string& dirPath);
 void ReloadDirectories(const std::string& dirPath);
 void ReloadDirectories(const std::vector<std::string>& dirPaths);
 void ParseFile(const std::string& filePath);
-bool HasDepot(uint32_t depotId);
-bool HasApp(uint32_t appId);
+// True when the id is a configured app OR depot.
+bool Has(uint32_t id);
 std::vector<uint8_t> GetDecryptionKey(uint32_t depotId);
 std::unordered_map<uint32_t, std::vector<uint8_t>> GetDepotKeys();
 std::string GetManifestId(uint32_t depotId);

@@ -305,7 +305,7 @@ AppId_t TakeStatsJob(uint64_t jobId) {
 void HandleGetUserStatsResponse(uint64_t jobId, const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody,
                                 uint32_t cbBody, CNetPacket* pPacket) {
     AppId_t appId = TakeStatsJob(jobId);
-    if (appId == 0 || (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId)))
+    if (appId == 0 || !LuaConfig::Has(appId))
         return;
 
     auto pruned = ProtoFields::WithoutFields(pBody, cbBody, {4});
@@ -338,7 +338,7 @@ void HandleGetUserStatsLegacyResponse(const uint8_t* pHdr, uint32_t cbHdr, const
     if (!gameId || wire != ProtoFields::WireFixed64)
         return;
     AppId_t appId = static_cast<AppId_t>(*gameId & 0xFFFFFFFFull);
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
+    if (!LuaConfig::Has(appId))
         return;
 
     auto pruned = ProtoFields::WithoutFields(pBody, cbBody, {5, 6});
@@ -367,7 +367,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             const auto* reqBody = reinterpret_cast<const MsgClientGetLegacyGameKey*>(pubData + sizeof(ExtendedMsgHdr));
             AppId_t appId = reqBody->m_unAppId;
 
-            if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
+            if (LuaConfig::Has(appId)) {
                 uint32_t accountId = static_cast<uint32_t>(reqHdr->steamID & 0xFFFFFFFFull);
                 auto resolvedKey = LegacyCDKey::Resolve(appId, accountId);
                 std::string syntheticKey = resolvedKey.value_or("OMNI-STEAM-FREE-PLAY-KEY");
@@ -444,7 +444,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                 AppId_t appId = appIdVal ? static_cast<AppId_t>(*appIdVal) : 0;
                 bool isSchemaRequest = ProtoFields::HasField(pBody, cbBody, 3); // sha_schema
 
-                if (appId != 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) && !isSchemaRequest) {
+                if (appId != 0 && LuaConfig::Has(appId) && !isSchemaRequest) {
                     uint64_t donor = 0;
                     if (StatsClient::GetDonorSteamId(appId, &donor) && donor != 0) {
                         // Tier 1 & 2: Spoof donor SteamID in request
@@ -496,7 +496,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
                     uint32_t fieldNum = (target_job_name == "Cloud.ClientCommitFileUpload#1") ? 2 : 1;
                     auto appIdVal = ProtoFields::GetVarintField(pBody, cbBody, fieldNum);
                     AppId_t appId = appIdVal ? static_cast<AppId_t>(*appIdVal) : 0;
-                    if (appId != 0 && (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId))) {
+                    if (appId != 0 && LuaConfig::Has(appId)) {
                         std::vector<uint8_t> respHdr;
                         ProtoFields::AppendFixed64Field(respHdr, 11, jobid_source);
                         ProtoFields::AppendVarintField(respHdr, 13, k_EResultOK);
@@ -529,7 +529,7 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             auto gameId = ProtoFields::GetScalarField(pBody, cbBody, 1, &wire);
             if (gameId && wire == ProtoFields::WireFixed64) {
                 AppId_t appId = static_cast<AppId_t>(*gameId & 0xFFFFFFFFull);
-                if (LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId)) {
+                if (LuaConfig::Has(appId)) {
                     uint64_t donor = 0;
                     if (StatsClient::GetDonorSteamId(appId, &donor) && donor != 0) {
                         // Tier 1 & 2: Spoof donor SteamID in request
@@ -658,7 +658,7 @@ void HandleEncryptedAppTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const
     if (!appIdValue || *appIdValue == 0)
         return;
     AppId_t appId = static_cast<AppId_t>(*appIdValue);
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
+    if (!LuaConfig::Has(appId))
         return;
 
     auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);
@@ -938,7 +938,7 @@ void TrackRPStateSend(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody,
             return;
         AppId_t topmost = ParseGamesPlayedTopmost(pBody, cbBody);
         AppId_t newTracked = 0;
-        if (topmost != 0 && topmost != kOnlineFixAppId && LuaConfig::HasDepot(topmost))
+        if (topmost != 0 && topmost != kOnlineFixAppId && LuaConfig::Has(topmost))
             newTracked = topmost;
         g_RPPlayingAppId = newTracked;
         if (newTracked != 0) {
@@ -1024,7 +1024,7 @@ void HandleOwnershipTicketResponse(const uint8_t* pHdr, uint32_t cbHdr, const ui
     if (!appIdValue || *appIdValue == 0)
         return;
     AppId_t appId = static_cast<AppId_t>(*appIdValue);
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId))
+    if (!LuaConfig::Has(appId))
         return;
 
     auto eresult = ProtoFields::GetVarintField(pBody, cbBody, 2);

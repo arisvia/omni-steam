@@ -265,7 +265,7 @@ std::vector<uint8_t> PickForgeBase(uint32_t* outBaseAppId) {
 } // namespace
 
 uint64_t GetSpoofSteamID(uint32_t appId) {
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId)) {
+    if (!LuaConfig::Has(appId)) {
         return 0;
     }
     std::string ticketHex = OmniPlatform::CredentialStore::ReadTicket(appId, "AppTicket");

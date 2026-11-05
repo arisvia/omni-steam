@@ -344,13 +344,13 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         // configured via Lua. Discovering for every owned game would grow the
         // injection set unboundedly (Half-Life, Portal, ...) and re-pollute
         // the license view with titles the user never asked to unlock.
-        if (Config::IsAutoUnlockDlcEnabled() && LuaConfig::HasApp(appId)) {
+        if (Config::IsAutoUnlockDlcEnabled() && LuaConfig::Has(appId)) {
             Metadata::DlcStore::AsyncFetchAppDlcs(appId);
         }
         return true;
     }
 
-    bool isUnlocked = LuaConfig::HasApp(appId) || LuaConfig::HasDepot(appId) ||
+    bool isUnlocked = LuaConfig::Has(appId) ||
                       (Config::IsAutoUnlockDlcEnabled() && Metadata::DlcStore::IsKnownDlc(appId));
 
     if (isUnlocked) {

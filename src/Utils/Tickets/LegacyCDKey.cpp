@@ -47,7 +47,7 @@ std::string Synthesize(uint32_t appId, uint32_t accountId) {
 }
 
 std::optional<std::string> Resolve(uint32_t appId, uint32_t accountId) {
-    if (!LuaConfig::HasApp(appId) && !LuaConfig::HasDepot(appId)) {
+    if (!LuaConfig::Has(appId)) {
         return std::nullopt;
     }
 
