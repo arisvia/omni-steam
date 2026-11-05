@@ -79,6 +79,17 @@ bool PathIsUnder(const fs::path& child, const fs::path& parent) {
 std::mutex g_managedRootsMutex;
 std::set<fs::path> g_managedRoots;
 
+struct ScriptDirCache {
+    fs::file_time_type lastMtime{};
+    std::vector<ScriptFileInfo> scripts;
+};
+std::mutex g_cacheMutex;
+std::unordered_map<std::string, ScriptDirCache> g_scriptDirCaches;
+void InvalidateScriptCache() {
+    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    g_scriptDirCaches.clear();
+}
+
 // Toggle/delete guard against HTTP path traversal: only directories the
 // manager itself listed or wrote to are manageable. Production callers always
 // use the default candidate Lua directories; tests register their temp dir.
@@ -336,6 +347,7 @@ bool ScriptManager::SaveGameUnlock(const UnlockGameSpec& spec, const std::string
             EnsureAppManifest(spec.appId, spec.gameName);
         }
 
+        InvalidateScriptCache();
         return true;
     } catch (const std::exception& e) {
         spdlog::error("ScriptManager: Exception while saving script: {}", e.what());
@@ -359,50 +371,78 @@ std::vector<ScriptFileInfo> ScriptManager::ListScripts(const std::string& target
         if (!fs::exists(dir))
             continue;
 
-        try {
-            for (const auto& entry : fs::recursive_directory_iterator(dir)) {
-                if (!entry.is_regular_file())
-                    continue;
+        std::error_code ec;
+        fs::file_time_type currentMtime = fs::last_write_time(dir, ec);
 
-                std::string filename = entry.path().filename().string();
-                bool isLua = filename.ends_with(".lua");
-                bool isDisabled = filename.ends_with(".lua.disabled");
+        std::vector<ScriptFileInfo> dirScripts;
+        bool useCache = false;
 
-                if (isLua || isDisabled) {
-                    std::string canonicalPath = fs::canonical(entry.path()).generic_string();
-                    if (seenPaths.contains(canonicalPath))
-                        continue;
-                    seenPaths.insert(canonicalPath);
-
-                    ScriptFileInfo info;
-                    info.fileName = filename;
-                    info.fullPath = entry.path().generic_string();
-                    info.fileSize = entry.file_size();
-                    info.enabled = isLua;
-
-                    std::regex idRegex("^(\\d+)");
-                    std::smatch match;
-                    if (std::regex_search(filename, match, idRegex)) {
-                        info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
-                    }
-
-                    std::ifstream in(info.fullPath);
-                    std::string line;
-                    while (std::getline(in, line)) {
-                        if (line.rfind("-- Game: ", 0) == 0) {
-                            std::string rawTitle = line.substr(9);
-                            size_t p = rawTitle.find(" (AppID:");
-                            if (p != std::string::npos) {
-                                rawTitle = rawTitle.substr(0, p);
-                            }
-                            info.title = rawTitle;
-                            break;
-                        }
-                    }
-                    list.push_back(info);
-                }
+        {
+            std::lock_guard<std::mutex> lock(g_cacheMutex);
+            auto it = g_scriptDirCaches.find(dir);
+            if (!ec && it != g_scriptDirCaches.end() && it->second.lastMtime == currentMtime) {
+                dirScripts = it->second.scripts;
+                useCache = true;
             }
-        } catch (...) {
+        }
+
+        if (!useCache) {
+            try {
+                for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+                    if (!entry.is_regular_file())
+                        continue;
+
+                    std::string filename = entry.path().filename().string();
+                    bool isLua = filename.ends_with(".lua");
+                    bool isDisabled = filename.ends_with(".lua.disabled");
+
+                    if (isLua || isDisabled) {
+                        ScriptFileInfo info;
+                        info.fileName = filename;
+                        info.fullPath = entry.path().generic_string();
+                        info.fileSize = entry.file_size();
+                        info.enabled = isLua;
+
+                        std::regex idRegex("^(\\d+)");
+                        std::smatch match;
+                        if (std::regex_search(filename, match, idRegex)) {
+                            info.primaryAppId = static_cast<uint32_t>(std::stoul(match[1].str()));
+                        }
+
+                        std::ifstream in(info.fullPath);
+                        std::string line;
+                        while (std::getline(in, line)) {
+                            if (line.rfind("-- Game: ", 0) == 0) {
+                                std::string rawTitle = line.substr(9);
+                                size_t p = rawTitle.find(" (AppID:");
+                                if (p != std::string::npos) {
+                                    rawTitle = rawTitle.substr(0, p);
+                                }
+                                info.title = rawTitle;
+                                break;
+                            }
+                        }
+                        dirScripts.push_back(info);
+                    }
+                }
+            } catch (...) {
+            }
+
+            if (!ec) {
+                std::lock_guard<std::mutex> lock(g_cacheMutex);
+                g_scriptDirCaches[dir] = ScriptDirCache{currentMtime, dirScripts};
+            }
+        }
+
+        for (const auto& item : dirScripts) {
+            std::error_code canEc;
+            std::string canonicalPath = fs::canonical(item.fullPath, canEc).generic_string();
+            if (canEc)
+                canonicalPath = item.fullPath;
+            if (seenPaths.contains(canonicalPath))
+                continue;
+            seenPaths.insert(canonicalPath);
+            list.push_back(item);
         }
     }
 
@@ -435,6 +475,7 @@ bool ScriptManager::ToggleScript(const std::string& filePath, bool enable) {
 
         fs::rename(p, newPath);
         spdlog::info("ScriptManager: Renamed {} -> {}", filePath, newPath);
+        InvalidateScriptCache();
         return true;
     } catch (const std::exception& e) {
         spdlog::error("ScriptManager: Toggle failed: {}", e.what());
@@ -461,6 +502,7 @@ bool ScriptManager::DeleteScript(const std::string& filePath) {
 
         fs::remove(p);
         spdlog::info("ScriptManager: Deleted script {}", filePath);
+        InvalidateScriptCache();
         return true;
     } catch (const std::exception& e) {
         spdlog::error("ScriptManager: Delete failed: {}", e.what());
