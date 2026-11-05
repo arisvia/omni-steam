@@ -350,8 +350,8 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
         return true;
     }
 
-    bool isUnlocked = LuaConfig::Has(appId) ||
-                      (Config::IsAutoUnlockDlcEnabled() && Metadata::DlcStore::IsKnownDlc(appId));
+    bool isUnlocked =
+        LuaConfig::Has(appId) || (Config::IsAutoUnlockDlcEnabled() && Metadata::DlcStore::IsKnownDlc(appId));
 
     if (isUnlocked) {
         if (pOwn) {
