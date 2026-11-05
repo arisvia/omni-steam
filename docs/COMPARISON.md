@@ -1,6 +1,6 @@
 # 同类项目对比与竞争力分析
 
-> 基线: 2026-08。对比对象为社区主流 Steam 解锁/增强方案。
+> 基线: 2026-11。对比对象为社区主流 Steam 解锁/增强方案。
 > 定位声明: OmniSteam 是**客户端侧 (steamclient) Hook 方案**, 与游戏侧 API 包装方案(如 SmokeAPI)互补而非互斥。
 
 ## 1. 总览矩阵
@@ -8,18 +8,18 @@
 | 维度 | **OmniSteam** | OpenSteamTool | GreenLuma | SmokeAPI | Goldberg Emu |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | 注入点 | 客户端进程内 hook | 客户端进程内 hook | 客户端 DLL 劫持 | **游戏侧** steam_api 包装 | 游戏侧 steam_api 替换 |
-| 平台覆盖 | Win ✅ / Linux·macOS 🟡 | Win 为主 | Win | 跟随游戏 API | 全平台 |
+| 平台覆盖 | Win ✅ / Linux ✅ / macOS ✅ | Win 为主 | Win | 跟随游戏 API | 全平台 |
 | 配置方式 | Lua + TOML + Web 面板 | Lua + 远程签名 TOML | ini | JSON | ini |
 | DLC 自动发现 | ✅ Store API 实时抓取 | 部分 | ❌ | 部分 | ❌ |
 | Depot 密钥库 | ✅ 内置 23万+ CDN 同步 | 社区分发 | ❌ | ❌ | ❌ |
-| 成就/统计伪造 | ✅ 双协议 + 供体 SteamID | ✅ CloudRedirect | ❌ | ✅ | 本地存档模拟 |
+| 成就/统计伪造 | ✅ 双协议 + 供体 SteamID + 离线兜底 | ✅ CloudRedirect | ❌ | ✅ | 本地存档模拟 |
 | 云存档管理 | ✅ WebDAV 版本化备份还原 | ✅ 重定向 | ❌ | ❌ | ❌ |
 | 管理界面 | Web 仪表盘 + CLI + Decky 插件 | CLI 为主 | 无 GUI 托管 | 无 | 无 |
 | 反作弊安全策略 | ✅ 30+ 竞技白名单直通 | 部分 | ❌ | N/A(游戏侧) | N/A |
 | 签名自适应 | ✅ 五级自愈链 | 远程 TOML 手动更新 | n/a | n/a | n/a |
 | 分发完整性校验 | ✅ sha256 边车可选验证 | ❌ | 安装包 | GitHub release | release |
 
-🟡 = 注入链路完整, 函数解析依赖运行时符号表/签名库(已就绪, 待首次采集数据入库)
+全平台注入链路与函数解析（符号表/派生 TOML 签名）均已打通并由 CI 自动维保。
 
 ## 2. 各家优势借鉴
 

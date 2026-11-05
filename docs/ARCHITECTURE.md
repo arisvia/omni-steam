@@ -1,7 +1,7 @@
 # OmniSteam 系统架构设计文档
 
-> 状态基线：2026-08（对应 main 分支全链路加固重构后）
-> 平台支持矩阵：**Windows x64 功能完整** | Linux / macOS 注入链路可用，函数 Hook 层暂缺签名（休眠安全模式）
+> 状态基线：2026-11（对应全平台签名派生打通、RFC 001/002 落地、成就兜底与云存档自愈机制后）
+> 平台支持矩阵：**Windows x64 / Linux x86_64 / macOS arm64+x64 全平台完整支持**
 
 ---
 
@@ -102,18 +102,19 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | 模块 | 职责 | 关键实现点 |
 | :--- | :--- | :--- |
 | `Hooks_Package` | 所有权与许可证 | CheckAppOwnership / GetPackageInfo / CUtlMemoryGrow / MarkLicenseAsChanged；原子化并发防护；反作弊白名单优先短路 |
-| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入；成就/统计双协议伪造（151/147 + 818/819） |
+| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（复用 ProtoFields，含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入；成就双协议伪造与 Tier 3 离线/宕机平滑保底（合成 k_EResultOK）；Denuvo 票据纯协议层拦截（eMsg 5527/858） |
+| `Hooks_CallBack` | 回调与事件拦截 | 拦截 `Steam_BGetCallback` / `Steam_FreeLastCallback` C API 边界，线程局部标志隔离与独立 FIFO 异步事件队列分发（如 LicensesUpdated_t），杜绝锁重入死锁 |
+| `Hooks_IPC` | IPC 消息拦截与 Denuvo 凭据伪装 | 拦截 IPCProcessMessage，针对 IClientUser::GetSteamID 调用，从已缓存的所有权票据（AppOwnershipTicket）提取出资者 SteamID 进行动态伪装，消除 Denuvo 离线授权比对失效导致的 012/54 报错 |
 | `PicsTokenInjector` | PICS 令牌 | eMsg 8903 请求中为 addtoken 配置的 App 追加/覆盖 access_token，其余字段逐字节保留 |
 | `Hooks_Decryption` | Depot 密钥 | 大小写不敏感零分配快速拒绝，仅在命中 decryptionkey 时分配 |
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
-| `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳 |
-| `Hooks_Misc` | OnlineFix 与 DLL 注入 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入（基线快照 + PID 认领去重 + WOW64 拒绝） |
-| `Hooks_IPC` | IPC 消息拦截与 Denuvo 凭据伪装 | 拦截 IPCProcessMessage，针对 IClientUser::GetSteamID 调用，从已缓存的所有权票据（AppOwnershipTicket）提取出资者 SteamID 进行动态伪装，消除 Denuvo 离线授权比对失效导致的 012/54 报错 |
+| `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳（PurchasedTime）确保库内即时显示与留存 |
+| `Hooks_Misc` | OnlineFix 与生命周期监控 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入；MonitorGameLifecycle 监控游戏退出并静默派发异步备份信号 |
 | `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → **运行时符号表**（Linux/macOS 零维护路径）→ 本地签名 TOML → **远程签名库拉取**（内置特征码失配时触发，按 `windows-x64`/`linux-x64`/`linux-i386`/`macos-universal` 规范目录寻址）→ 内置特征码扫描；含 RVA 合理性校验与歧义跳过；结构布局由 `offsetof` 静态断言自证 |
 | `SymbolTable` | 符号枚举 | ELF 节区解析（32/64 位，dynsym+symtab）/ Mach-O LC_SYMTAB 内存遍历 / PE 导出表；`__cxa_demangle` 反修饰 |
-| `LuaConfig` | 解锁规则存储 | **双缓冲快照**：读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
+| `LuaConfig` | 解锁规则存储 | **双缓冲快照**：统一 `Has(id)` 谓词；读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
 | `DlcStore` | DLC 元数据 | Steam API 异步发现 + 本地二进制缓存（锁外写盘、原子替换） |
-| `AntiCheatGuard` | 安全白名单 | CS2/Dota2/T F2/Apex 等 30+ 竞技游戏透明直通 |
+| `AntiCheatGuard` | 安全白名单 | CS2/Dota2/TF2/Apex 等 30+ 竞技游戏透明直通原生逻辑 |
 
 ## 4. Manager 子系统明细
 
@@ -122,11 +123,12 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `WebServer` | 回环 (127.0.0.1) HTTP 服务：完整请求读取(Content-Length)、15s 收包超时、每连接独立线程(上限16)、可靠 shutdown |
 | `ApiRouter` | REST 路由；Host/Origin 回环校验（DNS 重绑定 / CSRF 防护）；可选 `[webui] token` 共享密钥门（`X-Omni-Token` 头，未配置不启用）；所有数值解析防溢出崩溃；密码永不回显（`passwordSet` + `__OMNI_KEEP__` 保持机制）；脚本路径操作经受管目录校验 |
 | `StaticAssets` | 单文件嵌入式仪表盘（搜索/一键解锁/脚本管理/云存档/Doctor） |
-| `ScriptManager` | Lua 生成（字符串转义防注入）、appmanifest 预创建、启用/停用/删除（路径白名单双重校验） |
+| `ScriptManager` | Lua 生成（字符串转义防注入）、appmanifest 预创建、启用/停用/删除（路径白名单校验，基于目录 mtime 内存缓存避免磁盘穿透） |
 | `DepotKeyStore` | 23万+ 密钥：多路径加载 → CDN 四镜像后台更新 → config.vdf 补录；32 位安全算术 + 数量上限 + 强制排序保证二分正确 |
 | `CoreInstaller` | 本地产物部署或 Release/Nightly 下载解压（校验解压退出码）；心跳状态机（PID 存活检测清理陈旧状态） |
-| `CloudSaveManager` + `SavePathResolver` + `WebDavClient` | 存档探测（userdata/compatdata）→ 时间戳版本化 WebDAV 备份/还原 |
+| `CloudSaveManager` + `SavePathResolver` + `WebDavClient` | 存档探测（userdata/compatdata）→ 本地版本化快照回退（保留 5 份）+ WebDAV 云端增量同步 |
 | `Doctor` | 系统自检报告（Steam 进程/安装状态/密钥库/网络） |
+| `DaemonService` | 后台常驻服务（零 Socket 文件事件队列驱动，游戏退出自动触发云存档） |
 | `ConfigManager` | omnisteam.toml 读写（值转义 + 临时文件原子替换） |
 
 ## 5. 已知断点与预留扩展点
@@ -152,9 +154,9 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 ├─ apps/manager/src/         Manager 三层架构 + 业务模块（见 §4）
 ├─ plugins/decky-omnisteam/  Steam Deck Decky Loader 插件
 ├─ scripts/                  Linux/SteamOS 安装与启动脚本
-├─ tests/                    八个 CTest 套件（见 TESTING.md）
+├─ tests/                    九个 CTest 套件（见 TESTING.md）
 ├─ tools/                    check_code.py 质检、depot_key_tool.py / process_issue_key.py 密钥工具、
-│                            harvest_signatures.py 三平台签名采集（按架构分桶）、
+│                            harvest_signatures.py / derive_signatures.py 多平台签名采集与派生工具、
 │                            sync_upstream_patterns.py 上游锚点同步（锚点→派生→验证）
 └─ source/                   上游参考源码（仅本地参考，不入库/不参与构建）
 ```

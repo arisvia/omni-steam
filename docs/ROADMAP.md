@@ -1,13 +1,12 @@
 # OmniSteam 开发路线图 (Roadmap)
 
-> 状态基线：2026-08。阶段 1–5 主体功能已完成；阶段 6（全链路加固）已完成；
-> 阶段 7 为当前已知的断点补全计划（详见 [ARCHITECTURE.md §5](ARCHITECTURE.md#5-已知断点与预留扩展点)）。
+> 状态基线：2026-11。阶段 1–8 全线落地完成；阶段 9 为下一阶段演进规划。
 
 ## 阶段总览
 
 ```
-[1 跨平台基建] → [2 特征码与IPC核心] → [3 Manager面板] → [4 云存档WebDAV] → [5 发布打包] → [6 全链路加固] → [7 断点补全] → [8 架构演进]
-    ✅               ✅                   ✅                ✅                ✅             ✅             ✅             📋 规划就绪
+[1 跨平台基建] → [2 特征码与IPC核心] → [3 Manager面板] → [4 云存档WebDAV] → [5 发布打包] → [6 全链路加固] → [7 断点补全] → [8 架构演进] → [9 协议与脱机深化]
+    ✅               ✅                   ✅                ✅                ✅             ✅             ✅             ✅             📋 规划就绪
 
 ---
 
@@ -114,3 +113,10 @@
 ## 阶段 8：架构演进与深水区探索 【🚀 架构落地】
 - [x] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
 - [x] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。
+- [x] **成就系统三级保底机制**（2026-10）：针对 `stats.opensteamtool.com` 上游偶发 HTTP 530 或断网问题，实现 Tier 3 离线保底；`BBuildAndAsyncSendFrame` 截断错误并合成 `k_EResultOK` 空响应，`RecvPkt` 载荷借用模式投递，客户端稳定显示 0% 进度且绝不报错崩溃。
+- [x] **跨平台进程 API 收敛与 ScriptManager 性能优化**（2026-10）：全局复用 `OmniPlatform::Process`（彻底淘汰私有 Win32 Toolhelp/POSIX kill）；ScriptManager 基于目录 mtime 内存缓存，彻底消除 WebUI 轮询磁盘穿透。
+- [x] **守护进程无 Socket 架构与自愈路径**（2026-10）：严格遵从无 Socket 规范，Core 游戏退出派发单次文件事件；Manager 启动自愈刷新自启注册表/Desktop 入口，支持任意目录自由移动。
+
+## 阶段 9：协议深化与脱机自主化 【📋 规划中】
+- [ ] **纯本地成就 Schema 离线构造**：本地直接解析游戏 appcache/Schema 并拦截 CMsgClientGetUserStatsResponse 合成本地全量成就进度，彻底摆脱外部 Donor 依赖。
+- [ ] **离线 LAN 联机广播支持**：局域网 Lobby 广播与 SteamSockets 本地模拟。

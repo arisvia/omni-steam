@@ -10,6 +10,7 @@
 | CTest 测试名 | 目标二进制 | 源码文件 | 覆盖的核心功能与业务模块 |
 | :--- | :--- | :--- | :--- |
 | **`PlatformTests`** | `test_platform` | `tests/test_platform.cpp` | **底层跨平台抽象层**：特征字节搜索 (`ByteSearch`)、十六进制编解码 (`Encoding`)、凭据票据存取 (`CredentialStore`)、反作弊白名单常量。 |
+| **`HttpTransportTests`** | `test_http` | `tests/test_http.cpp` | **HTTP 传输规范与安全**：URL 白名单策略、域名合法性、离线请求超时预算与强制错误处理、自研 WinHTTP/libcurl 边界。 |
 | **`IpcMetadataTests`** | `test_ipc_metadata` | `tests/test_ipc_metadata.cpp` | **Steam IPC 与元数据引擎**：结构偏移量断言（Ownership/PackageInfo 布局）、指令特征扫描 (`PatternLoader`)、IPC 序列化 (`SteamIPC`)、Manifest 解析 (`ManifestClient`)。 |
 | **`ScriptManagerTests`** | `test_script_manager` | `tests/test_script_manager.cpp` | **Lua 解锁脚本管理**：AppID/DLC/Token 脚本生成、DepotKey 智能去重、Denuvo 票据语句生成、启用/停用/删除全生命周期、AppID=0 边界防御。 |
 | **`CloudSaveTests`** | `test_cloud_save` | `tests/test_cloud_save.cpp` | **云存档引擎**：存档路径探测（userdata / Proton compatdata）、WebDAV 客户端配置。 |
@@ -37,13 +38,14 @@ ctest --test-dir build --output-on-failure -C Release
 
 ```bash
 ./build/bin/test_platform               # 平台抽象层
+./build/bin/test_http                   # HTTP 传输边界与超时
 ./build/bin/test_ipc_metadata           # IPC 与元数据引擎
 ./build/bin/test_script_manager         # 脚本生命周期
 ./build/bin/test_cloud_save             # 云存档与 WebDAV
 ./build/bin/test_packaging_integration  # 打包与 Decky 规范
 ./build/bin/test_depot_keys             # Depot 密钥库
 ./build/bin/test_pics_token             # PICS 令牌注入器
-```
+./build/bin/test_stats_proto            # 成就与统计 Protobuf 字段解析
 
 ---
 

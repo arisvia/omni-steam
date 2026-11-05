@@ -2,9 +2,9 @@
 
 > **One Codebase. All Platforms. Universal Steam Enhancement & Unlocker.**
 
-OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工具。当前 **Windows x64 功能完整**，
-Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路与 Manager 管理能力，核心函数 Hook 层暂缺
-签名库（主动休眠以保证安全，详见 [架构文档 · 平台能力矩阵](docs/ARCHITECTURE.md#1-架构总览)）。
+OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工具。当前 **Windows x64 完整可用**，
+Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路、派生特征签名与 Manager 管理能力，
+全平台均支持运行时符号表与特征解析（详见 [架构文档 · 平台能力矩阵](docs/ARCHITECTURE.md#1-架构总览)）。
 
 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Decoupled Manager) + 掌机原生插件 (Decky Plugin)"**
 的解耦架构——两者之间仅通过文件系统通信（Lua 脚本目录 + 密钥库 + 心跳文件），无任何 Socket 依赖。
@@ -23,11 +23,14 @@ Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路与 Manager �
   - `GetManifestRequestCode` 拦截 + **持久化正缓存 / 10 分钟负缓存**，eresult=OK 追加字段式注入（保留原始报文全部字段）；
   - Legacy CD-Key（eMsg 730 → 本地合成 785）；`-onlinefix` AppID 480 伪装与控制器/覆盖层还原；
   - PICS 访问令牌注入（`addtoken` → eMsg 8903，追加字段式覆盖、保留原始报文）；
-  - steamui `FillInAppOverview` 合成购买时间戳保证库内即时可见与永久留存。
+  - steamui `FillInAppOverview` 合成购买时间戳保证库内即时可见与永久留存；
+  - 成就协议双层劫持（Player.GetUserStats 与 eMsg 818/819）+ 离线/宕机平滑兜底（合成本地 k_EResultOK）；
+  - Denuvo 离线票据隐身传递（纯协议层，零跨进程注入、零命名管道，见 RFC 001）；
+  - 安全化 IPC 回调拦截（C API 边界拦截 + 异步事件隔离，见 RFC 002）。
 - **反作弊安全白名单 (`AntiCheatGuard`)**：CS2 / Dota 2 / TF2 / Apex 等 30+ 竞技游戏自动识别并透明直通原生逻辑。
 - **内核级热重载**：双缓冲快照机制——读端永远看到完整配置，Lua 目录递归监视秒级生效且所有权判定无瞬断窗口。
 - **Manager CLI + Web 仪表盘 (`omnisteam`)**：
-  - Steam Store 实时检索（AppID / DLC 树）、一键生成解锁脚本并自动匹配 `depotkeys.bin`（17.5 万+ 条，CDN 四镜像自动同步）；
+  - Steam Store 实时检索（AppID / DLC 树）、一键生成解锁脚本并自动匹配 `depotkeys.bin`（23 万+ 条，CDN 四镜像自动同步）；
   - 嵌入式 Web 面板（回环绑定、并发处理、请求完整性校验），支持 Steam Deck 掌机操作；
   - Doctor 系统自检、Core 安装器（本地产物 / GitHub Release 自动部署）。
 - **WebDAV 云存档**：跨平台存档智能探测（userdata / Proton compatdata）、时间戳多版本增量备份与还原。
@@ -52,9 +55,9 @@ cmake --build build -j
 ```bash
 ctest --test-dir build --output-on-failure -C Release
 ```
-测试套件覆盖：`PlatformTests`、`IpcMetadataTests`、`ScriptManagerTests`、`CloudSaveTests`、
-`PackagingIntegrationTests`、`DepotKeyTests`、`PicsTokenTests`、`StatsProtoTests`
-（详见 [docs/TESTING.md](docs/TESTING.md)）。
+测试套件覆盖：`PlatformTests`、`HttpTransportTests`、`IpcMetadataTests`、`ScriptManagerTests`、`CloudSaveTests`、
+`PackagingIntegrationTests`、`DepotKeyTests`、`PicsTokenTests`、`StatsProtoTests`（共 9 个完整测试套件，
+详见 [docs/TESTING.md](docs/TESTING.md)）。
 
 提交前请运行质检工具（include 完整性 + 括号配平 + clang-format 自动修复）：
 ```bash

@@ -1,6 +1,6 @@
 # OmniSteam 各平台注入方案评估、选型与实施状态
 
-> 状态基线：2026-08。本文档包含"方案对比（设计期）"与"实施状态（当前代码）"两部分。
+> 状态基线：2026-11。本文档包含"方案对比（设计期）"与"实施状态（当前代码）"两部分。
 
 ## 1. 核心诉求与评判标准
 - **隐蔽性 (Stealth)**：不触发 Steam 客户端完整性自检、不破坏系统只读保护、不被常见安全策略拦截。
@@ -40,12 +40,12 @@
 | 动态库篡改 / 符号覆盖 steamclient.so | 极低 (自检触发重下) | 极低 (更新即失效) | 极低 | 坚决避免 |
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
-### 实施状态：⚠️ 注入链路通，Hook 层休眠
+### 实施状态：✅ 注入与 Hook 层均已落地
 - 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
-- Hook 层：当前**没有经过验证的 `steamclient.so` 函数特征签名**。为避免把 hook 挂到任意同名序言函数
-  导致进程崩溃，`PatternLoader` 在该平台主动休眠并输出警告——解锁功能暂不可用，但注入框架随时待命。
-- 后续计划：征集/逆向提取各版本 `steamclient.so` 差异化特征码后即可点亮全功能（架构无需改动）。
+- Hook 层：通过 `derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与 LC_FUNCTION_STARTS 提取真实函数边界，
+  配合运行时动态符号表（dynsym/symtab）解析，已完成 Linux x64/i386 签名自动派生并托管于 data 分支。
+- `PatternLoader` 按五级自愈策略自动匹配加载，全链路解锁与热重载在 Linux/Steam Deck 上完整可用。
 
 ---
 
@@ -59,9 +59,10 @@
 | LC_LOAD_DYLIB 篡改 | 低 (破坏签名, Gatekeeper 阻止) | 低 | 低 | 不推荐 |
 | task_for_pid / mach_vm 注入 | 极低 (受 SIP 限制) | 低 | 极低 | 坚决避免 |
 
-### 实施状态：⚠️ 同 Linux（注入通、Hook 层休眠）
-- Universal 构建目标（arm64 + x86_64）已配置；无验证过的 `steamclient.dylib` 签名前，
-  Hook 层主动休眠（见 §3 说明）。Manager 全功能可用。
+### 实施状态：✅ 注入与 Hook 层均已落地
+- Universal 构建目标（arm64 + x86_64）已配置；Core 以 `DYLD_INSERT_LIBRARIES` 注入。
+- 签名库通过 Mach-O LC_FUNCTION_STARTS 符号派生与运行时 LC_SYMTAB 枚举双引擎驱动，
+  签名文件已自动托管并在客户端无缝挂载。Manager 与 Core 全功能可用。
 
 ---
 
