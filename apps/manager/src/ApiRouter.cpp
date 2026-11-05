@@ -25,38 +25,21 @@
 
 #include "OmniPlatform/OmniPlatform.h"
 
-#if defined(OMNI_PLATFORM_WINDOWS)
-#include <windows.h>
-
-#include <tlhelp32.h>
-#endif
-
 namespace Manager {
 
 namespace {
 
 bool CheckSteamProcess(uint32_t* outPid = nullptr) {
 #if defined(OMNI_PLATFORM_WINDOWS)
-    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnap == INVALID_HANDLE_VALUE)
-        return false;
-    PROCESSENTRY32 pe;
-    pe.dwSize = sizeof(pe);
-    if (Process32First(hSnap, &pe)) {
-        do {
-            if (_stricmp(pe.szExeFile, "steam.exe") == 0) {
-                if (outPid)
-                    *outPid = pe.th32ProcessID;
-                CloseHandle(hSnap);
-                return true;
-            }
-        } while (Process32Next(hSnap, &pe));
-    }
-    CloseHandle(hSnap);
-    return false;
+    auto pids = OmniPlatform::Process::FindProcessIdsByName("steam.exe");
 #else
-    return false;
+    auto pids = OmniPlatform::Process::FindProcessIdsByName("steam");
 #endif
+    if (pids.empty())
+        return false;
+    if (outPid)
+        *outPid = pids.front();
+    return true;
 }
 
 std::string MakeHttpResponse(int statusCode, const std::string& contentType, const std::string& body) {

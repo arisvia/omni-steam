@@ -11,13 +11,6 @@
 #include <string>
 #include <vector>
 
-#if defined(OMNI_PLATFORM_WINDOWS)
-#include <windows.h>
-#else
-#include <signal.h>
-#include <sys/types.h>
-#endif
-
 #include "OmniPlatform/OmniBuildInfo.h"
 #include "OmniPlatform/OmniEndpoints.h"
 #include "OmniPlatform/OmniPlatform.h"
@@ -63,25 +56,6 @@ bool ExtractJsonBool(const std::string& json, const std::string& key) {
         return m[1].str() == "true";
     }
     return false;
-}
-
-bool IsProcessAlive(uint32_t pid) {
-    if (pid == 0)
-        return false;
-#if defined(OMNI_PLATFORM_WINDOWS)
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (hProcess) {
-        DWORD exitCode = 0;
-        if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
-            CloseHandle(hProcess);
-            return true;
-        }
-        CloseHandle(hProcess);
-    }
-    return false;
-#else
-    return kill(static_cast<pid_t>(pid), 0) == 0;
-#endif
 }
 
 // Copies harvested signature TOMLs (tools/harvest_signatures.py output) from
@@ -163,7 +137,7 @@ CoreStatusInfo CoreInstaller::GetStatus() {
     }
 
     // Invalidate stale status if the target process is no longer alive
-    if (info.active && (info.livePid == 0 || !IsProcessAlive(info.livePid))) {
+    if (info.active && (info.livePid == 0 || !OmniPlatform::Process::IsProcessRunning(info.livePid))) {
         info.active = false;
         info.livePid = 0;
         info.checkAppOwnershipHook = false;
