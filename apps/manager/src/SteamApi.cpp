@@ -191,5 +191,76 @@ AppDetails SteamApi::GetAppDetails(uint32_t appId, const std::string& language) 
     spdlog::info("SteamApi: Parsed details for {} ({}): {} DLCs found", details.name, appId, details.dlcAppIds.size());
     return details;
 }
+std::vector<AppDepotInfo> SteamApi::GetAppDepots(uint32_t appId) {
+    std::vector<AppDepotInfo> depots;
+    if (appId == 0)
+        return depots;
+
+    std::string url = std::string(OmniEndpoints::Steam::kSteamCmdInfoApi) + std::to_string(appId);
+    spdlog::info("SteamApi: Fetching depots metadata from {}", url);
+
+    auto resp = OmniPlatform::Http::Get(url, 8000);
+    if (resp.statusCode != 200 || resp.body.empty()) {
+        spdlog::warn("SteamApi: Could not fetch depots metadata for {} (HTTP {})", appId, resp.statusCode);
+        return depots;
+    }
+
+    // Parse "depots": { "<depotId>": { ... } }
+    size_t depotsPos = resp.body.find("\"depots\"");
+    if (depotsPos == std::string::npos) {
+        return depots;
+    }
+
+    // Match sub-objects inside depots using brace depth to properly capture nested
+    // config and manifests objects without early truncation.
+    static const std::regex kDepotKeyRegex(R"regex("(\d{3,10})"\s*:\s*\{)regex");
+    auto d_begin = std::sregex_iterator(resp.body.begin() + depotsPos, resp.body.end(), kDepotKeyRegex);
+    auto d_end = std::sregex_iterator();
+
+    for (auto it = d_begin; it != d_end; ++it) {
+        try {
+            uint32_t depotId = static_cast<uint32_t>(std::stoul((*it)[1].str()));
+            if (depotId == 0)
+                continue;
+
+            // The opening '{' position in resp.body
+            size_t openBracePos = (it->position() + it->length() - 1) + depotsPos;
+            int depth = 1;
+            size_t idx = openBracePos + 1;
+            bool inQuote = false;
+            bool escape = false;
+            while (idx < resp.body.size() && depth > 0) {
+                char c = resp.body[idx];
+                if (escape) {
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    inQuote = !inQuote;
+                } else if (!inQuote) {
+                    if (c == '{')
+                        depth++;
+                    else if (c == '}')
+                        depth--;
+                }
+                idx++;
+            }
+
+            if (depth == 0) {
+                std::string content = resp.body.substr(openBracePos, idx - openBracePos);
+                AppDepotInfo info;
+                info.depotId = depotId;
+                info.isShared = content.find("\"sharedinstall\"") != std::string::npos ||
+                                content.find("\"depotfromapp\"") != std::string::npos;
+                info.hasManifests = content.find("\"manifests\"") != std::string::npos;
+                depots.push_back(info);
+            }
+        } catch (...) {
+        }
+    }
+
+    spdlog::info("SteamApi: Resolved {} official depots for AppID {}", depots.size(), appId);
+    return depots;
+}
 
 } // namespace Manager

@@ -338,4 +338,20 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindDepotKeysForApp(uin
     return result;
 }
 
+std::unordered_map<uint32_t, std::string> DepotKeyStore::FindKeysForDepotIds(const std::vector<uint32_t>& depotIds) {
+    std::lock_guard<std::mutex> lock(g_storeMutex);
+    std::unordered_map<uint32_t, std::string> result;
+    if (g_records.empty() || depotIds.empty())
+        return result;
+
+    for (uint32_t depotId : depotIds) {
+        auto it = std::lower_bound(g_records.begin(), g_records.end(), depotId,
+                                   [](const DepotKeyRecord& rec, uint32_t id) { return rec.depot_id < id; });
+        if (it != g_records.end() && it->depot_id == depotId) {
+            result[depotId] = OmniPlatform::Encoding::BytesToHex(it->key, 32);
+        }
+    }
+    return result;
+}
+
 } // namespace Manager

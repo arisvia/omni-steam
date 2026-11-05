@@ -1,8 +1,10 @@
 #include "DepotKeyStore.h"
 #include "omni_check.h"
 
+#include <cstdint>
 #include <iostream>
 #include <string>
+#include <vector>
 
 void TestDepotKeyStore() {
     Manager::DepotKeyStore::Initialize();
@@ -38,6 +40,15 @@ void TestDepotKeyStore() {
     OMNI_CHECK(hkKeys.count(367540) == 0); // foreign app block excluded
     OMNI_CHECK(hkKeys.count(367545) == 0);
     std::cout << "[INFO] Verified Hollow Knight scan boundary (" << hkKeys.size() << " keys)\n";
+    // Verify precise lookup via FindKeysForDepotIds
+    std::vector<uint32_t> requestedDepots = {1, 367520, 367521, 999999999};
+    auto exactKeys = Manager::DepotKeyStore::FindKeysForDepotIds(requestedDepots);
+    OMNI_CHECK(exactKeys.size() == 3);
+    OMNI_CHECK(exactKeys.count(1) > 0);
+    OMNI_CHECK(exactKeys.count(367520) > 0);
+    OMNI_CHECK(exactKeys.count(367521) > 0);
+    OMNI_CHECK(exactKeys.count(999999999) == 0);
+
     std::cout << "[PASS] TestDepotKeyStore (Binary format loaded & Depot 1 verified)\n";
 }
 

@@ -5,35 +5,17 @@
 #include <vector>
 
 #include "Utils/Config/LuaConfig.h"
+#include "Utils/Metadata/ProtoFields.h"
 
 namespace PicsTokenInjector {
 
 namespace {
 
+using ProtoFields::ReadVarint;
+using ProtoFields::WriteVarint;
 constexpr uint8_t kAppFieldTag = 0x0A;    // field 1, wire type 2
 constexpr uint8_t kAccessTokenTag = 0x10; // field 2, wire type 0
 constexpr uint32_t kMaxTokenString = 32;
-
-bool ReadVarint(const uint8_t*& ptr, const uint8_t* end, uint64_t& out) {
-    out = 0;
-    int shift = 0;
-    while (ptr < end && shift < 64) {
-        uint8_t b = *ptr++;
-        out |= static_cast<uint64_t>(b & 0x7F) << shift;
-        if ((b & 0x80) == 0)
-            return true;
-        shift += 7;
-    }
-    return shift >= 64 ? false : ptr == end;
-}
-
-void WriteVarint(std::vector<uint8_t>& buf, uint64_t value) {
-    while (value >= 0x80) {
-        buf.push_back(static_cast<uint8_t>((value & 0x7F) | 0x80));
-        value >>= 7;
-    }
-    buf.push_back(static_cast<uint8_t>(value & 0x7F));
-}
 
 uint64_t ResolveConfiguredToken(uint32_t appId) {
     // A configured access token is itself the intent signal: patching is

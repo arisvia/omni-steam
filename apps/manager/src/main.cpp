@@ -1,6 +1,7 @@
 #include "CloudSaveManager.h"
 #include "ConfigManager.h"
 #include "CoreInstaller.h"
+#include "DaemonService.h"
 #include "DenuvoImporter.h"
 #include "DepotKeyStore.h"
 #include "Doctor.h"
@@ -15,6 +16,8 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <windows.h>
@@ -36,6 +39,8 @@ int main(int argc, char* argv[]) {
     std::string currentExe = OmniPlatform::Process::GetExecutablePath();
     if (!currentExe.empty()) {
         OmniPlatform::Paths::RegisterManagerExecutablePath(currentExe);
+        // Refresh user-level autostart entry if previously registered so path stays current
+        Manager::DaemonService::RefreshAutostart();
     }
 
     if (argc > 1) {
@@ -61,10 +66,24 @@ int main(int argc, char* argv[]) {
             std::cout << "  toggle <appid> [0|1]  Enable (1) or Disable (0) an unlocked game\n";
             std::cout << "  remove <appid>        Remove an unlocked game Lua script\n";
             std::cout << "  import-ticket <file>  Import Denuvo binary ticket (.bin / .txt)\n";
-            std::cout << "  backup [appid]        Backup game saves to configured WebDAV\n";
+            std::cout << "  backup [appid]        Backup game saves to configured WebDAV / local repository\n";
             std::cout << "  restore <appid>       Restore game saves from WebDAV\n";
+            std::cout << "  daemon [port]         Run background daemon (WebServer + event processor)\n";
             std::cout << "======================================================\n\n";
             return 0;
+        }
+
+        // 1.1 Daemon Subcommand
+        if (cmd == "daemon") {
+            uint16_t port = 8080;
+            if (argc > 2) {
+                try {
+                    port = static_cast<uint16_t>(std::stoul(argv[2]));
+                } catch (...) {
+                }
+            }
+            Manager::DepotKeyStore::Initialize();
+            return Manager::DaemonService::RunDaemon(port);
         }
 
         // 2. Doctor Diagnostics
@@ -159,13 +178,29 @@ int main(int argc, char* argv[]) {
         if (cmd == "unlock" && argc > 2) {
             Manager::DepotKeyStore::Initialize();
             uint32_t appId = 0;
-            try {
-                appId = static_cast<uint32_t>(std::stoul(argv[2]));
-            } catch (...) {
-                std::cerr << " [ERROR] Invalid AppID: " << argv[2] << "\n";
-                return 1;
+            std::string inputArg = argv[2];
+            bool isNumeric = !inputArg.empty() && std::all_of(inputArg.begin(), inputArg.end(), ::isdigit);
+            if (isNumeric) {
+                try {
+                    appId = static_cast<uint32_t>(std::stoul(inputArg));
+                } catch (...) {
+                }
+            } else {
+                std::cout << "[OmniSteam] Searching Steam Store for '" << inputArg << "'...\n";
+                auto results = Manager::SteamApi::SearchStore(inputArg);
+                if (!results.empty()) {
+                    appId = results[0].appId;
+                    std::cout << "[OmniSteam] Auto-matched to: " << results[0].name << " (AppID: " << appId << ")\n";
+                } else {
+                    std::cerr << " [ERROR] No matching games found for query: " << inputArg << "\n";
+                    return 1;
+                }
             }
 
+            if (appId == 0) {
+                std::cerr << " [ERROR] Invalid AppID or empty query.\n";
+                return 1;
+            }
             std::cout << "[OmniSteam] Querying metadata and DLCs for AppID " << appId << "...\n";
             auto details = Manager::SteamApi::GetAppDetails(appId);
             Manager::UnlockGameSpec spec;
@@ -175,8 +210,23 @@ int main(int argc, char* argv[]) {
                 spec.dlcAppIds = details.dlcAppIds;
             }
 
-            // Auto-resolve depot keys from local DB
-            auto keys = Manager::DepotKeyStore::FindDepotKeysForApp(appId, spec.dlcAppIds);
+            // 1. Try querying exact official depots metadata via SteamApi
+            auto officialDepots = Manager::SteamApi::GetAppDepots(appId);
+            std::unordered_map<uint32_t, std::string> keys;
+            if (!officialDepots.empty()) {
+                std::vector<uint32_t> targetDepotIds;
+                for (const auto& d : officialDepots) {
+                    // Only request keys for non-shared depots
+                    if (!d.isShared) {
+                        targetDepotIds.push_back(d.depotId);
+                    }
+                }
+                keys = Manager::DepotKeyStore::FindKeysForDepotIds(targetDepotIds);
+            } else {
+                // 2. Fallback to range scan ONLY if official depot metadata was unavailable or offline
+                keys = Manager::DepotKeyStore::FindDepotKeysForApp(appId, spec.dlcAppIds);
+            }
+
             for (const auto& kv : keys) {
                 spec.depotKeys[kv.first] = kv.second;
             }
@@ -306,12 +356,12 @@ int main(int argc, char* argv[]) {
             }
 
             auto config = Manager::ConfigManager::ReadConfig();
-            if (!config.cloudEnabled || config.webdavServerUrl.empty()) {
+            bool hasWebDav = config.cloudEnabled && !config.webdavServerUrl.empty();
+            if (!hasWebDav) {
                 if (!silent) {
-                    std::cerr << " [ERROR] Cloud save is not configured or disabled.\n";
-                    std::cerr << "         Please configure WebDAV via WebUI or config.toml.\n";
+                    std::cout << "[OmniSteam] WebDAV is not configured or disabled. Falling back to local versioned "
+                                 "snapshot repository.\n";
                 }
-                return 1;
             }
             Manager::WebDavConfig webdav;
             webdav.serverUrl = config.webdavServerUrl;
@@ -328,7 +378,8 @@ int main(int argc, char* argv[]) {
                     return 0;
                 }
                 if (!silent) {
-                    std::cout << "[OmniSteam] Backing up saves for AppID " << targetAppId << " to WebDAV...\n";
+                    std::cout << "[OmniSteam] Backing up saves for AppID " << targetAppId
+                              << (hasWebDav ? " to WebDAV...\n" : " to local snapshot...\n");
                 }
                 bool ok = Manager::CloudSaveManager::BackupAppSaves(targetAppId, webdav);
                 if (!silent) {

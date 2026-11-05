@@ -17,6 +17,12 @@ struct DlcInfo {
     uint32_t dlcId = 0;
     std::string name;
 };
+struct AppDepotInfo {
+    uint32_t depotId = 0;
+    std::string name;
+    bool isShared = false;
+    bool hasManifests = false;
+};
 
 struct AppDetails {
     uint32_t appId = 0;
@@ -34,6 +40,7 @@ public:
     static std::vector<SearchResultItem> SearchStore(const std::string& query, const std::string& language = "schinese",
                                                      const std::string& countryCode = "US");
     static AppDetails GetAppDetails(uint32_t appId, const std::string& language = "schinese");
+    static std::vector<AppDepotInfo> GetAppDepots(uint32_t appId);
 };
 
 } // namespace Manager

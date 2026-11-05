@@ -14,5 +14,6 @@ public:
     static size_t GetTotalKeyCount() { return Count(); }
     static std::unordered_map<uint32_t, std::string> FindDepotKeysForApp(uint32_t appId,
                                                                          const std::vector<uint32_t>& dlcAppIds = {});
+    static std::unordered_map<uint32_t, std::string> FindKeysForDepotIds(const std::vector<uint32_t>& depotIds);
 };
 } // namespace Manager

@@ -101,9 +101,71 @@ def unpack_bin_to_dict(bin_path: str) -> Dict[int, str]:
         
     return result
 
+def merge_sources_into_bin(bin_path: str, source_urls: List[str]) -> Tuple[int, int]:
+    """Download external key mappings (JSON / VDF / KV) and merge with deduplication into depotkeys.bin."""
+    import urllib.request
+    
+    keys_dict: Dict[int, str] = unpack_bin_to_dict(bin_path) if os.path.exists(bin_path) else {}
+    initial_count = len(keys_dict)
+    new_count = 0
+
+    for url in source_urls:
+        url = url.strip()
+        if not url or url.startswith('#'):
+            continue
+        print(f"Fetching upstream keys from: {url}")
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'OmniSteam/1.0'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode('utf-8', errors='replace')
+                
+                # 1. Try parsing JSON format: { "12345": "hexkey" } or { "depots": { ... } }
+                parsed_items: Dict[str, str] = {}
+                try:
+                    loaded = json.loads(raw)
+                    if isinstance(loaded, dict):
+                        if "depots" in loaded and isinstance(loaded["depots"], dict):
+                            for k, v in loaded["depots"].items():
+                                if isinstance(v, str):
+                                    parsed_items[str(k)] = v
+                                elif isinstance(v, dict) and "DecryptionKey" in v:
+                                    parsed_items[str(k)] = str(v["DecryptionKey"])
+                        else:
+                            for k, v in loaded.items():
+                                if isinstance(v, str):
+                                    parsed_items[str(k)] = v
+                except Exception:
+                    pass
+                
+                # 2. Regex fallback for key.vdf / plaintext: "12345" ... "64-hex-key"
+                if not parsed_items:
+                    vdf_matches = re.findall(r'"?(\d{2,10})"?\s*\{[^}]*?"DecryptionKey"\s*"([0-9a-fA-F]{64})"', raw)
+                    for did, khex in vdf_matches:
+                        parsed_items[did] = khex
+                
+                # Merge and deduplicate
+                for did_str, khex in parsed_items.items():
+                    try:
+                        did = int(did_str)
+                        valid_bytes = validate_hex_key(khex)
+                        if valid_bytes:
+                            clean_hex = khex.strip().lower()
+                            if did not in keys_dict or keys_dict[did] != clean_hex:
+                                keys_dict[did] = clean_hex
+                                new_count += 1
+                    except ValueError:
+                        continue
+        except Exception as e:
+            print(f"Warning: Failed to fetch from {url}: {e}")
+
+    if new_count > 0 or not os.path.exists(bin_path):
+        total = pack_keys_to_bin(keys_dict, bin_path)
+        return total, new_count
+    return len(keys_dict), 0
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: depot_key_tool.py [pack_json <json_file> <output_bin>] | [dump <bin_file>] | [merge <bin_file> <depot_id> <hex_key>]")
+        print("Usage: depot_key_tool.py [pack_json <json_file> <output_bin>] | [dump <bin_file>] | [merge_sources <bin_file> <url1> [url2...]]")
         sys.exit(1)
         
     cmd = sys.argv[1]
@@ -122,6 +184,11 @@ def main():
             print(f"  Depot {did}: {keys[did]}")
         if len(keys) > 10:
             print(f"  ... and {len(keys) - 10} more entries.")
+    elif cmd == "merge_sources":
+        bin_file = sys.argv[2] if len(sys.argv) > 2 else "depotkeys.bin"
+        urls = sys.argv[3:]
+        total, added = merge_sources_into_bin(bin_file, urls)
+        print(f"Merge completed: {added} new/updated keys merged. Total database keys: {total}")
     else:
         print(f"Unknown command: {cmd}")
 

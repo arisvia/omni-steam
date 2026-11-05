@@ -1,4 +1,6 @@
 #include "Hooks_Misc.h"
+
+#include <fstream>
 #if defined(OMNI_PLATFORM_WINDOWS)
 #include <windows.h>
 #endif
@@ -99,7 +101,22 @@ void MonitorGameLifecycle(AppId_t appId, const char* exePath) {
         }
         spdlog::info("Hooks_Misc: Game process '{}' (AppID {}, PID {}) terminated", exeName, appId, targetPid);
 
-        // Dispatch silent background cloud save backup if manager executable is present
+        // 1. Write an event file into <cache>/events/game_exit/ for the daemon to poll and consume
+        try {
+            std::string eventsDir =
+                (fs::path(OmniPlatform::Paths::GetCacheDirectory()) / "events" / "game_exit").generic_string();
+            fs::create_directories(eventsDir);
+            std::string eventPath = eventsDir + "/" + std::to_string(appId) + "_" + std::to_string(targetPid) + ".json";
+            std::ofstream out(eventPath, std::ios::trunc);
+            if (out) {
+                out << "{\"appId\":" << appId << ",\"pid\":" << targetPid << ",\"timestamp\":" << std::time(nullptr)
+                    << "}\n";
+                spdlog::info("Hooks_Misc: Emitted game exit event file: {}", eventPath);
+            }
+        } catch (...) {
+        }
+
+        // 2. Fallback to spawning temporary background CLI if manager executable is found
         std::string managerExe = OmniPlatform::Paths::GetManagerExecutablePath();
         if (!managerExe.empty()) {
             std::string cmd = "\"" + managerExe + "\" backup " + std::to_string(appId) + " --silent";
@@ -111,7 +128,8 @@ void MonitorGameLifecycle(AppId_t appId, const char* exePath) {
                                &pi)) {
                 CloseHandle(pi.hThread);
                 CloseHandle(pi.hProcess);
-                spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {}", appId);
+                spdlog::info("Hooks_Misc: Dispatched silent cloud save backup for AppID {} via fallback process",
+                             appId);
             }
 #else
             std::string bgCmd = cmd + " >/dev/null 2>&1 &";

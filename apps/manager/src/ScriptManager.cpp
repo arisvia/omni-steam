@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -172,12 +173,27 @@ std::string ScriptManager::GenerateLuaScript(const UnlockGameSpec& spec) {
         oss << "addtoken(" << spec.appId << ", \"" << EscapeLuaString(spec.accessToken) << "\")\n\n";
     }
 
-    // 5. Custom Manifest ID if present
-    if (!spec.customManifestId.empty()) {
+    // 5. Custom Manifest GID / Depot Manifest Pins (keyed by depotId)
+    if (!spec.depotManifestIds.empty()) {
+        oss << "-- Manifest Pins\n";
+        std::vector<uint32_t> sortedDepotIds;
+        sortedDepotIds.reserve(spec.depotManifestIds.size());
+        for (const auto& kv : spec.depotManifestIds) {
+            sortedDepotIds.push_back(kv.first);
+        }
+        std::sort(sortedDepotIds.begin(), sortedDepotIds.end());
+        for (uint32_t depotId : sortedDepotIds) {
+            const std::string& gid = spec.depotManifestIds.at(depotId);
+            if (!gid.empty()) {
+                oss << "setManifestid(" << depotId << ", \"" << EscapeLuaString(gid) << "\")\n";
+            }
+        }
+        oss << "\n";
+    } else if (!spec.customManifestGid.empty()) {
+        uint32_t targetDepot = spec.customManifestDepotId != 0 ? spec.customManifestDepotId : spec.appId;
         oss << "-- Manifest Pin\n";
-        oss << "setManifestid(" << spec.appId << ", \"" << EscapeLuaString(spec.customManifestId) << "\")\n\n";
+        oss << "setManifestid(" << targetDepot << ", \"" << EscapeLuaString(spec.customManifestGid) << "\")\n\n";
     }
-
     // 6. Denuvo & App Ownership Tickets (All-In-One)
     if (!spec.appTicketHex.empty()) {
         oss << "-- Denuvo / App Ownership Ticket\n";

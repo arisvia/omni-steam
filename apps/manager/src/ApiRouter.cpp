@@ -20,6 +20,8 @@
 #include <sstream>
 #include <string>
 #include <toml++/toml.hpp>
+#include <unordered_map>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -388,7 +390,21 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
                     spec.dlcAppIds = details.dlcAppIds;
                     dlcCount = spec.dlcAppIds.size();
 
-                    auto matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
+                    // Query official depots first for precise key resolution
+                    auto officialDepots = SteamApi::GetAppDepots(appId);
+                    std::unordered_map<uint32_t, std::string> matchedKeys;
+                    if (!officialDepots.empty()) {
+                        std::vector<uint32_t> targetDepotIds;
+                        for (const auto& d : officialDepots) {
+                            if (!d.isShared) {
+                                targetDepotIds.push_back(d.depotId);
+                            }
+                        }
+                        matchedKeys = DepotKeyStore::FindKeysForDepotIds(targetDepotIds);
+                    } else {
+                        matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
+                    }
+
                     for (const auto& [depotId, keyHex] : matchedKeys) {
                         if (depotId == appId) {
                             spec.depotKeyHex = keyHex;

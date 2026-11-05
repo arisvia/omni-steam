@@ -3,6 +3,7 @@
 #include "WebDavClient.h"
 #include "omni_check.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -163,6 +164,19 @@ void TestManagerPathRegistration() {
 
     std::cout << "[PASS] TestManagerPathRegistration (Hermetic)\n";
 }
+void TestLocalSnapshotFallback() {
+    // Verify that BackupAppSaves with empty WebDAV URL gracefully falls back to local snapshot
+    Manager::WebDavConfig emptyConfig;
+    uint32_t fakeAppId = 888888;
+    // When no save directory exists, it returns false safely without throwing exceptions or deadlocking
+    bool ok = Manager::CloudSaveManager::BackupAppSaves(fakeAppId, emptyConfig);
+    OMNI_CHECK(!ok);
+
+    auto status = Manager::CloudSaveManager::GetSyncStatus(fakeAppId);
+    OMNI_CHECK(status.has_value());
+    OMNI_CHECK(status->action == "backup");
+    std::cout << "[PASS] TestLocalSnapshotFallback\n";
+}
 
 int main() {
     std::cout << "Running OmniSteam Cloud Save & WebDAV Tests...\n";
@@ -184,6 +198,7 @@ int main() {
     TestCloudSyncEnabledToggle();
     TestCloudSyncStatusPersistence();
     TestManagerPathRegistration();
+    TestLocalSnapshotFallback();
 
     std::error_code ec;
     fs::remove_all(tempSandbox, ec);

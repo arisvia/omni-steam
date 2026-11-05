@@ -370,8 +370,8 @@ set(MANAGER_SOURCES
     apps/manager/src/CoreInstaller.cpp
     apps/manager/src/DenuvoImporter.cpp
     apps/manager/src/Doctor.cpp
+    apps/manager/src/DaemonService.cpp
 )
-
 add_executable(omnisteam_cli ${MANAGER_SOURCES})
 omni_apply_strict_warnings(omnisteam_cli)
 set_target_properties(omnisteam_cli PROPERTIES

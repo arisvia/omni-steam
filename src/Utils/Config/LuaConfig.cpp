@@ -361,6 +361,10 @@ std::string GetManifestId(uint32_t depotId) {
     auto it = active.manifestIds.find(depotId);
     return it != active.manifestIds.end() ? it->second : "";
 }
+std::unordered_map<uint32_t, std::string> GetManifestIds() {
+    std::lock_guard<std::mutex> lock(g_luaMutex);
+    return g_slots[g_activeSlot].manifestIds;
+}
 
 std::string GetAccessToken(uint32_t appId) {
     std::lock_guard<std::mutex> lock(g_luaMutex);

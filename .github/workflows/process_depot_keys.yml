@@ -1,6 +1,15 @@
-name: Process Depot Key Submissions
+name: Sync and Process Depot Keys
 
 on:
+  schedule:
+    # Every Sunday 02:00 UTC - sync upstream keys and refresh single-commit data branch
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      upstream_urls:
+        description: 'Space-separated external key sources (JSON / VDF / KV)'
+        required: false
+        default: ''
   issues:
     types: [opened, labeled]
 
@@ -9,11 +18,13 @@ permissions:
   issues: write
 
 jobs:
-  validate-and-merge:
-    name: Validate & Merge Depot Key
-    if: contains(github.event.issue.labels.*.name, 'depot-key-submission') || startsWith(github.event.issue.title, '[DepotKey]')
+  sync-and-merge:
+    name: Sync & Merge Depot Keys
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && (contains(github.event.issue.labels.*.name, 'depot-key-submission') || startsWith(github.event.issue.title, '[DepotKey]')))
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
@@ -25,24 +36,41 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Fetch Baseline data Branch (Preserving Signatures)
+        run: |
+          # Checkout or fetch full data branch so signatures/ and depotkeys.bin can be preserved together
+          git fetch origin data:data 2>/dev/null || true
+          if git show-ref --verify --quiet refs/heads/data; then
+            git checkout data -- signatures/ 2>/dev/null || true
+            git checkout data -- depotkeys.bin 2>/dev/null || true
+          fi
+          if [ ! -f depotkeys.bin ]; then
+            echo "Fetching depotkeys.bin baseline from CDN..."
+            curl -fsSL -o depotkeys.bin "https://raw.githubusercontent.com/arisvia/omni-steam/data/depotkeys.bin" || \
+            curl -fsSL -o depotkeys.bin "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin" || \
+            echo "No existing depotkeys.bin found, initializing new."
+          fi
+
+      - name: Sync from Upstream Sources (Scheduled / Manual)
+        id: sync_upstream
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          SOURCES="${{ inputs.upstream_urls }}"
+          python tools/depot_key_tool.py merge_sources depotkeys.bin $SOURCES > /tmp/sync_output.txt
+          cat /tmp/sync_output.txt
+          MODIFIED=$(git status --porcelain depotkeys.bin | wc -l)
+          echo "modified=$MODIFIED" >> $GITHUB_OUTPUT
+
       - name: Save Issue Content
+        if: github.event_name == 'issues'
         run: |
           cat << 'EOF' > /tmp/issue_body.md
           ${{ github.event.issue.body }}
           EOF
 
-      - name: Fetch Current depotkeys.bin
-        run: |
-          # Attempt to pull existing depotkeys.bin from data branch, fallback to CDN if not available
-          git fetch origin data:data 2>/dev/null && git checkout data -- depotkeys.bin || {
-            echo "Fetching depotkeys.bin baseline from CDN..."
-            curl -fsSL -o depotkeys.bin "https://raw.githubusercontent.com/arisvia/omni-steam/data/depotkeys.bin" || \
-            curl -fsSL -o depotkeys.bin "https://cdn.jsdelivr.net/gh/arisvia/omni-steam@data/depotkeys.bin" || \
-            echo "No existing depotkeys.bin found, initializing new."
-          }
-
-      - name: Validate & Merge Key
+      - name: Validate & Merge Key from Issue
         id: process_key
+        if: github.event_name == 'issues'
         run: |
           python tools/process_issue_key.py /tmp/issue_body.md depotkeys.bin > /tmp/process_output.txt 2>&1 || true
           cat /tmp/process_output.txt
@@ -59,17 +87,29 @@ jobs:
           APP_ID=$(grep "APP_ID:" /tmp/process_output.txt | cut -d':' -f2 || echo "")
           echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
 
-      - name: Force Push to Orphan data Branch
-        if: steps.process_key.outputs.result == 'MERGED'
+      - name: Force Push to Clean Single-Commit data Branch
+        if: |
+          (steps.sync_upstream.outputs.modified != '0' && steps.sync_upstream.outputs.modified != '') ||
+          steps.process_key.outputs.result == 'MERGED'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Switch to clean orphan branch 'data' to maintain single-commit 6MB history
-          git checkout --orphan data
-          git rm -rf . > /dev/null 2>&1 || true
+          # Reset data branch to a single root commit (orphan), keeping depotkeys.bin and signatures/ intact
+          COMMIT_MSG="chore(data): sync depot keys database [skip ci]"
+          if [ "${{ steps.process_key.outputs.result }}" = "MERGED" ]; then
+            COMMIT_MSG="chore(data): merge depot ${{ steps.process_key.outputs.depot_id }} for ${{ steps.process_key.outputs.game_title }} [skip ci]"
+          fi
+          
+          git checkout --orphan data-squashed
+          git rm -rf --cached . > /dev/null 2>&1 || true
           git add -f depotkeys.bin
-          git commit -m "chore(data): merge depot ${{ steps.process_key.outputs.depot_id }} for ${{ steps.process_key.outputs.game_title }} [skip ci]"
+          if [ -d signatures ]; then
+            git add -f signatures/
+          fi
+          git commit -m "$COMMIT_MSG"
+          git branch -D data 2>/dev/null || true
+          git branch -m data
           git push -f origin data
       - name: Comment on Issue (Success)
         if: steps.process_key.outputs.result == 'MERGED'

@@ -11,7 +11,9 @@ struct UnlockGameSpec {
     std::string gameName;
     std::vector<uint32_t> dlcAppIds;
     std::string accessToken;
-    std::string customManifestId;
+    uint32_t customManifestDepotId = 0;
+    std::string customManifestGid;
+    std::unordered_map<uint32_t, std::string> depotManifestIds;
     std::string depotKeyHex;
     std::string appTicketHex;
     std::string eTicketHex;

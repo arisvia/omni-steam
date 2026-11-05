@@ -83,6 +83,7 @@ inline constexpr const char* kAkamaiImageCdnBase =
     "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/";
 inline constexpr const char* kSteamDbAppBase = "https://steamdb.info/app/";
 inline constexpr const char* kSteamStoreAppBase = "https://store.steampowered.com/app/";
+inline constexpr const char* kSteamCmdInfoApi = "https://api.steamcmd.net/v1/info/";
 } // namespace Steam
 
 // ==============================================================================

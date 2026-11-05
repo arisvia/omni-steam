@@ -156,6 +156,19 @@ void TestUnrelatedFieldsPreserved() {
     OMNI_CHECK(out.size() > body.size());      // app entry grew by the token suffix
     std::cout << "[PASS] TestUnrelatedFieldsPreserved\n";
 }
+void TestTruncatedVarintRejected() {
+    ScopedToken guard(123, "999999");
+    // App entry (tag 0x0A, len 4): appId 123 (0x08, 0x7B), followed by token field tag (0x10)
+    // and a truncated varint byte (0x80) hitting EOF before termination.
+    // Old ReadVarint accepted ptr==end and yielded token=0, causing PatchAppEntry to patch
+    // and PatchProductInfoRequest to return true. ProtoFields::ReadVarint rejects truncated
+    // varints, returning false.
+    std::vector<uint8_t> truncatedBody = {0x0A, 0x04, 0x08, 0x7B, 0x10, 0x80};
+    std::vector<uint8_t> out;
+    OMNI_CHECK(!PicsTokenInjector::PatchProductInfoRequest(truncatedBody.data(),
+                                                           static_cast<uint32_t>(truncatedBody.size()), out));
+    std::cout << "[PASS] TestTruncatedVarintRejected\n";
+}
 
 int main() {
     std::cout << "Running OmniSteam PICS Token Injector Tests...\n";
@@ -173,6 +186,8 @@ int main() {
         TestCorrectTokenLeftUntouched();
         current = "TestUnrelatedFieldsPreserved";
         TestUnrelatedFieldsPreserved();
+        current = "TestTruncatedVarintRejected";
+        TestTruncatedVarintRejected();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[EXCEPTION] in %s: %s\n", current, e.what());
         return 2;

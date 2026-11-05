@@ -364,7 +364,7 @@ jobs:
           } > signatures/README.md
           cat signatures/README.md
 
-      - name: Commit and push
+      - name: Force Push to Clean Single-Commit data Branch
         run: |
           git config user.name "omnisteam-signature-bot"
           git config user.email "actions@users.noreply.github.com"
@@ -373,5 +373,15 @@ jobs:
             echo "No signature changes to push"
             exit 0
           fi
+          
+          # Reset data branch to a single orphan root commit, keeping depotkeys.bin and signatures/ intact
+          git checkout --orphan data-squashed
+          git rm -rf --cached . > /dev/null 2>&1 || true
+          git add -f signatures/
+          if [ -f depotkeys.bin ]; then
+            git add -f depotkeys.bin
+          fi
           git commit -m "chore(signatures): update harvested client signatures [skip ci]"
-          git push origin data
+          git branch -D data 2>/dev/null || true
+          git branch -m data
+          git push -f origin data

@@ -53,14 +53,15 @@ bool EnsureDepotManifest(uint32_t depotId, uint64_t manifestId) {
 void Install() {
     spdlog::info("Hooks_Manifest: Manifest redirection engine initialized");
 
-    // Scan all unlocked depots for configured custom manifest IDs and pre-cache them
-    auto unlockedApps = LuaConfig::GetUnlockedApps();
-    for (uint32_t id : unlockedApps) {
-        std::string manifestGidStr = LuaConfig::GetManifestId(id);
+    // Pre-cache manifests for all configured depots directly from manifestIds mapping
+    auto manifestMap = LuaConfig::GetManifestIds();
+    for (const auto& kv : manifestMap) {
+        uint32_t depotId = kv.first;
+        const std::string& manifestGidStr = kv.second;
         if (!manifestGidStr.empty()) {
             try {
                 uint64_t manifestGid = std::stoull(manifestGidStr);
-                EnsureDepotManifest(id, manifestGid);
+                EnsureDepotManifest(depotId, manifestGid);
             } catch (...) {
             }
         }

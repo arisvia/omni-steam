@@ -294,17 +294,96 @@ void CloudSaveManager::RecordSyncStatus(const CloudSyncStatus& status) {
     }
 }
 
-bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
+std::string CloudSaveManager::GetLocalBackupDirectory(uint32_t appId) {
+    return (fs::path(OmniPlatform::Paths::GetConfigDirectory()) / "backups" / std::to_string(appId)).generic_string();
+}
+
+bool CloudSaveManager::BackupAppSavesLocal(uint32_t appId) {
     AppLockGuard lock(appId);
     if (!lock.IsAcquired()) {
         spdlog::warn("CloudSaveManager: Backup already in progress for AppID {}, skipping concurrent attempt", appId);
         return false;
     }
-    if (webdav.serverUrl.empty()) {
-        spdlog::warn("CloudSaveManager: WebDAV server URL is empty");
-        RecordSyncStatus({appId, "backup", "failed", GetCurrentTimestamp(), 0, 0, "WebDAV server URL is empty"});
+
+    auto locations = SavePathResolver::LocateSaveDirectories(appId);
+    if (locations.empty()) {
+        spdlog::warn("CloudSaveManager: No save directories found for app {}", appId);
+        RecordSyncStatus({appId, "backup", "failed", GetCurrentTimestamp(), 0, 0, "No save directories found"});
         return false;
     }
+
+    std::string timestamp = GetCurrentTimestamp();
+    RecordSyncStatus({appId, "backup", "in_progress", timestamp, 0, 0, "Backing up to local snapshot repository..."});
+
+    std::string baseBackupDir = GetLocalBackupDirectory(appId);
+    std::string snapshotDir = (fs::path(baseBackupDir) / timestamp).generic_string();
+
+    size_t savedFiles = 0;
+    size_t totalBytes = 0;
+
+    try {
+        for (const auto& loc : locations) {
+            if (!loc.exists)
+                continue;
+            auto files = SavePathResolver::ScanSaveFiles(loc.path);
+            for (const auto& f : files) {
+                std::string relativePath = fs::relative(f, loc.path).generic_string();
+                fs::path targetPath = fs::path(snapshotDir) / relativePath;
+                fs::create_directories(targetPath.parent_path());
+
+                std::error_code ec;
+                fs::copy_file(f, targetPath, fs::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    savedFiles++;
+                    totalBytes += fs::file_size(targetPath, ec);
+                }
+            }
+        }
+
+        // Retain only the most recent 5 snapshots to avoid unlimited local disk growth
+        std::vector<fs::path> allSnapshots;
+        if (fs::exists(baseBackupDir)) {
+            for (const auto& entry : fs::directory_iterator(baseBackupDir)) {
+                if (entry.is_directory()) {
+                    allSnapshots.push_back(entry.path());
+                }
+            }
+        }
+        if (allSnapshots.size() > 5) {
+            std::sort(allSnapshots.begin(), allSnapshots.end());
+            for (size_t i = 0; i < allSnapshots.size() - 5; ++i) {
+                std::error_code ec;
+                fs::remove_all(allSnapshots[i], ec);
+            }
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("CloudSaveManager: Local snapshot backup failed for app {}: {}", appId, e.what());
+    }
+
+    bool ok = savedFiles > 0;
+    RecordSyncStatus({appId, "backup", ok ? "success" : "failed", timestamp, savedFiles, totalBytes,
+                      ok ? "Local snapshot saved successfully" : "No files copied"});
+    spdlog::info("CloudSaveManager: Local snapshot backup for app {} finished: {} files ({} bytes)", appId, savedFiles,
+                 totalBytes);
+    return ok;
+}
+
+bool CloudSaveManager::BackupAppSaves(uint32_t appId, const WebDavConfig& webdav) {
+    // If webdav is not configured, gracefully downgrade to local snapshot repository
+    if (webdav.serverUrl.empty()) {
+        spdlog::info("CloudSaveManager: WebDAV not configured, falling back to local snapshot backup for AppID {}",
+                     appId);
+        return BackupAppSavesLocal(appId);
+    }
+
+    AppLockGuard lock(appId);
+    if (!lock.IsAcquired()) {
+        spdlog::warn("CloudSaveManager: Backup already in progress for AppID {}, skipping concurrent attempt", appId);
+        return false;
+    }
+
+    // Also save a local snapshot first as offline safeguard
+    BackupAppSavesLocal(appId);
 
     auto locations = SavePathResolver::LocateSaveDirectories(appId);
     if (locations.empty()) {

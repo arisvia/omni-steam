@@ -2,6 +2,7 @@
 #include "omni_check.h"
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -93,6 +94,26 @@ void TestEnsureAppManifestInvalidApp() {
     OMNI_CHECK(!res);
     std::cout << "[PASS] TestEnsureAppManifestInvalidApp\n";
 }
+void TestManifestPinGeneration() {
+    // 1. Single custom manifest with explicit depot ID
+    Manager::UnlockGameSpec specSingle;
+    specSingle.appId = 1086940;
+    specSingle.customManifestDepotId = 1086941;
+    specSingle.customManifestGid = "123456789";
+    std::string luaSingle = Manager::ScriptManager::GenerateLuaScript(specSingle);
+    OMNI_CHECK(luaSingle.find("setManifestid(1086941, \"123456789\")") != std::string::npos);
+
+    // 2. Multi-depot manifest pins mapping
+    Manager::UnlockGameSpec specMulti;
+    specMulti.appId = 1086940;
+    specMulti.depotManifestIds[1086941] = "111111111";
+    specMulti.depotManifestIds[1086942] = "222222222";
+    std::string luaMulti = Manager::ScriptManager::GenerateLuaScript(specMulti);
+    OMNI_CHECK(luaMulti.find("setManifestid(1086941, \"111111111\")") != std::string::npos);
+    OMNI_CHECK(luaMulti.find("setManifestid(1086942, \"222222222\")") != std::string::npos);
+
+    std::cout << "[PASS] TestManifestPinGeneration\n";
+}
 
 int main() {
     std::cout << "Running OmniSteam Script Manager Tests...\n";
@@ -100,6 +121,7 @@ int main() {
     TestScriptLifecycle();
     TestScriptDeduplicationWithDepotKeys();
     TestEnsureAppManifestInvalidApp();
+    TestManifestPinGeneration();
     std::cout << "All Script Manager Tests Passed!\n";
     return 0;
 }
