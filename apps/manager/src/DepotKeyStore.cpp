@@ -354,4 +354,15 @@ std::unordered_map<uint32_t, std::string> DepotKeyStore::FindKeysForDepotIds(con
     return result;
 }
 
+std::unordered_map<uint32_t, std::string>
+DepotKeyStore::FindKeysForUnlock(uint32_t appId, const std::vector<uint32_t>& dlcAppIds,
+                                 const std::vector<uint32_t>& officialDepotIds) {
+    // Base depots come from exact SteamCMD metadata when available; DLC depots
+    // live in their own app records, so always merge the DLC key blocks too.
+    auto result = officialDepotIds.empty() ? FindDepotKeysForApp(appId) : FindKeysForDepotIds(officialDepotIds);
+    auto dlcKeys = FindDepotKeysForApp(0, dlcAppIds);
+    result.insert(dlcKeys.begin(), dlcKeys.end());
+    return result;
+}
+
 } // namespace Manager

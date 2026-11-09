@@ -15,5 +15,8 @@ public:
     static std::unordered_map<uint32_t, std::string> FindDepotKeysForApp(uint32_t appId,
                                                                          const std::vector<uint32_t>& dlcAppIds = {});
     static std::unordered_map<uint32_t, std::string> FindKeysForDepotIds(const std::vector<uint32_t>& depotIds);
+    static std::unordered_map<uint32_t, std::string>
+    FindKeysForUnlock(uint32_t appId, const std::vector<uint32_t>& dlcAppIds = {},
+                      const std::vector<uint32_t>& officialDepotIds = {});
 };
 } // namespace Manager

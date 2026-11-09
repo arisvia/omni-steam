@@ -210,22 +210,16 @@ int main(int argc, char* argv[]) {
                 spec.dlcAppIds = details.dlcAppIds;
             }
 
-            // 1. Try querying exact official depots metadata via SteamApi
+            // Resolve base depots and DLC-owned depots in one pass.
             auto officialDepots = Manager::SteamApi::GetAppDepots(appId);
-            std::unordered_map<uint32_t, std::string> keys;
-            if (!officialDepots.empty()) {
-                std::vector<uint32_t> targetDepotIds;
-                for (const auto& d : officialDepots) {
-                    // Only request keys for non-shared depots
-                    if (!d.isShared) {
-                        targetDepotIds.push_back(d.depotId);
-                    }
+            std::vector<uint32_t> targetDepotIds;
+            for (const auto& d : officialDepots) {
+                // Only request keys for non-shared depots
+                if (!d.isShared) {
+                    targetDepotIds.push_back(d.depotId);
                 }
-                keys = Manager::DepotKeyStore::FindKeysForDepotIds(targetDepotIds);
-            } else {
-                // 2. Fallback to range scan ONLY if official depot metadata was unavailable or offline
-                keys = Manager::DepotKeyStore::FindDepotKeysForApp(appId, spec.dlcAppIds);
             }
+            auto keys = Manager::DepotKeyStore::FindKeysForUnlock(appId, spec.dlcAppIds, targetDepotIds);
 
             for (const auto& kv : keys) {
                 spec.depotKeys[kv.first] = kv.second;

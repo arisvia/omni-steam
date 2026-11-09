@@ -94,22 +94,16 @@ DenuvoImportResult DenuvoImporter::ImportTickets(uint32_t appId, const std::stri
     spec.appTicketHex = appTicketHex;
     spec.eTicketHex = eTicketHex;
 
-    // Check main game depot key
-    std::string mainKey = DepotKeyStore::GetKeyForDepot(appId);
-    if (!mainKey.empty()) {
-        spec.depotKeyHex = mainKey;
-        res.resolvedDepotKeysCount++;
-    } else {
-        res.missingDepots.push_back(appId);
-    }
-
-    // Check DLC depot keys
-    for (uint32_t dlcId : details.dlcAppIds) {
-        std::string dlcKey = DepotKeyStore::GetKeyForDepot(dlcId);
-        if (!dlcKey.empty()) {
-            spec.depotKeys[dlcId] = dlcKey;
-            res.resolvedDepotKeysCount++;
+    auto keys = DepotKeyStore::FindKeysForUnlock(appId, details.dlcAppIds);
+    for (const auto& [depotId, keyHex] : keys) {
+        spec.depotKeys[depotId] = keyHex;
+        if (depotId == appId) {
+            spec.depotKeyHex = keyHex;
         }
+    }
+    res.resolvedDepotKeysCount = keys.size();
+    if (!DepotKeyStore::HasKey(appId)) {
+        res.missingDepots.push_back(appId);
     }
 
     // 5. Generate and save the all-in-one unlock script

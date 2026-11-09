@@ -49,6 +49,15 @@ void TestDepotKeyStore() {
     OMNI_CHECK(exactKeys.count(367521) > 0);
     OMNI_CHECK(exactKeys.count(999999999) == 0);
 
+    // Exact base depots must not suppress DLC-owned depot keys.
+    auto wukongUnlockKeys = Manager::DepotKeyStore::FindKeysForUnlock(2358720, {2672610, 3288260}, {2358721});
+    OMNI_CHECK(wukongUnlockKeys.count(2358721) > 0);
+    OMNI_CHECK(wukongUnlockKeys.count(2672611) > 0);
+    OMNI_CHECK(wukongUnlockKeys.count(3288261) > 0);
+    auto driverKeys = Manager::DepotKeyStore::FindKeysForUnlock(920490, {920630}, {920491});
+    OMNI_CHECK(driverKeys.count(920491) > 0);
+    OMNI_CHECK(driverKeys.count(920630) > 0);
+
     std::cout << "[PASS] TestDepotKeyStore (Binary format loaded & Depot 1 verified)\n";
 }
 

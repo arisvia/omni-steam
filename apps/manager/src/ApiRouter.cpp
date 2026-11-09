@@ -373,20 +373,15 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
                     spec.dlcAppIds = details.dlcAppIds;
                     dlcCount = spec.dlcAppIds.size();
 
-                    // Query official depots first for precise key resolution
+                    // Resolve base depots and DLC-owned depots in one pass.
                     auto officialDepots = SteamApi::GetAppDepots(appId);
-                    std::unordered_map<uint32_t, std::string> matchedKeys;
-                    if (!officialDepots.empty()) {
-                        std::vector<uint32_t> targetDepotIds;
-                        for (const auto& d : officialDepots) {
-                            if (!d.isShared) {
-                                targetDepotIds.push_back(d.depotId);
-                            }
+                    std::vector<uint32_t> targetDepotIds;
+                    for (const auto& d : officialDepots) {
+                        if (!d.isShared) {
+                            targetDepotIds.push_back(d.depotId);
                         }
-                        matchedKeys = DepotKeyStore::FindKeysForDepotIds(targetDepotIds);
-                    } else {
-                        matchedKeys = DepotKeyStore::FindDepotKeysForApp(appId, details.dlcAppIds);
                     }
+                    auto matchedKeys = DepotKeyStore::FindKeysForUnlock(appId, details.dlcAppIds, targetDepotIds);
 
                     for (const auto& [depotId, keyHex] : matchedKeys) {
                         if (depotId == appId) {
