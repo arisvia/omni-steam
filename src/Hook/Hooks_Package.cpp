@@ -120,6 +120,7 @@ bool MarkLicenseAsChangedAndProcessUpdates() {
     if (!AtomicLoadPtr(g_pCUser) || !oMarkLicenseAsChanged || !oProcessPendingLicenseUpdates || g_inBroadcast.load()) {
         return false;
     }
+    g_inBroadcast.store(true);
     oMarkLicenseAsChanged(AtomicLoadPtr(g_pCUser), kInjectedPackageId, true);
     oProcessPendingLicenseUpdates(AtomicLoadPtr(g_pCUser));
     g_inBroadcast.store(false);

@@ -407,13 +407,13 @@ HOOK_FUNC(BBuildAndAsyncSendFrame, bool, void* pObject, int eWebSocketOpCode, ui
             std::string target_job_name;
             ParseProtoHeader(pHdr, cbHdr, jobid_source, jobid_target, target_job_name);
 
-            if (target_job_name == "ContentServerDirectory.GetManifestRequestCode#1") {
+            if (target_job_name.find("ContentServerDirectory.GetManifestRequestCode") == 0) {
                 uint32_t appId = 0, depotId = 0;
                 uint64_t manifestId = 0;
                 if (ParseManifestRequest(pBody, cbBody, appId, depotId, manifestId)) {
-                    spdlog::info("Hooks_NetPacket: Intercepted GetManifestRequestCode request (Depot: {}, GID: {}, "
-                                 "JobId: {})",
-                                 depotId, manifestId, jobid_source);
+                    spdlog::info("Hooks_NetPacket: GetManifestRequestCode method={} App={} Depot={} GID={} JobId={}",
+                                 target_job_name, appId, depotId, manifestId, jobid_source);
+                    spdlog::debug("Hooks_NetPacket: Parsed GetManifestRequestCode request");
 
                     uint64_t cached = ManifestClient::GetCachedRequestCode(manifestId);
                     if (cached != 0) {
@@ -797,21 +797,17 @@ void AppendKVField(std::vector<uint8_t>& friendMsg, uint32_t field, const std::s
 
 // Rewrites the self Friend entry inside a PersonaState body for the given
 // appid (0 = clear). Returns the full patched PersonaState body.
-std::optional<std::vector<uint8_t>> PatchPersonaStateBody(const std::vector<uint8_t>& body, AppId_t appid) {
+// Lock-free by contract: callers snapshot g_RPKvsByAppId under g_RPMutex (or
+// already hold it) and pass the KVs in. Locking here deadlocked the send
+// thread, which calls this from TrackRPStateSend while holding g_RPMutex.
+std::optional<std::vector<uint8_t>> PatchPersonaStateBody(const std::vector<uint8_t>& body, AppId_t appid,
+                                                          const std::vector<RPKv>& kvs) {
     const uint8_t* ptr = body.data();
     const uint8_t* end = body.data() + body.size();
     std::vector<uint8_t> out;
     out.reserve(body.size() + 128);
     bool haveStatusFlags = false;
     uint64_t statusFlags = 0;
-
-    std::vector<RPKv> kvs;
-    {
-        std::lock_guard<std::mutex> lock(g_RPMutex);
-        auto it = g_RPKvsByAppId.find(appid);
-        if (it != g_RPKvsByAppId.end())
-            kvs = it->second;
-    }
 
     while (ptr < end) {
         const uint8_t* fieldStart = ptr;
@@ -882,10 +878,15 @@ std::optional<std::vector<uint8_t>> PatchPersonaStateBody(const std::vector<uint
     return out;
 }
 
+// Caller MUST hold g_RPMutex (TrackRPStateSend).
 bool BuildRPInject(AppId_t appid) {
     if (!g_RPHaveSelfTemplate)
         return false;
-    auto patched = PatchPersonaStateBody(g_RPSelfBody, appid);
+    std::vector<RPKv> kvs;
+    auto kvIt = g_RPKvsByAppId.find(appid);
+    if (kvIt != g_RPKvsByAppId.end())
+        kvs = kvIt->second;
+    auto patched = PatchPersonaStateBody(g_RPSelfBody, appid, kvs);
     if (!patched)
         return false;
 
@@ -943,6 +944,8 @@ void TrackRPStateSend(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody,
 // Returns true when the packet was rewritten in place (patched self push).
 bool HandlePersonaStateRecv(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* pBody, uint32_t cbBody,
                             CNetPacket* pPacket) {
+    AppId_t playingApp = 0;
+    std::vector<RPKv> kvs;
     {
         std::lock_guard<std::mutex> lock(g_RPMutex);
         if (g_RPLocalSteamId != 0) {
@@ -977,12 +980,18 @@ bool HandlePersonaStateRecv(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* 
             if (!selfPresent)
                 return false; // other friends' pushes: untouched
         }
+        playingApp = g_RPPlayingAppId;
+        if (playingApp != 0) {
+            auto kvIt = g_RPKvsByAppId.find(playingApp);
+            if (kvIt != g_RPKvsByAppId.end())
+                kvs = kvIt->second;
+        }
     }
 
-    if (g_RPPlayingAppId == 0)
+    if (playingApp == 0)
         return false;
 
-    auto patched = PatchPersonaStateBody(std::vector<uint8_t>(pBody, pBody + cbBody), g_RPPlayingAppId);
+    auto patched = PatchPersonaStateBody(std::vector<uint8_t>(pBody, pBody + cbBody), playingApp, kvs);
     if (!patched)
         return false;
     uint32_t newSize = 0;
@@ -991,7 +1000,7 @@ bool HandlePersonaStateRecv(const uint8_t* pHdr, uint32_t cbHdr, const uint8_t* 
         return false;
     pPacket->m_pubData = poolBuf;
     pPacket->m_cubData = newSize;
-    spdlog::info("Hooks_NetPacket: Patched self PersonaState with appid {}", g_RPPlayingAppId);
+    spdlog::info("Hooks_NetPacket: Patched self PersonaState with appid {}", playingApp);
     return true;
 }
 
