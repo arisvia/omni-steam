@@ -86,25 +86,22 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
                                      → Package 0 增量增删(不重复膨胀)
 ```
 
-### 关键自愈设计
+### 关键自愈与保护机制
 
-- **请求码缓存**：`cache/manifest_request_codes.bin` 持久化 GID→code；负缓存 10 分钟 TTL
-  防止对失效 GID 无限轰炸上游。Steam 约 45s 自动重试一次即可命中缓存。
-- **增量许可同步**：Core 记录自己注入过的 ID 集合，重载时只做差量 FastRemove/Grow-append，
-  多次热重载不会重复膨胀 Package 0；Steam 自行重建 Package 后也能自愈。
-- **RVA 缓存**：`cache/pattern_<SHA256>.cache` 以二进制哈希为键，版本不变零扫描；
-  含合理性校验（RVA 上限 512MB），损坏缓存自动丢弃。
-
+- **请求码持久化缓存**：`cache/manifest_request_codes.bin` 持久化 GID→code；瞬时上游失败不设负缓存 TTL，保证 Steam 下一次重试即可无缝恢复。
+- **增量许可同步**：Core 跟踪已注入 ID 集合，热重载执行差量 FastRemove / Grow-append，避免多次热重载导致 Package 0 无序膨胀。
+- **二进制哈希 RVA 缓存**：`cache/pattern_<SHA256>.cache` 按二进制哈希键控；合理性上限（512MB）与损坏自动丢弃重搜。
+- **非阻塞式进程退出生命周期**：Core 拦截 `SpawnProcess` 派发后台静默备份，游戏退出信号以单次文件落地；Steam 退出时保留挂钩内存由操作系统统一回收，杜绝在 Loader Lock 下逆序卸载引起 CRT fastfail（BEX64）。
 ---
 
 ## 3. Core 子系统明细
 
 | 模块 | 职责 | 关键实现点 |
 | :--- | :--- | :--- |
-| `Hooks_Package` | 所有权与许可证 | CheckAppOwnership / GetPackageInfo / CUtlMemoryGrow / MarkLicenseAsChanged；原子化并发防护；反作弊白名单优先短路 |
-| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（复用 ProtoFields，含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入；成就双协议伪造与 Tier 3 离线/宕机平滑保底（合成 k_EResultOK）；Denuvo 票据纯协议层拦截（eMsg 5527/858） |
+| `Hooks_Package` | 所有权与许可证 | CheckAppOwnership / GetPackageInfo / CUtlMemoryGrow / MarkLicenseAsChanged；原子化并发防护；反作弊白名单优先短路；广播期间完备重入守卫 |
+| `Hooks_NetPacket` | CM 协议拦截 | 手写 protobuf varint 解析（复用 ProtoFields，含越界防护）；追加字段式报文改写；32 槽互斥包池；GetManifestRequestCode 缓存优先注入；成就双协议伪造与 Tier 3 离线/宕机平滑保底（合成 k_EResultOK）；RichPresence 状态跟踪与无死锁投递；Denuvo 票据纯协议层拦截（eMsg 5527/858） |
 | `Hooks_CallBack` | 回调与事件拦截 | 拦截 `Steam_BGetCallback` / `Steam_FreeLastCallback` C API 边界，线程局部标志隔离与独立 FIFO 异步事件队列分发（如 LicensesUpdated_t），杜绝锁重入死锁 |
-| `Hooks_IPC` | IPC 消息拦截与 Denuvo 凭据伪装 | 拦截 IPCProcessMessage，针对 IClientUser::GetSteamID 调用，从已缓存的所有权票据（AppOwnershipTicket）提取出资者 SteamID 进行动态伪装，消除 Denuvo 离线授权比对失效导致的 012/54 报错 |
+| `Hooks_IPC` | IPC 消息拦截与 Denuvo | 拦截 `IPCProcessMessage`，在 CUtlBuffer C API 边界改写 GetSteamID 应答；零注入代理模式与游戏侧解耦 |
 | `PicsTokenInjector` | PICS 令牌 | eMsg 8903 请求中为 addtoken 配置的 App 追加/覆盖 access_token，其余字段逐字节保留 |
 | `Hooks_Decryption` | Depot 密钥 | 大小写不敏感零分配快速拒绝，仅在命中 decryptionkey 时分配 |
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |

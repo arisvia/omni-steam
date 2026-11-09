@@ -1,122 +1,21 @@
 # OmniSteam 开发路线图 (Roadmap)
 
-> 状态基线：2026-11。阶段 1–8 全线落地完成；阶段 9 为下一阶段演进规划。
+> 状态基线：2026-11。全功能全平台完整可用，持续演进中。
 
-## 阶段总览
+## 1. 核心架构与功能现状 【✅ 全部落地】
 
-```
-[1 跨平台基建] → [2 特征码与IPC核心] → [3 Manager面板] → [4 云存档WebDAV] → [5 发布打包] → [6 全链路加固] → [7 断点补全] → [8 架构演进] → [9 协议与脱机深化]
-    ✅               ✅                   ✅                ✅                ✅             ✅             ✅             ✅             📋 规划就绪
+| 模块 | 实施状态 | 核心实现与保障 |
+| :--- | :--- | :--- |
+| **跨平台底层 (OmniPlatform)** | ✅ Windows / Linux / macOS | funchook 统一挂钩；系统目录监视双缓冲热重载；跨平台统一进程探测（`/proc`、`sysctl`、Toolhelp）。 |
+| **协议与所有权核心 (Core)** | ✅ 全平台 | Package 0 原生增量扩容；AES 密钥快速回填；追加字段式请求码与令牌改写；无锁化 RichPresence 状态投递。 |
+| **成就系统与高可用** | ✅ 全平台 | Player.GetUserStats / eMsg 818 双协议劫持；stats 节点宕机/断网 Tier 3 自动本地合成空响应保底。 |
+| **安全与防崩溃机制** | ✅ 全平台 | 30+ 款竞技游戏反作弊白名单直通；进程退出 detours 由 OS 回收杜绝 Loader Lock 崩溃；`g_watchThread` 显式分离。 |
+| **Manager 独立管理端** | ✅ Web / CLI / 托盘 | 本地 23 万+ Depot 密钥与 CDN 实时同步；Lua 一键生成与 Base/DLC Depot 密钥单趟合并；Windows 状态托盘与有序关停。 |
+| **跨平台云存档** | ✅ WebDAV / 本地快照 | `remotecache.vdf` 零开销路径解析；游戏退出单次文件事件唤醒；本地滚动快照与 WebDAV 双通道。 |
+| **CI 与自动化签名维保** | ✅ 4 平台原生 Runner | Linux ELF `.eh_frame_hdr` 与 macOS Mach-O `LC_FUNCTION_STARTS` 自动符号派生；多平台二进制与测试矩阵联动。 |
+## 2. 后续演进规划 【📋 规划中】
 
----
+1. **纯本地成就 Schema 离线构造**：客户端本地解包游戏 appcache / Schema 元数据并拦截 `CMsgClientGetUserStatsResponse` 合成本地响应，消除外部供体（Donor）依赖。
+2. **离线 LAN 联机广播支持**：局域网 Lobby 广播与 SteamSockets 本地模拟，覆盖断网对战场景。
+3. **游戏侧 steam_api 伴侣模式**：覆盖非 Steam 客户端直接拉起场景的对等 API 代理。
 
-## 阶段 1：跨平台抽象基建 (OmniPlatform) 【✅ 已完成】
-- [x] 统一 OS 抽象 `OmniPlatform.h`（Detour / DynamicLibrary / ByteSearch / DirectoryWatch / Http / Hash / Process / CredentialStore 等）。
-- [x] funchook (Capstone 5.0.1) 多平台 Hook 封装，事务化 attach/commit。
-- [x] Windows (PE/WinHttp/Registry)、Linux (ELF/inotify/libcurl)、macOS (Mach-O/kqueue) 实现。
-- [x] 嵌入式 Lua 5.4 与全局 API 注册（addappid / addtoken / setManifestid / setAppTicket / setETicket / addinject）。
-
-## 阶段 2：特征码扫描与 IPC 拦截核心 【✅ 已完成】
-- [x] SHA256 键控 RVA 缓存 (`cache/pattern_<sha256>.cache`)：版本不变零扫描；含 RVA 合理性校验。
-- [x] 手写 protobuf varint 编解码（无依赖、含越界防护），eMsg 151/147 服务方法拦截。
-- [x] `Hooks_Decryption`：ConfigStore_GetBinary 密钥回填（热路径零分配快速拒绝）。
-- [x] `ManifestClient`：多上游请求码解析（omnisteam / opensteamtool / wudrm / steamrun / 自定义）+ 持久化正缓存 + 负缓存 TTL。
-
-## 阶段 3：Manager 面板 【✅ 已完成】
-- [x] 三层架构 WebServer / ApiRouter / StaticAssets；Steam Store 检索与 DLC 树抓取。
-- [x] ScriptManager：Lua 一键生成、启用/停用/删除、appmanifest 预创建。
-- [x] DepotKeyStore：本地多路径加载 + CDN 四镜像后台同步 + config.vdf 补录。
-
-## 阶段 4：WebDAV 云存档 【✅ 已完成】
-- [x] SavePathResolver（userdata / Proton compatdata 穿透）、WebDavClient（MKCOL/PUT/GET/DELETE, Basic/Digest）、CloudSaveManager 时间戳版本化备份还原。
-
-## 阶段 5：SteamOS 整合与打包 【✅ 已完成】
-- [x] Decky Loader 插件 (`plugins/decky-omnisteam`)、免 root 安装脚本、CPack 打包 (TGZ/ZIP/DEB)。
-
-## 阶段 6：全链路加固与正确性修复 【✅ 已完成 2026-08】
-
-### 正确性
-- [x] `CheckAppOwnership` 返回值对齐规范（bFreeLicense=false，消除与 bOwnsLicense 的矛盾状态）。
-- [x] Package 0 热重载改为**增量注入/FastRemove**——修复多次重载重复膨胀 Package 0 的缺陷。
-- [x] LuaConfig `GetManifestId` 数据竞争修复；整体重构为**双缓冲快照**（消除重载期间所有权瞬断窗口）；多目录一次性重建（修复互相覆盖）。
-- [x] 移除 Linux/macOS 相同函数序言伪签名（原实现会将多个 hook 挂到同一随机地址），改为主动休眠 + 明确告警。
-- [x] Manifest 上游 URL 修正（wudrm: `gmrc.wudrm.com/manifest`、steamrun: `manifest.steam.run/api/manifest`，与上游实现对齐）。
-- [x] Core 初始化等待 steamclient 加载 5s→60s，超时明确报错退出（原为假装成功继续安装）。
-
-### 稳定性与性能
-- [x] RecvPkt 不再阻塞网络线程 8s：缓存优先 + 有界等待 2.5s + 异步结果落盘自愈。
-- [x] 注入报文改为追加字段式改写（保留原始 header/body 全部字段）。
-- [x] 数据包池互斥保护并扩容至 32 槽；protobuf 解析补齐全部边界检查。
-- [x] Hooks_Package / Hooks_Misc 共享状态原子化；DlcStore 缓存锁外写盘 + 原子替换。
-- [x] DepotKeyStore 32 位构建整数溢出防护、记录数上限、强制排序保证二分查找正确性。
-- [x] Manager CLI/API 全部数值解析防溢出崩溃；CoreInstaller 校验解压退出码。
-
-### 安全
-- [x] `/api/toggle|delete` 受管目录白名单双重校验（Router 层 + ScriptManager 层），阻断任意路径文件操作。
-- [x] WebDAV 密码不再回显（passwordSet + `__OMNI_KEEP__` 保持机制）；TOML 写入转义 + 原子替换。
-- [x] Lua 沙箱移除 io 库整体与 package.loadlib；token 不再写入日志。
-- [x] 生成的 Lua 脚本字符串全量转义，阻断脚本注入。
-
-## 阶段 7：断点补全与新特性 【🚧 进行中】
-
-按优先级排序（详细背景见 ARCHITECTURE.md §5）：
-
-- [x] **PICS 访问令牌注入**（2026-08）：新增 `PicsTokenInjector` 模块消费 `addtoken` 收集的 access token，
-      拦截 eMsg 8903 CMsgClientPICSProductInfoRequest，对已解锁且配置了令牌的 App 条目以追加字段方式
-      覆盖 access_token（保留其余字段）；配套 `PicsTokenTests` 单元套件。
-- [x] **Stats 成就统计上报**（2026-08）：新增 `StatsClient`（供体 SteamID 解析：Lua
-      setStatSteamid > 本地缓存 > stats.opensteamtool.com，含 10 分钟失败退避）+
-      eMsg 151/147 Player.GetUserStats 与 eMsg 818/819 CMsgClientGetUserStats 双协议伪造
-      （改写请求 SteamID、剥离服务器统计、eresult→OK）；新增可复用 `ProtoFields` 手写 protobuf
-      字段操作库与 `StatsProtoTests` 套件；Lua 新增 setStatSteamid API。
-- [x] **addinject 接线**（2026-08）：`SpawnProcess` 后按 exe 文件名轮询新进程（基线快照去重、PID 认领防重复注入），
-      自动调用 `ProcessInjector::InjectForApp`；平台层新增 `Process::FindProcessIdsByName`
-      （Toolhelp32 / /proc / sysctl），注入器增加 WOW64 跨位数拒绝防护。
-- [x] **仪表盘基础防护**（2026-08）：ApiRouter 全局 Host 回环校验（阻断 DNS 重绑定）+
-      POST/PUT/DELETE Origin 回环校验（阻断浏览器 CSRF，非浏览器客户端不受影响）。
-- [x] **下载产物完整性校验**（2026-08）：新增 `DownloadVerifier`——depotkeys.bin 与 Core 安装包下载后
-      校验可选发布的 `<url>.sha256` 边车文件，摘要不匹配即拒绝该镜像（缺失/畸形边车宽松放行）。
-- [x] **Linux/macOS 运行时符号解析**（2026-08）：新增 `SymbolTable` 跨平台符号表枚举
-      （ELF 节区解析含 32/64 位、Mach-O LC_SYMTAB 内存遍历、PE 导出表），PatternLoader 直接从
-      目标模块自身符号数据解析 hook 目标；模糊匹配歧义自动跳过防止挂错地址。
-      ⚠️ 实采勘误：官方客户端的 steamclient 库已被 strip（首次采集 5 个 TOML 全空证实），
-      该路径仅在未 strip 的发行版上生效。
-- [x] **Linux/macOS 特征签名采集流水线**（2026-08）：`tools/harvest_signatures.py` 跨格式
-      （ELF/Mach-O/PE）符号采集 + `signature-harvest.yml` 三平台工作流（二进制仅入私有 artifact，
-      签名 TOML 自动回推仓库，空结果不产出 TOML）；作为离线兜底层。
-- [x] **Windows 特征码运行时远程兜底**（2026-08）：PatternLoader 在内置特征码失配时自动从 CDN
-      镜像拉取当前二进制哈希对应的签名库（depotkeys.bin 同款分发模型）；`tools/sync_upstream_patterns.py`
-      对接上游真实锚点库 `OpenSteam001/steam-monitor@pattern`（锚点→本地官方二进制派生→验证）；
-      上游未锚定新版本属预期状态（exit 0），Windows 继续走内置特征码。
-- [x] **语义锚点自动派生 / 自环闭环**（2026-08）：`tools/derive_signatures.py` 实现 vtable
-      槽位迁移——以任一已锚定版本为参照，经 RTTI（MSVC image-relative COL / Itanium
-      type_info）定位同类 vtable，槽位序号跨版本不变即可迁移函数地址；字符串 xref 派生
-      作为辅助层。验证：自环 7/7 与上游锚定值精确一致；跨版本迁移与内置特征码独立命中
-      交叉验证同址（RecvPkt）。工作流接入：Windows 安装期快照参照二进制 + 上游锚点匹配
-      时自动派生并回推仓库；参照二进制以 90 天私有 artifact 持久化供跨 run 使用。
-      CI 采集时效同步修正：Windows 等待运行时自更新收敛（哈希连续 2 分钟稳定），
-      Linux 无条件 steamcmd 自更新后采集（安装器/bootstrap 版本滞后于运行时自更新）。
-      Linux/macOS 迁移仍需一个已锚定参照（上游扩展或 VM 逆向首例）。
-- [x] **上游对齐 + 第二轮加固**（2026-08）：结构布局改为 `offsetof` 静态断言自证
-      （移除与真实客户端布局相悖的手工 `SteamOffsets` 表）；移除未经验证的 `CUser+0x1E4`
-      SteamId32 写入；`LuaConfig` addtoken/setStat 改走 staging 槽（热重载不再丢 token）；
-      `SteamIPC.BufferReader` 溢出安全 + 截断可检测；ManifestClient 磁盘缓存全程持锁；
-      hook 挂载真实结果登记（core_status.json 不再假绿）；注册表票据动态尺寸读取；
-      WebUI 全量 HTML 转义 + 修复 I18N `en:` 块缺失导致的整页脚本失效；WebServer POSIX
-      `shutdown()` 唤醒 accept。
-- [x] **特征码采集按架构分桶**（2026-08）：`harvest_signatures.py` 按 ELF 类/机器码输出
-      `linux-x64` / `linux-i386` 规范目录（此前 32 位 steamclient.so 的签名被错误归入
-      linux-x64，i386 端 PatternLoader 永远 404）；collect 步骤直接透传规范目录。
-- [x] **全平台特征码点亮与 CI 流水线打通**（2026-09）：修复 macOS Mach-O 符号自动派生（LC_FUNCTION_STARTS + 字符串 xref 提取）；对齐 CI 输出规范路径（`windows-x64` / `linux-x64` / `macos-universal`）；测试盲区闭环。
-- [x] **游戏退出静默云存档与状态同步引擎**（2026-09）：`MonitorGameLifecycle` 在游戏进程退出时自动触发非阻塞后台 CLI 备份；Manager `Paths::RegisterManagerExecutablePath` 自注册与全平台解析；`CloudSaveManager` 跨进程 `AppLockGuard` 单飞互斥防并发争抢；`CloudSyncStatus` 临时文件原子替换与无损 JSON 转义往返；开放 `GET /api/cloud/status` 实时状态监控；Steam `remotecache.vdf` UFS 精确物理路径映射；跨平台 `IsProcessRunning`（Linux `/proc/stat` 僵尸态识别、Darwin `proc_pidinfo`、Windows `GetExitCodeProcess`）。
-
-## 阶段 8：架构演进与深水区探索 【🚀 架构落地】
-- [x] **RFC 001 落地：Denuvo 票据隐身交付**：纯协议层 eMsg 5527/858 拦截 + 游戏侧零注入代理模式，彻底规避命名管道被 EAC/BE 检测（见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)）。
-- [x] **RFC 002 落地：安全化 IPC 回调拦截**：`Steam_BGetCallback` C API 边界拦截 + 异步队列非重入隔离 + `AntiCheatGuard` 白名单直通（见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)）。
-- [x] **成就系统三级保底机制**（2026-10）：针对 `stats.opensteamtool.com` 上游偶发 HTTP 530 或断网问题，实现 Tier 3 离线保底；`BBuildAndAsyncSendFrame` 截断错误并合成 `k_EResultOK` 空响应，`RecvPkt` 载荷借用模式投递，客户端稳定显示 0% 进度且绝不报错崩溃。
-- [x] **跨平台进程 API 收敛与 ScriptManager 性能优化**（2026-10）：全局复用 `OmniPlatform::Process`（彻底淘汰私有 Win32 Toolhelp/POSIX kill）；ScriptManager 基于目录 mtime 内存缓存，彻底消除 WebUI 轮询磁盘穿透。
-- [x] **守护进程无 Socket 架构与自愈路径**（2026-10）：严格遵从无 Socket 规范，Core 游戏退出派发单次文件事件；Manager 启动自愈刷新自启注册表/Desktop 入口，支持任意目录自由移动。
-
-## 阶段 9：协议深化与脱机自主化 【📋 规划中】
-- [ ] **纯本地成就 Schema 离线构造**：本地直接解析游戏 appcache/Schema 并拦截 CMsgClientGetUserStatsResponse 合成本地全量成就进度，彻底摆脱外部 Donor 依赖。
-- [ ] **离线 LAN 联机广播支持**：局域网 Lobby 广播与 SteamSockets 本地模拟。

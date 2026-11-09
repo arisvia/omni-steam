@@ -12,22 +12,19 @@ Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路、派生特�
 ---
 
 ## 核心特性
-
-- **隐身注入**：Windows `xinput1_4.dll` 代理劫持（透明转发系统 XInput 全部导出；dwmapi 代理已退役，64 位 steam.exe 可能经 KnownDLLs 直取系统 dwmapi）；Linux `LD_PRELOAD`；macOS `DYLD_INSERT_LIBRARIES`。
-- **自适应特征寻址**：基于 Steam 二进制 SHA256 键控 RVA 缓存（`cache/pattern_<sha256>.cache`），
-  版本不变零扫描直通；升级后自动重扫。Windows 特征码已与上游签名库逐一核对。
+- **隐身注入**：Windows `xinput1_4.dll` 代理劫持（系统导出透明转发）；Linux `LD_PRELOAD`；macOS `DYLD_INSERT_LIBRARIES`。
+- **自适应特征寻址**：基于 Steam 二进制 SHA256 键控 RVA 缓存（`cache/pattern_<sha256>.cache`），版本不变零扫描；升级后自动重扫。
 - **全协议解锁链路**：
   - `CheckAppOwnership` 所有权伪装（bOwnsLicense=true / bFreeLicense=false / PackageId=0）；
-  - Package 0 经 Valve 原生 `CUtlMemoryGrow` **增量**注入 AppID/DepotID（热重载零膨胀、可自愈）；
+  - Package 0 经 Valve 原生 `CUtlMemoryGrow` **增量**注入 AppID/DepotID（热重载零膨胀）；
   - `ConfigStore_GetBinary` 回填 Depot AES-256 解密密钥；
-  - `GetManifestRequestCode` 拦截 + **持久化正缓存 / 10 分钟负缓存**，eresult=OK 追加字段式注入（保留原始报文全部字段）；
+  - `GetManifestRequestCode` 拦截 + 持久化缓存，追加字段式注入（保留原始报文）；
   - Legacy CD-Key（eMsg 730 → 本地合成 785）；`-onlinefix` AppID 480 伪装与控制器/覆盖层还原；
-  - PICS 访问令牌注入（`addtoken` → eMsg 8903，追加字段式覆盖、保留原始报文）；
-  - steamui `FillInAppOverview` 合成购买时间戳保证库内即时可见与永久留存；
-  - 成就协议双层劫持（Player.GetUserStats 与 eMsg 818/819）+ 离线/宕机平滑兜底（合成本地 k_EResultOK）；
+  - PICS 访问令牌注入（`addtoken` → eMsg 8903 追加字段）；
+  - steamui `FillInAppOverview` 合成购买时间戳，确保库内即时可见与留存；
+  - 成就协议双层劫持（Player.GetUserStats 与 eMsg 818/819）+ Tier 3 离线保底（本地合成空 k_EResultOK）；
   - Denuvo 离线票据隐身传递（纯协议层，零跨进程注入、零命名管道，见 RFC 001）；
-  - 安全化 IPC 回调拦截（C API 边界拦截 + 异步事件隔离，见 RFC 002）。
-- **反作弊安全白名单 (`AntiCheatGuard`)**：CS2 / Dota 2 / TF2 / Apex 等 30+ 竞技游戏自动识别并透明直通原生逻辑。
+  - 安全化 IPC 回调拦截（C API 边界拦截 + 异步队列非重入隔离，见 RFC 002）。
 - **内核级热重载**：双缓冲快照机制——读端永远看到完整配置，Lua 目录递归监视秒级生效且所有权判定无瞬断窗口。
 - **Manager CLI + Web 仪表盘 (`omnisteam`)**：
   - Steam Store 实时检索（AppID / DLC 树）、一键生成解锁脚本并自动匹配 `depotkeys.bin`（23 万+ 条，CDN 四镜像自动同步）；
@@ -113,14 +110,13 @@ omnisteam backup [AppID]        # 云存档备份 / restore <AppID> 还原
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、全链路数据流、模块明细、已知断点 |
-| [docs/INJECTION_STRATEGY.md](docs/INJECTION_STRATEGY.md) | 各平台注入方案对比与实施状态 |
-| [docs/COMPARISON.md](docs/COMPARISON.md) | 与 GreenLuma / OpenSteamTool / SmokeAPI 等同类项目的对比分析 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 开发路线图与当前进度 |
-| [docs/TESTING.md](docs/TESTING.md) | 测试体系与模块映射 |
-| [docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md](docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md) | RFC 001: 隐身化 Denuvo 票据传递方案（零命名管道/纯协议层） |
-| [docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md](docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md) | RFC 002: 安全化 IPC 与回调拦截规范（防死锁与反作弊白名单） |
----
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、数据流与核心模块设计 |
+| [docs/INJECTION_STRATEGY.md](docs/INJECTION_STRATEGY.md) | 各平台注入方案与实施细节 |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | 与同类工具技术特性对比 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 开发里程碑与演进规划 |
+| [docs/TESTING.md](docs/TESTING.md) | 自动化测试体系与跨平台验证 |
+| [docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md](docs/rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md) | RFC 001: 隐身化 Denuvo 票据传递方案 |
+| [docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md](docs/rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md) | RFC 002: 安全化 IPC 与回调拦截规范 |
 
 ## 致谢与引用 (Credits & Acknowledgements)
 

@@ -19,7 +19,6 @@
 | **`PicsTokenTests`** | `test_pics_token` | `tests/test_pics_token.cpp` | **PICS 令牌注入器**：eMsg 8903 报文改写（令牌注入/覆盖/已正确则跳过）、无关字段逐字节保留、畸形输入安全拒绝。 |
 | **`StatsProtoTests`** | `test_stats_proto` | `tests/test_stats_proto.cpp` | **protobuf 字段操作库**：varint 往返（含负数 10 字节编码）、fixed64 读取、追加覆盖语义、repeated 字段剥离、畸形输入安全拒绝。 |
 
-> 注：已通过 code-review-graph 对全量执行流进行盲区分析，覆盖了 ScriptManager 生命周期、Manifest 边界与打包资产校验。
 ---
 
 ## 二、运行测试命令
