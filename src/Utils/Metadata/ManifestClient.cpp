@@ -346,7 +346,8 @@ bool FetchManifestRequestCode(uint64_t manifestGid, uint64_t* outCode) {
         return true;
     }
 
-    MarkRequestCodeFailed(manifestGid);
+    // ponytail: transient upstream failures are not cached; the next Steam retry
+    // can use a recovered mirror without waiting for a TTL.
     spdlog::warn("ManifestClient: Failed to resolve manifest request code for GID {} across all upstreams",
                  manifestGid);
     return false;
