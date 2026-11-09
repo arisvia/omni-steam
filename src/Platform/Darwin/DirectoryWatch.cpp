@@ -80,6 +80,7 @@ bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Cal
         }
         close(kq);
     });
+    g_watchThread.detach();
     return true;
 }
 

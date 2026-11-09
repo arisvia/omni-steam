@@ -141,6 +141,9 @@ bool DirectoryWatch::StartWatch(const std::vector<std::string>& directories, Cal
             FindCloseChangeNotification(h);
         }
     });
+    // ponytail: process teardown leaves the detached watcher to the OS; add a controlled
+    // shutdown hook if explicit DLL hot-unload is ever required.
+    g_watchThread.detach();
     return true;
 }
 

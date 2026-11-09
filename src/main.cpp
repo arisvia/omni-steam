@@ -229,18 +229,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID /*lpReserved*/) {
     if (dwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         InitializeOmniSteam();
-    } else if (dwReason == DLL_PROCESS_DETACH) {
-        UpdateCoreStatus(false);
-        HookManager::UninstallHooks();
     }
+    // ponytail: leaving detours until process teardown avoids rewriting live Steam
+    // code from DllMain's loader lock; add an explicit shutdown hook if DLL
+    // hot-unload is ever required. CoreInstaller invalidates the stale PID.
     return TRUE;
 }
 #elif defined(OMNI_PLATFORM_LINUX) || defined(OMNI_PLATFORM_MACOS)
 __attribute__((constructor)) static void LibraryInit() {
     InitializeOmniSteam();
-}
-__attribute__((destructor)) static void LibraryFini() {
-    UpdateCoreStatus(false);
-    HookManager::UninstallHooks();
 }
 #endif
