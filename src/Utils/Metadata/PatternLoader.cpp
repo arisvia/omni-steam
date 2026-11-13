@@ -361,12 +361,13 @@ std::string GetSignaturePlatformDir() {
     return "windows-x64";
 #elif defined(OMNI_PLATFORM_MACOS)
     return "macos-universal";
-#else
-#if defined(OMNI_ARCH_X86)
+#elif defined(OMNI_ARCH_X86)
+    // Unsupported: OmniSteam ships 64-bit platforms only and publishes no
+    // linux-i386 signatures. Keeping the distinct namespace makes a hand-built
+    // 32-bit core fail closed instead of consuming x64 RVAs.
     return "linux-i386";
 #else
     return "linux-x64";
-#endif
 #endif
 }
 

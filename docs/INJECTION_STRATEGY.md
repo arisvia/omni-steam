@@ -43,10 +43,11 @@
 ### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
 - 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪（Manager `InstallCore` 暂未自动写 `LD_PRELOAD`）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
-- Hook 层：`derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与运行时导出符号表只能覆盖少数目标：
-  当前 x64 data 分支仅 `CheckAppOwnership`/`SpawnProcess` + `Steam_BGetCallback`/`Steam_FreeLastCallback`，
-  i386 与其余核心函数锚点（`CUtlMemoryGrow`/`GetPackageInfo`/`ConfigStore_GetBinary`/`BBuildAndAsyncSendFrame`/`RecvPkt` 等）
-  及 `steamui.so` 的 `FillInAppOverview` 尚未补齐（见 ROADMAP §2）。
+- Hook 层：`derive_signatures.py` 经 ELF `.eh_frame_hdr` 边界表 + `R_X86_64_RELATIVE` addend 解析后的
+  RTTI/vtable 遍历，已产出 9 个函数锚点（含 `ConfigStore_GetBinary`/`RecvPkt`/`BBuildAndAsyncSendFrame`/
+  `IPCProcessMessage`/`OptedInMask`），另有 `Steam_BGetCallback`/`Steam_FreeLastCallback` 走导出符号。
+  仍缺 Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview`（见 ROADMAP §2）。
+  i386 已移出支持矩阵，harvest 只收 64 位二进制。
 
 ---
 
@@ -62,9 +63,9 @@
 
 ### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
 - Universal 构建目标（arm64 + x86_64）已配置；Core 以 `DYLD_INSERT_LIBRARIES` 手动注入（Manager 暂无自动安装路径）。
-- 签名库通过 Mach-O LC_FUNCTION_STARTS 派生 + 运行时 LC_SYMTAB 枚举，但官方二进制内部符号已 strip：
-  当前每个非 Windows 平台仅 `CheckAppOwnership`/`SpawnProcess` 两个锚点可用，
-  完整解锁链路（解密/请求码/Package 0 扩容等）仍需补齐锚点后才可用（见 ROADMAP §2）。
+- 签名库通过 Mach-O `LC_FUNCTION_STARTS` 边界表 + `LC_DYLD_INFO` rebase / chained fixups 解析后的
+  RTTI/vtable 遍历，已产出 9 个函数锚点，与 Linux 同源（同一份 Windows 锚点图跨 ABI 移植）。
+  完整解锁链路仍需 Package 0 扩容三件套与 steamui 锚点（见 ROADMAP §2）。
 - Steam macOS 客户端是 x86_64 进程（Apple Silicon 经 Rosetta 2），universal dylib 两 slice 都会装载；
   arm64 路径下 funchook 的 mprotect 行为需真机验证。
 

@@ -18,12 +18,12 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 
 ### 平台能力矩阵
 
-| 能力 | Windows x64 | Linux x86_64/i386 | macOS x86_64/arm64 |
+| 能力 | Windows x64 | Linux x86_64 | macOS x86_64/arm64 |
 | :--- | :--- | :--- | :--- |
 | 注入载体 | `xinput1_4.dll` 代理劫持 | `LD_PRELOAD`（脚本；Manager 未自动化） | `DYLD_INSERT_LIBRARIES`（手动） |
 | Hook 引擎 (funchook) | ✅ | ✅ | ✅（universal 构建；arm64 下 mprotect 行为待真机验证） |
-| 函数特征签名库 | ✅（内置 12 目标 + 上游同步 + vtable 派生） | ⚠️ 仅 2 函数（CheckAppOwnership/SpawnProcess）；i386 待派生 | ⚠️ 仅 2 函数 |
-| 所有权/解密/请求码解锁 | ✅ | ❌ 缺 CUtlMemoryGrow/GetPackageInfo/ConfigStore_GetBinary/BBuildAndAsyncSendFrame/RecvPkt 等锚点 | ❌ 同左，另缺 steamui 侧 FillInAppOverview |
+| 函数特征签名库 | ✅（内置 12 目标 + 上游同步 + vtable 派生） | ✅ 9 函数（限定名 string-xref + 跨 ABI vtable 锚点移植） | ✅ 9 函数（同左，经 Mach-O rebase 解析） |
+| 所有权/解密/请求码解锁 | ✅ | ⚠️ 所有权/解密/请求码/成就链路锚点已齐；仍缺 Package 0 扩容三件套（`CUtlMemoryGrow`/`GetPackageInfo`/`MarkLicenseAsChanged`）与 `steamui` 侧 `FillInAppOverview` | ⚠️ 同左 |
 | Manager CLI/Web/云存档 | ✅ | ✅ | ✅ |
 
 ---
@@ -135,7 +135,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
 | B | `addinject` DLL 注入 | SpawnProcess 后按进程名轮询自动注入（含跨位数防护）；仅 Windows（CreateRemoteThread），POSIX 显式返回失败 | ⚠️ 仅 Windows |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | Linux/macOS 签名库 | **部分打通**：`derive_signatures.py` 经 `.eh_frame_hdr` / `LC_FUNCTION_STARTS` 仅能稳定派生 2 个锚点（`CheckAppOwnership`、`SpawnProcess`；`BBuildAndAsyncSendFrame`/`RecvPkt` 字符串探针 0 xref）。仍缺：`CUtlMemoryGrow`、`ConfigStore_GetBinary`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates`、`OptedInMask`、`GetOrAddAppData`、`IPCProcessMessage` 以及 `steamui.so/.dylib` 的 `FillInAppOverview`；计划移植 Windows 已验证的 vtable-slot-transfer + anchor-map 路线（官方二进制内部符号已 strip，需先人工逆向一版参考锚点） | 🔧 进行中 |
+| D | Linux/macOS 签名库 | **主链路已打通（9 函数）**：`derive_signatures.py` 新增重定位解析层——ELF 走 `R_X86_64_RELATIVE` addend、Mach-O 走 `LC_DYLD_INFO` rebase / chained fixups——使 strip 后的 RTTI/vtable 可遍历；Windows 锚点图按 Itanium 同序槽位跨 ABI 移植，产出 `ConfigStoreGetBinary`/`RecvPkt`/`IPCProcessMessage`/`OptedInMask`/`CloseAppCloud`/`GetAppDataFromAppInfo`；探针改用限定名 VProf 字面量（`CCMInterface::RecvPkt`）后 `BBuildAndAsyncSendFrame` 亦可派生。`tools/validate_signatures.py` 以两套独立机制交叉校验，不一致即 CI 失败。仍缺：Package 0 扩容三件套（`CUtlMemoryGrow`/`GetPackageInfo`/`MarkLicenseAsChanged`/`ProcessPendingLicenseUpdates`）与 `steamui.so/.dylib` 的 `FillInAppOverview`（无 RTTI 类、无唯一字面量，需人工逆向一版参考锚点） | 🔧 进行中 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo 隐身交付~~ | 纯协议层拦截（`Hooks_NetPacket` eMsg 5527/858）与 `Hooks_IPC` `IClientUser::GetSteamID` 供体动态伪装，杜绝命名管道与跨进程代理检测（详见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)） | ✅ 2026-09 完成 |
 | G | ~~安全化 IPC 回调拦截~~ | `Hooks_CallBack` 拦截 C API 边界（`Steam_BGetCallback` / `Steam_FreeLastCallback`），线程局部合成标志隔离 + 异步事件队列（详见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)） | ✅ 2026-09 完成 |

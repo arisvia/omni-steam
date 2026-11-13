@@ -34,12 +34,23 @@ from pathlib import Path
 # of its in-image occurrences are plausibly owned by the target function or its
 # immediate static callers; every occurrence is cross-checked, and only
 # function starts corroborated by call-target/padding evidence are emitted.
+# Canonical target -> probe substrings, most specific first.
+#
+# Valve's VProf budget literals are FULLY QUALIFIED ("CCMInterface::RecvPkt").
+# A bare "RecvPkt" probe only ever matches inside a longer literal, so it never
+# lands on a string boundary and yields zero cross-references - that was the
+# real reason RecvPkt/BBuildAndAsyncSendFrame "could not be derived" on
+# Linux/macOS, not any missing relocation support. Qualified probes are also
+# far more selective: exactly one function owns each budget name.
 STRING_PROBES: dict[str, list[str]] = {
     "CheckAppOwnership": ["CheckAppOwnership"],
-    "BBuildAndAsyncSendFrame": ["BBuildAndAsyncSendFrame"],
+    "BBuildAndAsyncSendFrame": [
+        "CWebSocketConnection::BBuildAndAsyncSendFrame",
+        "BBuildAndAsyncSendFrame",
+    ],
     "SpawnProcess": ["SpawnProcess"],
     "FillInAppOverview": ["FillInAppOverview"],
-    "RecvPkt": ["RecvPkt"],
+    "RecvPkt": ["CCMInterface::RecvPkt"],
 }
 
 TOML_TEMPLATE = """\
@@ -80,19 +91,45 @@ def parse_reference_toml(path: Path) -> dict[str, int]:
 
 
 
-STRING_PROBES: dict[str, list[str]] = {
-    "CheckAppOwnership": ["CheckAppOwnership"],
-    "BBuildAndAsyncSendFrame": ["BBuildAndAsyncSendFrame"],
-    "SpawnProcess": ["SpawnProcess"],
-    "FillInAppOverview": ["FillInAppOverview"],
-    "RecvPkt": ["RecvPkt"],
-}
-
 def deref_qword(img: Image, va: int) -> int | None:
+    """Read a pointer-sized slot.
+
+    On PE the stored qword IS the preferred VA. On PIE ELF and on Mach-O the
+    stored bytes are NOT the pointer: ELF keeps zero and carries the real
+    target in the R_*_RELATIVE addend, and Mach-O keeps a preferred VA that
+    only becomes meaningful once the rebase stream marks this slot as a
+    pointer. Reading raw bytes there yields 0 (ELF) or arbitrary data
+    (Mach-O), which is exactly why vtable/RTTI traversal used to find nothing
+    on Linux/macOS. Prefer the relocation index whenever the format has one.
+    """
+    if img.reloc_based:
+        return img.reloc_ptrs.get(va)
     off = img.va_to_offset(va)
     if off is None or off + 8 > len(img.data):
         return None
     return struct.unpack_from("<Q", img.data, off)[0]
+
+
+def pointer_sites(img: Image, target_va: int) -> list[int]:
+    """Every slot VA holding a pointer to target_va.
+
+    Relocation-backed formats answer from the index; PE falls back to scanning
+    the image for the absolute qword (its pointers are stored unencoded).
+    """
+    if img.reloc_based:
+        return img.ptr_sites.get(target_va, [])
+    needle = struct.pack("<Q", target_va)
+    out: list[int] = []
+    pos = 0
+    while True:
+        pos = img.data.find(needle, pos)
+        if pos == -1:
+            break
+        va = img.offset_to_va(pos)
+        pos += 1
+        if va is not None:
+            out.append(va)
+    return out
 
 
 def read_cstr(img: Image, va: int, limit: int = 128) -> str:
@@ -131,46 +168,75 @@ def typeinfo_name_at_vtable(img: Image, vtable_start: int) -> str:
 
 def vtable_slots_for_rva(img: Image, rva: int, max_slots: int = 512) -> list[tuple[int, int, str]]:
     """Locate (typeinfo_name, slot_index, vtable_va) for every vtable entry
-    pointing at base+rva."""
+    pointing at base+rva. Uses the relocation index on ELF/Mach-O so the
+    search finds slots whose file bytes are zero."""
     img.base = img.base or min((s[0] for s in img.sections), default=0)
     func_va = img.base + rva
-    needle = struct.pack("<Q", func_va)
     results: list[tuple[int, int, str]] = []
-    pos = 0
-    while True:
-        pos = img.data.find(needle, pos)
-        if pos == -1:
-            break
-        slot_va = img.offset_to_va(pos)
-        pos += 1
-        if slot_va is None:
-            continue
-        # Walk back while entries keep pointing into .text to find vtable start.
+    for slot_va in pointer_sites(img, func_va):
+        # Prefer the RTTI-anchored start: walk back only while the preceding
+        # entry is itself a code pointer, then snap to the nearest vtable whose
+        # type_info resolves, so a neighbouring vtable cannot absorb the slot.
         start_va = slot_va
         for _ in range(max_slots):
             prev = deref_qword(img, start_va - 8)
             if prev is None or not in_text(img, prev):
                 break
             start_va -= 8
+        name = typeinfo_name_at_vtable(img, start_va)
+        if not name:
+            # The walk-back overshot into a preceding vtable (common: vtables
+            # are laid out back to back). Re-anchor on a real RTTI boundary.
+            probe = start_va
+            for _ in range(max_slots):
+                candidate = typeinfo_name_at_vtable(img, probe)
+                if candidate and probe <= slot_va:
+                    start_va, name = probe, candidate
+                    break
+                probe += 8
         slot = (slot_va - start_va) // 8
-        results.append((typeinfo_name_at_vtable(img, start_va), slot, hex(start_va)))
+        results.append((name, slot, hex(start_va)))
     return results
+
+
+def itanium_name_candidates(ti_name: str) -> list[str]:
+    """Mangled Itanium type_info name spellings for an anchor's class name.
+
+    Anchor maps are recorded from whichever platform produced the reference
+    (usually the MSVC '.?AVCFoo@@' spelling). Itanium spells the same class as
+    a length-prefixed component - '4CFoo' at top level, or as the trailing
+    component of a nested name 'N3Bar4CFooE'. Searching for the
+    length-prefixed leaf covers both without needing a demangler.
+    """
+    cls = ti_name
+    if cls.startswith(".?A"):
+        cls = cls[4:]  # .?AV / .?AU / .?AT ...
+        cls = cls.split("@")[0]
+    if not cls:
+        return []
+    if re.fullmatch(r"\d+.*", cls):
+        return [cls]  # already mangled
+    return [f"{len(cls)}{cls}"]
 
 
 def find_vtables_for_typeinfo(img: Image, ti_name: str) -> list[int]:
     """All vtable_start VAs whose RTTI chain resolves to ti_name.
-    MSVC: vtable_start-8 -> COL (separate object); COL+12 holds the image-relative
-    RVA of the TypeDescriptor whose +16 is the '.?A...' name.
-    Itanium: vtable_start-8 -> type_info directly; type_info+8 -> mangled name."""
+
+    MSVC: vtable_start-8 -> COL (separate object); COL+12 holds the
+    image-relative RVA of the TypeDescriptor whose +16 is the '.?A...' name.
+    Itanium: vtable_start-8 -> type_info directly; type_info+8 -> the mangled
+    name string. Both hops are *pointers*, so on PIE ELF / Mach-O they are
+    resolved through the relocation index rather than raw image bytes.
+    """
     img.base = img.base or min((s[0] for s in img.sections), default=0)
-    pos = img.data.find(ti_name.encode())
-    if pos == -1:
-        return []
-    name_va = img.offset_to_va(pos)
-    if name_va is None:
-        return []
     vtables: list[int] = []
     if img.kind == "pe":
+        pos = img.data.find(ti_name.encode())
+        if pos == -1:
+            return []
+        name_va = img.offset_to_va(pos)
+        if name_va is None:
+            return []
         td_va = name_va - 16
         pat = struct.pack("<I", td_va - img.base)
         p = 0
@@ -182,29 +248,27 @@ def find_vtables_for_typeinfo(img: Image, ti_name: str) -> list[int]:
             p += 1
             if col_va is None:
                 continue
-            qcol = struct.pack("<Q", col_va)
-            q = 0
-            while True:
-                q = img.data.find(qcol, q)
-                if q == -1:
-                    break
-                hit_va = img.offset_to_va(q)
-                q += 1
-                if hit_va is not None:
-                    vtables.append(hit_va + 8)
-    else:
-        ti_va = name_va - 16
-        q = struct.pack("<Q", ti_va)
-        p = 0
-        while True:
-            p = img.data.find(q, p)
-            if p == -1:
-                break
-            hit_va = img.offset_to_va(p)
-            p += 1
-            if hit_va is not None:
+            for hit_va in pointer_sites(img, col_va):
                 vtables.append(hit_va + 8)
-    return vtables
+        return vtables
+
+    for mangled in itanium_name_candidates(ti_name):
+        needle = mangled.encode() + b"\x00"
+        pos = 0
+        while True:
+            pos = img.data.find(needle, pos)
+            if pos == -1:
+                break
+            name_va = img.offset_to_va(pos)
+            pos += 1
+            if name_va is None:
+                continue
+            # name string <- type_info+8 <- vtable_start-8
+            for name_slot in pointer_sites(img, name_va):
+                ti_va = name_slot - 8
+                for ti_slot in pointer_sites(img, ti_va):
+                    vtables.append(ti_slot + 8)
+    return sorted(set(vtables))
 
 
 def emit_anchor_map(ref_img: Image, ref_rvas: dict[str, int]) -> dict:
@@ -264,9 +328,31 @@ class Image:
         self.sections: list[tuple[int, int, int]] = []  # (va, size, file_offset)
         self.section_names: list[str] = []  # parallel to self.sections
         self.func_starts: list[int] = []  # sorted function-start VAs (exact boundary table)
+        # Relocation-resolved pointer layer. `reloc_based` formats (PIE ELF,
+        # Mach-O) do not store usable pointers in the file image, so every
+        # pointer read goes through this index instead of raw bytes.
+        self.reloc_based = False
+        self.reloc_ptrs: dict[int, int] = {}  # slot VA -> target VA
+        self.ptr_sites: dict[int, list[int]] = {}  # target VA -> [slot VAs]
+
+    def index_pointer(self, slot_va: int, target_va: int) -> None:
+        self.reloc_ptrs[slot_va] = target_va
+        self.ptr_sites.setdefault(target_va, []).append(slot_va)
 
     def finish(self) -> None:
-        self.sections.sort()
+        # Two ordering constraints, in priority order:
+        #  1. NAMED sections before unnamed segment/PT_LOAD ranges. A segment
+        #     spans the whole mapping, so sorting it first would swallow every
+        #     va_to_offset()/offset_to_va() lookup and rebase VAs onto the
+        #     segment base instead of the owning section.
+        #  2. Narrower spans first, so a section beats any wider section that
+        #     contains it (e.g. .rodata.str inside .rodata).
+        paired = sorted(
+            zip(self.section_names, self.sections),
+            key=lambda ns: (ns[0] == "", ns[1][1], ns[1][0]),
+        )
+        self.section_names = [n for n, _ in paired]
+        self.sections = [s for _, s in paired]
 
     def section_by_name(self, name: str) -> tuple[int, int, int] | None:
         for n, s in zip(self.section_names, self.sections):
@@ -376,17 +462,70 @@ def parse_elf(path: Path) -> Image:
     eh_hdr = None
     for i in range(e_shnum):
         name, typ, flags, addr, offset, size = shdr(i)
-        if typ == 8:  # SHT_NOBITS
-            img.section_names.append(sname(name))
-            img.sections.append((addr, 0, offset))
-            continue
         nm = sname(name)
-        img.section_names.append(nm)
-        if flags & 0x2 or size > (8 << 20):  # ALLOC or large (rodata)
-            img.sections.append((addr, size, offset))
         if nm == ".eh_frame_hdr":
             eh_hdr = (addr, size, offset)
+        if typ == 8:  # SHT_NOBITS (.bss): occupies VA space, carries no bytes
+            continue
+        if not (flags & 0x2) and size <= (8 << 20):  # non-ALLOC and small
+            continue
+        # Names and sections MUST stay index-aligned: finish() sorts them as
+        # pairs, so appending a name without its section desynchronises every
+        # later name lookup (that is how '.text' resolved to a 64-byte stub).
+        img.section_names.append(nm)
+        img.sections.append((addr, size, offset))
     img.finish()
+
+    # Program headers give the authoritative VA<->offset mapping. Section
+    # headers alone can disagree at boundaries (and .bss carries no bytes),
+    # so prefer PT_LOAD ranges and keep sections only for name lookups.
+    e_phoff = struct.unpack_from(end + ("Q" if is64 else "I"), d, 0x20 if is64 else 0x1C)[0]
+    e_phentsize = struct.unpack_from(end + "H", d, 0x36 if is64 else 0x2A)[0]
+    e_phnum = struct.unpack_from(end + "H", d, 0x38 if is64 else 0x2C)[0]
+    loads: list[tuple[int, int, int]] = []
+    for i in range(e_phnum):
+        po = e_phoff + i * e_phentsize
+        p_type = struct.unpack_from(end + "I", d, po)[0]
+        if p_type != 1:  # PT_LOAD
+            continue
+        if is64:
+            p_offset, p_vaddr = struct.unpack_from(end + "QQ", d, po + 8)
+            p_filesz = struct.unpack_from(end + "Q", d, po + 32)[0]
+        else:
+            p_offset, p_vaddr = struct.unpack_from(end + "II", d, po + 4)
+            p_filesz = struct.unpack_from(end + "I", d, po + 16)[0]
+        if p_filesz:
+            loads.append((p_vaddr, p_filesz, p_offset))
+    if loads:
+        named = list(zip(img.section_names, img.sections))
+        img.sections = sorted(loads)
+        img.section_names = ["" for _ in loads]
+        # Re-attach names for the sections the rest of the tool looks up.
+        for nm, sec in named:
+            if nm in (".text", ".rodata", ".data.rel.ro", ".data", ".eh_frame_hdr"):
+                img.sections.append(sec)
+                img.section_names.append(nm)
+        img.finish()
+
+    # R_X86_64_RELATIVE / R_AARCH64_RELATIVE addends ARE the link-time target
+    # VAs of every vtable slot, type_info pointer and static-object pointer.
+    # The file bytes at those slots are zero, so this index is the only way to
+    # traverse RTTI on a PIE shared object.
+    rel_types = {8, 1027} if is64 else {8}
+    for i in range(e_shnum):
+        _name, typ, _flags, _addr, offset, size = shdr(i)
+        if typ != 4:  # SHT_RELA
+            continue
+        entry = 24 if is64 else 12
+        for ro in range(offset, offset + size - entry + 1, entry):
+            if is64:
+                r_offset, r_info, r_addend = struct.unpack_from(end + "QQq", d, ro)
+            else:
+                r_offset, r_info, r_addend = struct.unpack_from(end + "IIi", d, ro)
+            if (r_info & 0xFFFFFFFF) in rel_types:
+                img.index_pointer(r_offset, r_addend)
+    if img.reloc_ptrs:
+        img.reloc_based = True
 
     # .eh_frame_hdr binary-search table: exact function start list.
     # Layout: version(1) eh_frame_ptr_enc(1) fde_count_enc(1) table_enc(1)
@@ -409,6 +548,132 @@ def parse_elf(path: Path) -> Image:
     return img
 
 
+def _uleb(buf: bytes, pos: int) -> tuple[int, int]:
+    val = shift = 0
+    while pos < len(buf):
+        b = buf[pos]
+        pos += 1
+        val |= (b & 0x7F) << shift
+        if not b & 0x80:
+            break
+        shift += 7
+    return val, pos
+
+
+def _parse_macho_rebase(img: Image, segments: list[tuple[int, int, int]], off: int, size: int) -> None:
+    """Walk the LC_DYLD_INFO rebase opcode stream.
+
+    Classic rebase keeps the preferred VA in the file and only adds the slide
+    at load time, so the stored qword is already the target. The stream tells
+    us WHICH slots are pointers, which is what separates a real vtable entry
+    from an unrelated qword that happens to look like code.
+    """
+    d = img.data
+    blob = d[off : off + size]
+    pos = seg_index = seg_off = 0
+    while pos < len(blob):
+        op = blob[pos]
+        pos += 1
+        imm, high = op & 0x0F, op & 0xF0
+        if high == 0x00:  # DONE
+            break
+        if high == 0x10:  # SET_TYPE_IMM
+            continue
+        if high == 0x20:  # SET_SEGMENT_AND_OFFSET_ULEB
+            seg_index = imm
+            seg_off, pos = _uleb(blob, pos)
+        elif high == 0x30:  # ADD_ADDR_ULEB
+            add, pos = _uleb(blob, pos)
+            seg_off += add
+        elif high == 0x40:  # ADD_ADDR_IMM_SCALED
+            seg_off += imm * 8
+        elif high in (0x50, 0x60, 0x70, 0x80):
+            if high == 0x50:  # DO_REBASE_IMM_TIMES
+                count, skip = imm, 0
+            elif high == 0x60:  # DO_REBASE_ULEB_TIMES
+                count, pos = _uleb(blob, pos)
+                skip = 0
+            elif high == 0x70:  # DO_REBASE_ADD_ADDR_ULEB
+                count = 1
+                extra, pos = _uleb(blob, pos)
+                skip = extra
+            else:  # DO_REBASE_ULEB_TIMES_SKIPPING_ULEB
+                count, pos = _uleb(blob, pos)
+                skip, pos = _uleb(blob, pos)
+            if seg_index >= len(segments):
+                break
+            base = segments[seg_index][0]
+            for _ in range(count):
+                slot_va = base + seg_off
+                file_off = img.va_to_offset(slot_va)
+                if file_off is not None and file_off + 8 <= len(d):
+                    target = struct.unpack_from("<Q", d, file_off)[0]
+                    if target:
+                        img.index_pointer(slot_va, target)
+                seg_off += 8 + (skip if high == 0x70 else 0)
+                if high == 0x80:
+                    seg_off += skip
+        else:
+            break
+
+
+def _parse_macho_chained(img: Image, segments: list[tuple[int, int, int]], off: int, size: int) -> None:
+    """Decode LC_DYLD_CHAINED_FIXUPS pointer chains.
+
+    Modern dylibs pack each pointer into a bitfield (target + next + bind),
+    so the raw qword is NOT the target. Only the rebase variants are useful
+    here; binds resolve to external symbols and are skipped.
+    """
+    d = img.data
+    if size < 36:
+        return
+    _ver, starts_off, _imports_off, _sym_off = struct.unpack_from("<IIII", d, off)
+    seg_count = struct.unpack_from("<I", d, off + starts_off)[0]
+    text_base = segments[0][0] if segments else 0
+    for s in range(min(seg_count, len(segments))):
+        info_off = struct.unpack_from("<I", d, off + starts_off + 4 + s * 4)[0]
+        if not info_off:
+            continue
+        b = off + starts_off + info_off
+        _sz, page_size, ptr_format = struct.unpack_from("<IHH", d, b)
+        seg_offset = struct.unpack_from("<Q", d, b + 8)[0]
+        page_count = struct.unpack_from("<H", d, b + 18)[0]
+        if not page_size:
+            continue
+        seg_base = segments[s][0]
+        for p in range(page_count):
+            start = struct.unpack_from("<H", d, b + 20 + p * 2)[0]
+            if start == 0xFFFF:  # DYLD_CHAINED_PTR_START_NONE
+                continue
+            page_va = seg_base + seg_offset + p * page_size
+            offset_in_page = start * 8 if start & 0x8000 else start
+            slot_va = page_va + offset_in_page
+            for _ in range(4096):
+                file_off = img.va_to_offset(slot_va)
+                if file_off is None or file_off + 8 > len(d):
+                    break
+                raw = struct.unpack_from("<Q", d, file_off)[0]
+                if ptr_format in (2, 6):  # DYLD_CHAINED_PTR_64[_OFFSET]
+                    if raw >> 63:  # bind
+                        nxt = (raw >> 51) & 0xFFF
+                    else:
+                        target = raw & 0xFFFFFFFFF
+                        img.index_pointer(slot_va, target + (text_base if ptr_format == 6 else 0))
+                        nxt = (raw >> 51) & 0xFFF
+                elif ptr_format in (1, 7, 10, 13):  # ARM64E variants
+                    if (raw >> 62) & 1:  # bind
+                        nxt = (raw >> 51) & 0x7FF
+                    else:
+                        target = raw & 0xFFFFFFFF
+                        img.index_pointer(slot_va, target + (text_base if ptr_format == 7 else 0))
+                        nxt = (raw >> 51) & 0x7FF
+                else:
+                    break
+                if not nxt:
+                    break
+                slot_va += nxt * 8
+
+
 def parse_macho(path: Path) -> Image:
     img = Image(path, "macho")
     d = img.data
@@ -424,28 +689,58 @@ def parse_macho(path: Path) -> Image:
     ncmds = struct.unpack_from("<I", d, 16)[0]
     off = 32
     func_starts_data = None
+    segments: list[tuple[int, int, int]] = []  # (vmaddr, filesize, fileoff)
+    rebase_blob: tuple[int, int] | None = None
+    chained: tuple[int, int] | None = None
     for _ in range(ncmds):
         cmd, size = struct.unpack_from("<II", d, off)
         if cmd == 0x19:  # LC_SEGMENT_64
-            vmaddr, vmsize, fileoff, filesize = struct.unpack_from("<QQQQ", d, off + 16)
+            # segment_command_64: cmd(4) cmdsize(4) segname(16) THEN vmaddr.
+            # Reading at off+16 lands inside segname and yields ASCII garbage,
+            # which used to shadow every real section in va_to_offset().
+            vmaddr, vmsize, fileoff, filesize = struct.unpack_from("<QQQQ", d, off + 24)
             if filesize > 0:
-                img.sections.append((vmaddr, filesize, fileoff))
-                img.section_names.append(d[off + 8 : off + 24].rstrip(b"\x00").decode(errors="ignore"))
+                segments.append((vmaddr, filesize, fileoff))
             nsects = struct.unpack_from("<I", d, off + 64)[0]
             for s in range(nsects):
                 so = off + 72 + s * 80
                 sectname = d[so : so + 16].rstrip(b"\x00").decode(errors="ignore")
                 saddr, ssize = struct.unpack_from("<QQ", d, so + 32)
                 soffset = struct.unpack_from("<I", d, so + 48)[0]
-                if ssize > 0:
+                if ssize > 0 and saddr:
                     img.sections.append((saddr, ssize, soffset))
                     img.section_names.append(sectname)
         elif cmd == 0x26:  # LC_FUNCTION_STARTS
             dataoff, datasize = struct.unpack_from("<II", d, off + 8)
             func_starts_data = d[dataoff : dataoff + datasize]
+        elif cmd in (0x22, 0x80000022):  # LC_DYLD_INFO[_ONLY]
+            rebase_off, rebase_size = struct.unpack_from("<II", d, off + 8)
+            if rebase_size:
+                rebase_blob = (rebase_off, rebase_size)
+        elif cmd == 0x80000034:  # LC_DYLD_CHAINED_FIXUPS
+            dataoff, datasize = struct.unpack_from("<II", d, off + 8)
+            if datasize:
+                chained = (dataoff, datasize)
         off += size
-    img.base = min((s[0] for s in img.sections), default=0)
+
+    # Segments are the authoritative mapping (they cover the header and any
+    # inter-section padding); sections are kept for name lookups only and are
+    # appended after so a segment never shadows a narrower section match.
+    named = list(zip(img.section_names, img.sections))
+    img.sections = sorted(segments)
+    img.section_names = ["" for _ in segments]
+    for nm, sec in named:
+        img.sections.append(sec)
+        img.section_names.append(nm)
+    img.base = min((s[0] for s in segments), default=0)
     img.finish()
+
+    if rebase_blob:
+        _parse_macho_rebase(img, segments, *rebase_blob)
+    if chained:
+        _parse_macho_chained(img, segments, *chained)
+    if img.reloc_ptrs:
+        img.reloc_based = True
     if func_starts_data:
         # The blob is a plain ULEB128 delta stream (no count prefix); deltas
         # accumulate from the image base.
@@ -539,17 +834,46 @@ def recover_function_start(text_va: int, text: bytes, xref_va: int, is64: bool) 
     return None
 
 
+def build_xref_index(text_va: int, text: bytes, is64: bool) -> dict[int, list[int]]:
+    """One pass over .text collecting every RIP-relative LEA/MOV target.
+
+    find_xrefs() rescans the whole code section per probe; with a 30 MB .text
+    and a handful of probes that is tens of seconds of pure repetition. The
+    index costs a single pass and makes each probe lookup O(1).
+    """
+    index: dict[int, list[int]] = {}
+    n = len(text)
+    if is64:
+        for i in range(n - 7):
+            if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
+                disp = struct.unpack_from("<i", text, i + 3)[0]
+                index.setdefault(text_va + i + 7 + disp, []).append(text_va + i)
+    else:
+        for i in range(n - 6):
+            if text[i] in (0x8D, 0x8B) and (text[i + 1] & 0xC7) == 0x05:
+                disp = struct.unpack_from("<i", text, i + 2)[0]
+                index.setdefault(text_va + i + 6 + disp, []).append(text_va + i)
+    return index
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     is64 = img.kind != "elf" or img.data[4] == 2
     text_va, text = img.text()
+    xref_index = build_xref_index(text_va, text, is64)
     resolved: dict[str, dict] = {}
     details: list[dict] = []
     for name, probes in STRING_PROBES.items():
         starts: set[int] = set()
         probe_report = []
         for probe in probes:
+            # Probes are ordered most-specific first. Once a qualified probe
+            # resolves the target, a looser fallback must not run: it would
+            # match unrelated literals and either add noise to the report or
+            # turn a clean hit into a false "ambiguous" verdict.
+            if starts:
+                break
             for sva in find_string_vas(img, probe):
-                xrefs = find_xrefs(text_va, text, sva, is64)
+                xrefs = xref_index.get(sva, [])
                 probe_report.append({"probe": probe, "string_va": hex(sva), "xrefs": len(xrefs)})
                 for x in xrefs:
                     # Exact boundary table (eh_frame_hdr/.pdata/LC_FUNCTION_STARTS)

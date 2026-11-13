@@ -12,18 +12,19 @@
 | **安全与防崩溃机制** | ✅ 全平台 | 30+ 款竞技游戏反作弊白名单直通；进程退出 detours 由 OS 回收杜绝 Loader Lock 崩溃；`g_watchThread` 显式分离。 |
 | **Manager 独立管理端** | ✅ Web / CLI / 托盘 | 本地 23 万+ Depot 密钥与 CDN 实时同步；Lua 一键生成与 Base/DLC Depot 密钥单趟合并；Windows 状态托盘与有序关停。 |
 | **跨平台云存档** | ✅ WebDAV / 本地快照 | `remotecache.vdf` 零开销路径解析；游戏退出单次文件事件唤醒；本地滚动快照与 WebDAV 双通道。 |
-| **CI 与自动化签名维保** | ✅ 4 平台原生 Runner | Linux ELF `.eh_frame_hdr` 与 macOS Mach-O `LC_FUNCTION_STARTS` 自动符号派生；多平台二进制与测试矩阵联动。 |
+| **CI 与自动化签名维保** | ✅ 3 平台原生 Runner（Linux x64 / Windows x64 / macOS universal） | 限定名 VProf string-xref + 重定位解析后的跨 ABI vtable 锚点移植；`validate_signatures.py` 双机制交叉校验，不一致即拒绝发布。 |
 ## 2. 非 Windows 平台差距清单 【🔧 进行中】
 
 按打通顺序排列：
 
-1. **签名锚点补全（核心阻塞）**：Linux/macOS 的 `steamclient` 内部符号已全被 Valve strip（实测仅剩 `Steam_BGetCallback`/`Steam_FreeLastCallback` 等 C API 导出），`derive_signatures.py` 字符串探针仅能派生 `CheckAppOwnership`、`SpawnProcess`。需移植 Windows 的 vtable-slot-transfer + anchor-map 路线，先人工逆向产出参考锚点，覆盖 `CUtlMemoryGrow`、`ConfigStore_GetBinary`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates`、`BBuildAndAsyncSendFrame`、`RecvPkt`、`OptedInMask`、`GetOrAddAppData`、`IPCProcessMessage`。
-2. **steamui 库可见性**：`FillInAppOverview` 目前只注册了 `steamui.dll`；Linux/macOS 需为 `steamui.so`/`steamui.dylib` 建锚点，否则解锁游戏无法稳定出现在库中。
-3. **linux-i386 签名目录**：CI 已按 ELF class 分流 harvest 输出（`linux-x64`/`linux-i386`），等待 32 位探针补齐后入库。
-4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测；linux-i386 另需处理 thiscall 调用约定（当前钩子原型未适配）。
-5. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
-6. **macOS arm64 实测**：funchook 官方声明不支持 macOS arm64（`mprotect` EINVAL），universal 构建后需真机验证 x86_64（Rosetta 客户端）与 arm64 两条路径。
-7. **真机冒烟验证**：以 `core_status.json` 的逐 hook 状态为准，在真实客户端上跑一次完整解锁链路（当前无此回归手段）。
+1. ~~**签名锚点补全（核心阻塞）**~~ **已完成主链路**：重定位解析层（ELF `R_X86_64_RELATIVE` addend / Mach-O `LC_DYLD_INFO` rebase 与 chained fixups）打通了 strip 后的 RTTI 遍历，Windows 锚点图按 Itanium 同序槽位跨 ABI 移植；限定名 VProf 探针修复了 `RecvPkt`/`BBuildAndAsyncSendFrame` 的"0 xref"。Linux/macOS 各 9 函数，`tools/validate_signatures.py` 双机制交叉校验守门。
+2. **Package 0 扩容三件套（剩余阻塞）**：`CUtlMemoryGrow`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates` 在非 Windows 二进制中既无 RTTI 类也无唯一字面量，需人工逆向一版参考 RVA 后用 `--emit-map` 固化为本平台锚点图，此后即可自动跟版本。
+3. **steamui 库可见性**：`FillInAppOverview` 目前只注册了 `steamui.dll`；Linux/macOS 需为 `steamui.so`/`steamui.dylib` 建锚点，否则解锁游戏无法稳定出现在库中。
+4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
+5. **linux-i386 已移出支持矩阵**：Valve 已于 2026-10 将 Linux 客户端推向 64 位，CI/Release 不再构建 i386，harvest 只收 64 位二进制；运行时保留 `linux-i386` 命名空间以便手工 32 位构建 fail-closed。
+6. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
+7. **macOS arm64 实测**：funchook 官方声明不支持 macOS arm64（`mprotect` EINVAL），universal 构建后需真机验证 x86_64（Rosetta 客户端）与 arm64 两条路径。
+8. **真机冒烟验证**：以 `core_status.json` 的逐 hook 状态为准，在真实客户端上跑一次完整解锁链路（当前无此回归手段）。
 
 ## 3. 后续演进规划 【📋 规划中】
 

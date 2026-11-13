@@ -83,41 +83,43 @@ jobs:
           find steam-dist -name 'steamclient*.so' -printf '%p\n'
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
 
-      - name: Classify binaries by ELF class
+      - name: Select 64-bit client binaries
         run: |
-          # The client ships BOTH a 32-bit (cmd/linux32, legacy stable) and a
-          # 64-bit (cmd/linux64) steamclient.so with identical file names.
-          # Route each copy to the canonical platform dir it actually targets,
-          # otherwise 32-bit RVAs land under linux-x64 and the i386 runtime
-          # (GetSignaturePlatformDir -> linux-i386) never finds them.
-          mkdir -p steam-dist-cls/linux-x64 steam-dist-cls/linux-i386
+          # The client ships BOTH a 32-bit (cmd/linux32) and a 64-bit
+          # (cmd/linux64) steamclient.so under identical file names. OmniSteam
+          # targets 64-bit platforms only, so drop the i386 copies instead of
+          # publishing RVAs into a namespace no runtime consumes.
+          mkdir -p steam-dist-cls/linux-x64
           while IFS= read -r f; do
             cls=$(python3 -c 'import sys; print(open(sys.argv[1],"rb").read()[4])' "$f")
-            if [ "$cls" = "2" ]; then
-              cp "$f" "steam-dist-cls/linux-x64/$(echo "$f" | sha256sum | cut -c1-16)-steamclient.so"
-            else
-              cp "$f" "steam-dist-cls/linux-i386/$(echo "$f" | sha256sum | cut -c1-16)-steamclient.so"
-            fi
+            [ "$cls" = "2" ] || continue
+            cp "$f" "steam-dist-cls/linux-x64/$(sha256sum "$f" | cut -c1-16)-steamclient.so"
           done < <(find steam-dist "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
           find steam-dist-cls -type f
 
       - name: Harvest signatures
         run: |
-          for platform in linux-x64 linux-i386; do
-            find "steam-dist-cls/$platform" -type f | grep -q . || continue
-            python3 tools/harvest_signatures.py --scan-root "steam-dist-cls/$platform" --out "signatures-out/$platform"
+          python3 tools/harvest_signatures.py --scan-root steam-dist-cls --out signatures-out
+
+      - name: Derive signatures (string xrefs + vtable anchor transfer)
+        run: |
+          # Two independent mechanisms, both version-agnostic:
+          #  - qualified VProf literals ("CCMInterface::RecvPkt") survive
+          #    recompiles and .eh_frame_hdr gives exact function boundaries;
+          #  - the committed anchor map replays MSVC-recorded vtable slots onto
+          #    the Itanium vtables, resolved through R_X86_64_RELATIVE addends.
+          for f in $(find steam-dist-cls/linux-x64 -type f | sort); do
+            python3 tools/derive_signatures.py --binary "$f" \
+              --map signatures/anchor-map-windows.json \
+              --out signatures-out/linux-x64 || true
           done
 
-      - name: Derive signatures via string xrefs
+      - name: Validate derived anchors
         run: |
-          # String-xref derivation is version-agnostic: probe strings survive
-          # recompiles and .eh_frame_hdr gives exact containing functions, so
-          # this re-derives anchors on EVERY new client with no reference.
-          for platform in linux-x64 linux-i386; do
-            for f in $(find "steam-dist-cls/$platform" -type f | sort); do
-              python3 tools/derive_signatures.py --binary "$f" --out "signatures-out/$platform" || true
-            done
-          done
+          # Fail the job if the two mechanisms disagree on any shared target:
+          # a wrong RVA hooks the wrong function and crashes the client.
+          python3 tools/validate_signatures.py --scan-root steam-dist-cls/linux-x64 \
+            --map signatures/anchor-map-windows.json
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
@@ -316,11 +318,22 @@ jobs:
       - name: Harvest signatures
         run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos-universal
 
-      - name: Derive signatures via string xrefs
+      - name: Derive signatures (string xrefs + vtable anchor transfer)
         run: |
+          # Mach-O vtables live behind the LC_DYLD_INFO rebase stream (or
+          # chained fixups); derive_signatures resolves those before walking
+          # RTTI, so the same committed anchor map replays onto macOS.
           for f in $(find steam-dist -iname '*steamclient*.dylib' | sort); do
-            python3 tools/derive_signatures.py --binary "$f" --out signatures-out/macos-universal || true
+            python3 tools/derive_signatures.py --binary "$f" \
+              --map signatures/anchor-map-windows.json \
+              --out signatures-out/macos-universal || true
           done
+
+      - name: Validate derived anchors
+        run: |
+          python3 tools/validate_signatures.py --scan-root steam-dist \
+            --map signatures/anchor-map-windows.json
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         with:
