@@ -1,7 +1,7 @@
 # OmniSteam 系统架构设计文档
 
-> 状态基线：2026-11（对应全平台签名派生打通、RFC 001/002 落地、成就兜底与云存档自愈机制后）
-> 平台支持矩阵：**Windows x64 / Linux x86_64 / macOS arm64+x64 全平台完整支持**
+> 状态基线：2026-11（RFC 001/002 落地、成就兜底与云存档自愈机制后）
+> 平台支持矩阵：**Windows x64 功能完整；Linux / macOS 骨架已通但签名覆盖不全（见下方能力矩阵与 §5-断点 D）**
 
 ---
 
@@ -18,12 +18,12 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 
 ### 平台能力矩阵
 
-| 能力 | Windows x64 | Linux x86_64/i386 | macOS arm64/x86_64 |
+| 能力 | Windows x64 | Linux x86_64/i386 | macOS x86_64/arm64 |
 | :--- | :--- | :--- | :--- |
-| 注入载体 | `xinput1_4.dll` 代理劫持 | `LD_PRELOAD` | `DYLD_INSERT_LIBRARIES` |
-| Hook 引擎 (funchook) | ✅ | ✅ | ✅ |
-| 函数特征签名库 | ✅（内置 + 远程 CDN 兜底） | ✅（已派生 x64 TOML） | ✅（已派生 Universal TOML） |
-| 所有权/解密/请求码解锁 | ✅ | ✅（加载 TOML 生效） | ✅（加载 TOML 生效） |
+| 注入载体 | `xinput1_4.dll` 代理劫持 | `LD_PRELOAD`（脚本；Manager 未自动化） | `DYLD_INSERT_LIBRARIES`（手动） |
+| Hook 引擎 (funchook) | ✅ | ✅ | ✅（universal 构建；arm64 下 mprotect 行为待真机验证） |
+| 函数特征签名库 | ✅（内置 12 目标 + 上游同步 + vtable 派生） | ⚠️ 仅 2 函数（CheckAppOwnership/SpawnProcess）；i386 待派生 | ⚠️ 仅 2 函数 |
+| 所有权/解密/请求码解锁 | ✅ | ❌ 缺 CUtlMemoryGrow/GetPackageInfo/ConfigStore_GetBinary/BBuildAndAsyncSendFrame/RecvPkt 等锚点 | ❌ 同左，另缺 steamui 侧 FillInAppOverview |
 | Manager CLI/Web/云存档 | ✅ | ✅ | ✅ |
 
 ---
@@ -107,7 +107,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳（PurchasedTime）确保库内即时显示与留存 |
 | `Hooks_Misc` | OnlineFix 与生命周期监控 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入；MonitorGameLifecycle 监控游戏退出并静默派发异步备份信号 |
-| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → **运行时符号表**（Linux/macOS 零维护路径）→ 本地签名 TOML → **远程签名库拉取**（内置特征码失配时触发，按 `windows-x64`/`linux-x64`/`linux-i386`/`macos-universal` 规范目录寻址）→ 内置特征码扫描；含 RVA 合理性校验与歧义跳过；结构布局由 `offsetof` 静态断言自证 |
+| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → 本地签名 TOML → **运行时符号表**（官方客户端内部符号已被 strip，实际仅能命中 `Steam_BGetCallback`/`Steam_FreeLastCallback` 等导出）→ 内置特征码扫描（当前仅 Windows 注册）→ **远程签名库拉取**（按 `windows-x64`/`linux-x64`/`linux-i386`/`macos-universal` 规范目录寻址）；含 RVA 合理性校验与歧义跳过；模块基址由 `BinaryParser::GetModuleBase` 提供（Windows HMODULE / Linux `dlpi_addr` / macOS dyld 镜像头）；结构布局由 `offsetof` 静态断言自证（锚点源自 Windows 客户端，非 Windows 布局仍需逐平台实测确认） |
 | `SymbolTable` | 符号枚举 | ELF 节区解析（32/64 位，dynsym+symtab）/ Mach-O LC_SYMTAB 内存遍历 / PE 导出表；`__cxa_demangle` 反修饰 |
 | `LuaConfig` | 解锁规则存储 | **双缓冲快照**：统一 `Has(id)` 谓词；读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
 | `DlcStore` | DLC 元数据 | Steam API 异步发现 + 本地二进制缓存（锁外写盘、原子替换） |
@@ -133,9 +133,9 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | # | 断点 | 说明 | 现状 |
 | :- | :--- | :--- | :--- |
 | A | ~~`addtoken` 访问令牌~~ | 已由 `PicsTokenInjector` 实现（eMsg 8903 追加字段注入） | ✅ 2026-08 完成 |
-| B | ~~`addinject` DLL 注入~~ | SpawnProcess 后按进程名轮询自动注入（含跨位数防护） | ✅ 2026-08 完成 |
+| B | `addinject` DLL 注入 | SpawnProcess 后按进程名轮询自动注入（含跨位数防护）；仅 Windows（CreateRemoteThread），POSIX 显式返回失败 | ⚠️ 仅 Windows |
 | C | ~~Stats 成就统计上报~~ | `StatsClient` 供体 SteamID 解析 + eMsg 151/147 与 818/819 双协议伪造已落地 | ✅ 2026-08 完成 |
-| D | ~~Linux/macOS 签名库~~ | **已闭环打通**：通过 `derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与 Mach-O `LC_FUNCTION_STARTS` 提取函数起止点，已生成并入库 `signatures/linux-x64/` 与 `signatures/macos-universal/`；CI 流水线已修复全平台自动派生与回推 | ✅ 2026-09 完成 |
+| D | Linux/macOS 签名库 | **部分打通**：`derive_signatures.py` 经 `.eh_frame_hdr` / `LC_FUNCTION_STARTS` 仅能稳定派生 2 个锚点（`CheckAppOwnership`、`SpawnProcess`；`BBuildAndAsyncSendFrame`/`RecvPkt` 字符串探针 0 xref）。仍缺：`CUtlMemoryGrow`、`ConfigStore_GetBinary`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates`、`OptedInMask`、`GetOrAddAppData`、`IPCProcessMessage` 以及 `steamui.so/.dylib` 的 `FillInAppOverview`；计划移植 Windows 已验证的 vtable-slot-transfer + anchor-map 路线（官方二进制内部符号已 strip，需先人工逆向一版参考锚点） | 🔧 进行中 |
 | E | ~~仪表盘鉴权~~ | Host 回环校验（防 DNS 重绑定）+ POST Origin 校验（防 CSRF）已落地；可选 `[webui] token` 共享密钥门（前端 401 自动提示并携带） | ✅ 2026-08 完成 |
 | F | ~~Denuvo 隐身交付~~ | 纯协议层拦截（`Hooks_NetPacket` eMsg 5527/858）与 `Hooks_IPC` `IClientUser::GetSteamID` 供体动态伪装，杜绝命名管道与跨进程代理检测（详见 [RFC 001](rfc/RFC_001_STEALTH_DENUVO_TICKET_DELIVERY.md)） | ✅ 2026-09 完成 |
 | G | ~~安全化 IPC 回调拦截~~ | `Hooks_CallBack` 拦截 C API 边界（`Steam_BGetCallback` / `Steam_FreeLastCallback`），线程局部合成标志隔离 + 异步事件队列（详见 [RFC 002](rfc/RFC_002_SAFE_IPC_CALLBACK_HOOKING.md)） | ✅ 2026-09 完成 |

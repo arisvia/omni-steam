@@ -141,8 +141,12 @@ bool ProcessInjector::InjectModule(uint32_t processId, const std::string& module
     CloseHandle(hProcess);
     return false;
 #else
-    spdlog::info("ProcessInjector: Target injection module registered for PID {}: {}", processId, modulePath);
-    return true;
+    // addinject is implemented via CreateRemoteThread and only exists on
+    // Windows. Report the failure honestly instead of pretending the module
+    // was injected.
+    spdlog::warn("ProcessInjector: Module injection is only implemented on Windows; skipping PID {}: {}", processId,
+                 modulePath);
+    return false;
 #endif
 }
 

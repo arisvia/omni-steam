@@ -40,12 +40,13 @@
 | 动态库篡改 / 符号覆盖 steamclient.so | 极低 (自检触发重下) | 极低 (更新即失效) | 极低 | 坚决避免 |
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
-### 实施状态：✅ 注入与 Hook 层均已落地
-- 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；
+### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
+- 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪（Manager `InstallCore` 暂未自动写 `LD_PRELOAD`）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
-- Hook 层：通过 `derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与 LC_FUNCTION_STARTS 提取真实函数边界，
-  配合运行时动态符号表（dynsym/symtab）解析，已完成 Linux x64/i386 签名自动派生并托管于 data 分支。
-- `PatternLoader` 按五级自愈策略自动匹配加载，全链路解锁与热重载在 Linux/Steam Deck 上完整可用。
+- Hook 层：`derive_signatures.py` 解析 ELF `.eh_frame_hdr` 与运行时导出符号表只能覆盖少数目标：
+  当前 x64 data 分支仅 `CheckAppOwnership`/`SpawnProcess` + `Steam_BGetCallback`/`Steam_FreeLastCallback`，
+  i386 与其余核心函数锚点（`CUtlMemoryGrow`/`GetPackageInfo`/`ConfigStore_GetBinary`/`BBuildAndAsyncSendFrame`/`RecvPkt` 等）
+  及 `steamui.so` 的 `FillInAppOverview` 尚未补齐（见 ROADMAP §2）。
 
 ---
 
@@ -59,10 +60,13 @@
 | LC_LOAD_DYLIB 篡改 | 低 (破坏签名, Gatekeeper 阻止) | 低 | 低 | 不推荐 |
 | task_for_pid / mach_vm 注入 | 极低 (受 SIP 限制) | 低 | 极低 | 坚决避免 |
 
-### 实施状态：✅ 注入与 Hook 层均已落地
-- Universal 构建目标（arm64 + x86_64）已配置；Core 以 `DYLD_INSERT_LIBRARIES` 注入。
-- 签名库通过 Mach-O LC_FUNCTION_STARTS 符号派生与运行时 LC_SYMTAB 枚举双引擎驱动，
-  签名文件已自动托管并在客户端无缝挂载。Manager 与 Core 全功能可用。
+### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
+- Universal 构建目标（arm64 + x86_64）已配置；Core 以 `DYLD_INSERT_LIBRARIES` 手动注入（Manager 暂无自动安装路径）。
+- 签名库通过 Mach-O LC_FUNCTION_STARTS 派生 + 运行时 LC_SYMTAB 枚举，但官方二进制内部符号已 strip：
+  当前每个非 Windows 平台仅 `CheckAppOwnership`/`SpawnProcess` 两个锚点可用，
+  完整解锁链路（解密/请求码/Package 0 扩容等）仍需补齐锚点后才可用（见 ROADMAP §2）。
+- Steam macOS 客户端是 x86_64 进程（Apple Silicon 经 Rosetta 2），universal dylib 两 slice 都会装载；
+  arm64 路径下 funchook 的 mprotect 行为需真机验证。
 
 ---
 

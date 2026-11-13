@@ -34,9 +34,12 @@ jobs:
             arch: x64
             cmake_args: "-DCMAKE_BUILD_TYPE=Release -A x64"
           - os: macos-latest
-            platform_id: macos-arm64
-            arch: arm64
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3"
+            platform_id: macos-universal
+            arch: universal
+            # Fat binary: the Steam macOS client is an x86_64 process (Rosetta 2
+            # on Apple Silicon), so the dylib must carry BOTH slices to load.
+            # TLS/curl come from the universal macOS SDK (see CMakeLists.txt).
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
     steps:
       - uses: actions/checkout@v7
         with:

@@ -144,7 +144,36 @@ if(NOT funchook_src_POPULATED)
         list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_unix.c")
     endif()
 
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    # Universal macOS builds need BOTH disassembler backends: funchook picks
+    # its backend per host processor at configure time, which would leave the
+    # non-host slice of a fat dylib without trampoline support. Compile each
+    # ISA backend as an object library pinned to its own -arch and merge the
+    # objects into the archive (ld selects the right slice per object).
+    set(OMNI_OSX_UNIVERSAL FALSE)
+    if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+        set(OMNI_OSX_UNIVERSAL TRUE)
+    endif()
+
+    if(OMNI_OSX_UNIVERSAL)
+        set(FUNCHOOK_BACKEND_OBJECTS "")
+        foreach(omni_arch IN ITEMS arm64 x86_64)
+            if(omni_arch STREQUAL "arm64")
+                set(omni_backend "${funchook_src_SOURCE_DIR}/src/funchook_arm64.c")
+            else()
+                set(omni_backend "${funchook_src_SOURCE_DIR}/src/funchook_x86.c")
+            endif()
+            set(omni_obj_target funchook_${omni_arch}_obj)
+            add_library(${omni_obj_target} OBJECT "${omni_backend}")
+            set_property(TARGET ${omni_obj_target} PROPERTY OSX_ARCHITECTURES "${omni_arch}")
+            target_compile_options(${omni_obj_target} PRIVATE -w)
+            target_include_directories(${omni_obj_target} SYSTEM PRIVATE
+                "${funchook_src_SOURCE_DIR}/include"
+                "${capstone_SOURCE_DIR}/include"
+            )
+            target_include_directories(${omni_obj_target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/funchook_include")
+            list(APPEND FUNCHOOK_BACKEND_OBJECTS $<TARGET_OBJECTS:${omni_obj_target}>)
+        endforeach()
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
         list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_arm64.c")
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM")
         list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_arm.c")
@@ -152,7 +181,7 @@ if(NOT funchook_src_POPULATED)
         list(APPEND FUNCHOOK_SOURCES "${funchook_src_SOURCE_DIR}/src/funchook_x86.c")
     endif()
 
-    add_library(funchook STATIC ${FUNCHOOK_SOURCES})
+    add_library(funchook STATIC ${FUNCHOOK_SOURCES} ${FUNCHOOK_BACKEND_OBJECTS})
     target_compile_options(funchook PRIVATE -w)
     target_include_directories(funchook SYSTEM PUBLIC 
         "${funchook_src_SOURCE_DIR}/include"
@@ -202,6 +231,20 @@ if(WIN32)
     add_compile_definitions(OMNI_PLATFORM_WINDOWS)
     set(PLATFORM_LIBS winhttp bcrypt ws2_32 psapi)
 elseif(APPLE)
+    # Fat (arm64+x86_64) builds cannot link Homebrew's single-arch libraries.
+    # The macOS SDK ships a universal LibreSSL and libcurl, so prefer those
+    # and fall back to Homebrew only for single-arch setups.
+    execute_process(
+        COMMAND xcrun --show-sdk-path
+        OUTPUT_VARIABLE OMNI_MACOS_SDK_PATH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(OMNI_MACOS_SDK_PATH AND EXISTS "${OMNI_MACOS_SDK_PATH}/usr/lib/libssl.tbd")
+        set(OPENSSL_ROOT_DIR "${OMNI_MACOS_SDK_PATH}/usr")
+        set(CURL_INCLUDE_DIR "${OMNI_MACOS_SDK_PATH}/usr/include" CACHE FILEPATH "SDK curl headers")
+        set(CURL_LIBRARY "${OMNI_MACOS_SDK_PATH}/usr/lib/libcurl.tbd" CACHE FILEPATH "SDK libcurl stub")
+    endif()
     find_package(OpenSSL REQUIRED)
     find_package(CURL REQUIRED)
     find_package(Threads REQUIRED)

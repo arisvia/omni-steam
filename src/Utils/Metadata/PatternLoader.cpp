@@ -98,9 +98,13 @@ std::string GetCacheDirectory() {
 // module that owns the function. FillInAppOverview lives in steamui.dll while
 // the cache was historically keyed to steamclient64.dll - mixing the two
 // produced wild hook addresses after a cache hit.
+//
+// The load base must come from BinaryParser, not from the DynamicLibrary
+// handle: on Windows GetModuleHandle doubles as the base address, but on
+// Linux/macOS GetLoadedModule returns an opaque dlopen/dyld handle. Rebasing
+// harvested RVAs onto that handle produced wild hook addresses on POSIX.
 uintptr_t ModuleBaseFor(const std::string& moduleName) {
-    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(moduleName);
-    return reinterpret_cast<uintptr_t>(hModule);
+    return OmniPlatform::BinaryParser::GetModuleBase(moduleName);
 }
 
 std::string CurrentCachePath() {
@@ -490,7 +494,7 @@ void Initialize(const std::string& /*unused*/) {
 
     std::string modName = GetTargetModuleName();
     auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
-    uintptr_t moduleBase = reinterpret_cast<uintptr_t>(hModule);
+    uintptr_t moduleBase = OmniPlatform::BinaryParser::GetModuleBase(modName);
     std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
     std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
 

@@ -1,19 +1,31 @@
 # OmniSteam 开发路线图 (Roadmap)
 
-> 状态基线：2026-11。全功能全平台完整可用，持续演进中。
+> 状态基线：2026-11。Windows 全功能可用；Linux/macOS 骨架（注入载体、funchook、Manager/云存档）已通，函数签名覆盖仍不完整（见 §3）。
 
-## 1. 核心架构与功能现状 【✅ 全部落地】
+## 1. 核心架构与功能现状 【主体落地；平台状态见各行】
 
 | 模块 | 实施状态 | 核心实现与保障 |
 | :--- | :--- | :--- |
-| **跨平台底层 (OmniPlatform)** | ✅ Windows / Linux / macOS | funchook 统一挂钩；系统目录监视双缓冲热重载；跨平台统一进程探测（`/proc`、`sysctl`、Toolhelp）。 |
-| **协议与所有权核心 (Core)** | ✅ 全平台 | Package 0 原生增量扩容；AES 密钥快速回填；追加字段式请求码与令牌改写；无锁化 RichPresence 状态投递。 |
-| **成就系统与高可用** | ✅ 全平台 | Player.GetUserStats / eMsg 818 双协议劫持；stats 节点宕机/断网 Tier 3 自动本地合成空响应保底。 |
+| **跨平台底层 (OmniPlatform)** | ✅ Windows / Linux / macOS | funchook 统一挂钩；系统目录监视双缓冲热重载；跨平台统一进程探测（`/proc`、`sysctl`、Toolhelp）；macOS universal（arm64+x86_64）构建。**注意：非 Windows 平台的函数寻址仍依赖不完整的签名库，解锁链路尚未全量打通（见 §3）**。 |
+| **协议与所有权核心 (Core)** | ✅ Windows；⚠️ Linux/macOS 受签名覆盖限制 | Package 0 原生增量扩容；AES 密钥快速回填；追加字段式请求码与令牌改写；无锁化 RichPresence 状态投递。逻辑全平台共享，但依赖的函数锚点目前仅 Windows 全量可解析。 |
+| **成就系统与高可用** | ✅ Windows；⚠️ Linux/macOS 同上 | Player.GetUserStats / eMsg 818 双协议劫持；stats 节点宕机/断网 Tier 3 自动本地合成空响应保底。 |
 | **安全与防崩溃机制** | ✅ 全平台 | 30+ 款竞技游戏反作弊白名单直通；进程退出 detours 由 OS 回收杜绝 Loader Lock 崩溃；`g_watchThread` 显式分离。 |
 | **Manager 独立管理端** | ✅ Web / CLI / 托盘 | 本地 23 万+ Depot 密钥与 CDN 实时同步；Lua 一键生成与 Base/DLC Depot 密钥单趟合并；Windows 状态托盘与有序关停。 |
 | **跨平台云存档** | ✅ WebDAV / 本地快照 | `remotecache.vdf` 零开销路径解析；游戏退出单次文件事件唤醒；本地滚动快照与 WebDAV 双通道。 |
 | **CI 与自动化签名维保** | ✅ 4 平台原生 Runner | Linux ELF `.eh_frame_hdr` 与 macOS Mach-O `LC_FUNCTION_STARTS` 自动符号派生；多平台二进制与测试矩阵联动。 |
-## 2. 后续演进规划 【📋 规划中】
+## 2. 非 Windows 平台差距清单 【🔧 进行中】
+
+按打通顺序排列：
+
+1. **签名锚点补全（核心阻塞）**：Linux/macOS 的 `steamclient` 内部符号已全被 Valve strip（实测仅剩 `Steam_BGetCallback`/`Steam_FreeLastCallback` 等 C API 导出），`derive_signatures.py` 字符串探针仅能派生 `CheckAppOwnership`、`SpawnProcess`。需移植 Windows 的 vtable-slot-transfer + anchor-map 路线，先人工逆向产出参考锚点，覆盖 `CUtlMemoryGrow`、`ConfigStore_GetBinary`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates`、`BBuildAndAsyncSendFrame`、`RecvPkt`、`OptedInMask`、`GetOrAddAppData`、`IPCProcessMessage`。
+2. **steamui 库可见性**：`FillInAppOverview` 目前只注册了 `steamui.dll`；Linux/macOS 需为 `steamui.so`/`steamui.dylib` 建锚点，否则解锁游戏无法稳定出现在库中。
+3. **linux-i386 签名目录**：CI 已按 ELF class 分流 harvest 输出（`linux-x64`/`linux-i386`），等待 32 位探针补齐后入库。
+4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测；linux-i386 另需处理 thiscall 调用约定（当前钩子原型未适配）。
+5. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
+6. **macOS arm64 实测**：funchook 官方声明不支持 macOS arm64（`mprotect` EINVAL），universal 构建后需真机验证 x86_64（Rosetta 客户端）与 arm64 两条路径。
+7. **真机冒烟验证**：以 `core_status.json` 的逐 hook 状态为准，在真实客户端上跑一次完整解锁链路（当前无此回归手段）。
+
+## 3. 后续演进规划 【📋 规划中】
 
 1. **纯本地成就 Schema 离线构造**：客户端本地解包游戏 appcache / Schema 元数据并拦截 `CMsgClientGetUserStatsResponse` 合成本地响应，消除外部供体（Donor）依赖。
 2. **离线 LAN 联机广播支持**：局域网 Lobby 广播与 SteamSockets 本地模拟，覆盖断网对战场景。

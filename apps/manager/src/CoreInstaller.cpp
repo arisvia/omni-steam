@@ -186,8 +186,8 @@ InstallResult CoreInstaller::InstallCore(const std::string& channel) {
     assetCandidates = {"omnisteam-core-windows-x64.zip", "omnisteam-windows-latest-x86_64.zip",
                        "omnisteam-core-windows.zip"};
 #elif defined(OMNI_PLATFORM_MACOS)
-    assetCandidates = {"omnisteam-core-macos-arm64.tar.gz", "omnisteam-macos-latest-arm64.tar.gz",
-                       "omnisteam-core-macos.tar.gz"};
+    assetCandidates = {"omnisteam-core-macos-universal.tar.gz", "omnisteam-core-macos-arm64.tar.gz",
+                       "omnisteam-macos-latest-arm64.tar.gz", "omnisteam-core-macos.tar.gz"};
 #else
     assetCandidates = {"omnisteam-core-linux-x64.tar.gz", "omnisteam-ubuntu-latest-x86_64.tar.gz",
                        "omnisteam-core-linux.tar.gz"};

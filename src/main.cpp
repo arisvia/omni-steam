@@ -146,7 +146,7 @@ static bool IsSteamHostProcess() {
     for (char& c : exeName) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    return exeName == "steam.exe" || exeName == "steam";
+    return exeName == "steam.exe" || exeName == "steam" || exeName == "steam_osx";
 }
 
 static void InitializeOmniSteam() {

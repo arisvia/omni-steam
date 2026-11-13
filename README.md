@@ -2,9 +2,10 @@
 
 > **One Codebase. All Platforms. Universal Steam Enhancement & Unlocker.**
 
-OmniSteam 是一个现代、开源、全平台兼容的 Steam 客户端增强工具。当前 **Windows x64 完整可用**，
-Linux (含 Steam Deck / SteamOS) 与 macOS 具备完整注入链路、派生特征签名与 Manager 管理能力，
-全平台均支持运行时符号表与特征解析（详见 [架构文档 · 平台能力矩阵](docs/ARCHITECTURE.md#1-架构总览)）。
+OmniSteam 是一个现代、开源、跨平台的 Steam 客户端增强工具。当前 **Windows x64 完整可用**；
+Linux (含 Steam Deck / SteamOS) 与 macOS 的注入载体、Manager 与云存档已可用，
+但函数签名锚点覆盖尚不完整，解锁链路仍在打通中（进度见 [ROADMAP §2](docs/ROADMAP.md)，
+平台能力矩阵见 [架构文档](docs/ARCHITECTURE.md#1-架构总览)）。
 
 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Decoupled Manager) + 掌机原生插件 (Decky Plugin)"**
 的解耦架构——两者之间仅通过文件系统通信（Lua 脚本目录 + 密钥库 + 心跳文件），无任何 Socket 依赖。
