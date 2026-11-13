@@ -2,7 +2,7 @@
 //
 // Locates the module's on-disk image via /proc/self/maps, then parses its
 // section headers to enumerate .dynsym and (when present) the full .symtab.
-// Handles both ELF64 and ELF32 (the ubuntu12_32 client build).
+// 64-bit only: OmniSteam targets x86_64/arm64, so ELF32 images are rejected.
 
 #include "SymbolTable.h"
 
@@ -49,10 +49,9 @@ bool FindModulePath(const std::string& moduleName, std::string& outPath) {
     return false;
 }
 
-template <typename ElfEhdr, typename ElfShdr, typename ElfSym>
 void ParseSymbolTable(std::ifstream& file, uint64_t symOffset, uint64_t symSize, uint64_t strOffset, uint64_t strSize,
                       const SymbolCallback& callback, const char* tableLabel) {
-    if (symSize < sizeof(ElfSym))
+    if (symSize < sizeof(Elf64_Sym))
         return;
 
     std::vector<char> symData(static_cast<size_t>(symSize));
@@ -65,16 +64,14 @@ void ParseSymbolTable(std::ifstream& file, uint64_t symOffset, uint64_t symSize,
     if (!file.read(strData.data(), static_cast<std::streamsize>(strData.size())))
         return;
 
-    auto* symbols = reinterpret_cast<const ElfSym*>(symData.data());
-    const size_t count = symData.size() / sizeof(ElfSym);
+    auto* symbols = reinterpret_cast<const Elf64_Sym*>(symData.data());
+    const size_t count = symData.size() / sizeof(Elf64_Sym);
     for (size_t i = 0; i < count; ++i) {
-        const ElfSym& sym = symbols[i];
-        constexpr unsigned char kTypeMask = 0xF;
-        if (ELF32_ST_TYPE(sym.st_info) != STT_FUNC)
+        const Elf64_Sym& sym = symbols[i];
+        if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC)
             continue;
         if (sym.st_shndx == SHN_UNDEF || sym.st_value == 0)
             continue;
-
         if (sym.st_name >= strData.size())
             continue;
         const char* name = strData.data() + sym.st_name;
@@ -110,27 +107,20 @@ bool ForEachFunction(const std::string& moduleName, const SymbolCallback& callba
         spdlog::warn("SymbolTable: {} is not an ELF image", modulePath);
         return false;
     }
-    const bool is64 = e_ident[EI_CLASS] == ELFCLASS64;
-
-    uint64_t shoff = 0;
-    uint16_t shentsize = 0, shnum = 0, shstrndx = 0;
-    if (is64) {
-        Elf64_Ehdr ehdr{};
-        file.seekg(0);
-        file.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
-        shoff = ehdr.e_shoff;
-        shentsize = ehdr.e_shentsize;
-        shnum = ehdr.e_shnum;
-        shstrndx = ehdr.e_shstrndx;
-    } else {
-        Elf32_Ehdr ehdr{};
-        file.seekg(0);
-        file.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
-        shoff = ehdr.e_shoff;
-        shentsize = ehdr.e_shentsize;
-        shnum = ehdr.e_shnum;
-        shstrndx = ehdr.e_shstrndx;
+    if (e_ident[EI_CLASS] != ELFCLASS64) {
+        spdlog::warn("SymbolTable: {} is not a 64-bit ELF image; OmniSteam supports 64-bit clients only", modulePath);
+        return false;
     }
+
+    Elf64_Ehdr ehdr{};
+    file.seekg(0);
+    file.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
+    if (!file)
+        return false;
+    const uint64_t shoff = ehdr.e_shoff;
+    const uint16_t shentsize = ehdr.e_shentsize;
+    const uint16_t shnum = ehdr.e_shnum;
+    const uint16_t shstrndx = ehdr.e_shstrndx;
     if (shoff == 0 || shentsize == 0 || shnum == 0)
         return false;
 
@@ -147,15 +137,11 @@ bool ForEachFunction(const std::string& moduleName, const SymbolCallback& callba
 
     uint64_t strTabOffset = 0, strTabSize = 0;
     {
-        const Elf64_Shdr* shstr64 = static_cast<const Elf64_Shdr*>(sectionAt(shstrndx));
-        const Elf32_Shdr* shstr32 = static_cast<const Elf32_Shdr*>(sectionAt(shstrndx));
-        if (is64 && shstr64) {
-            strTabOffset = shstr64->sh_offset;
-            strTabSize = shstr64->sh_size;
-        } else if (shstr32) {
-            strTabOffset = shstr32->sh_offset;
-            strTabSize = shstr32->sh_size;
-        }
+        const auto* shstr = static_cast<const Elf64_Shdr*>(sectionAt(shstrndx));
+        if (!shstr)
+            return false;
+        strTabOffset = shstr->sh_offset;
+        strTabSize = shstr->sh_size;
     }
     std::vector<char> shstrData(static_cast<size_t>(strTabSize));
     file.seekg(static_cast<std::streamoff>(strTabOffset));
@@ -163,56 +149,22 @@ bool ForEachFunction(const std::string& moduleName, const SymbolCallback& callba
         return false;
 
     for (size_t i = 0; i < shnum; ++i) {
-        uint32_t type = 0, link = 0;
-        uint64_t offset = 0, size = 0;
-        if (is64) {
-            const auto* sh = static_cast<const Elf64_Shdr*>(sectionAt(i));
-            if (!sh)
-                continue;
-            type = sh->sh_type;
-            link = sh->sh_link;
-            offset = sh->sh_offset;
-            size = sh->sh_size;
-        } else {
-            const auto* sh = static_cast<const Elf32_Shdr*>(sectionAt(i));
-            if (!sh)
-                continue;
-            type = sh->sh_type;
-            link = sh->sh_link;
-            offset = sh->sh_offset;
-            size = sh->sh_size;
-        }
+        const auto* sh = static_cast<const Elf64_Shdr*>(sectionAt(i));
+        if (!sh)
+            continue;
 
-        const bool isSymTab = type == SHT_SYMTAB;
-        const bool isDynSym = type == SHT_DYNSYM;
+        const bool isSymTab = sh->sh_type == SHT_SYMTAB;
+        const bool isDynSym = sh->sh_type == SHT_DYNSYM;
         if (!isSymTab && !isDynSym)
             continue;
 
-        uint64_t strOffset = 0, strSize = 0;
-        if (is64) {
-            const auto* strSec = static_cast<const Elf64_Shdr*>(sectionAt(link));
-            if (!strSec)
-                continue;
-            strOffset = strSec->sh_offset;
-            strSize = strSec->sh_size;
-        } else {
-            const auto* strSec = static_cast<const Elf32_Shdr*>(sectionAt(link));
-            if (!strSec)
-                continue;
-            strOffset = strSec->sh_offset;
-            strSize = strSec->sh_size;
-        }
+        const auto* strSec = static_cast<const Elf64_Shdr*>(sectionAt(sh->sh_link));
+        if (!strSec)
+            continue;
 
         const char* label = isDynSym ? "dynsym" : "symtab";
-        spdlog::debug("SymbolTable: Parsing {} of {} ({} symbols)", label, modulePath,
-                      size / (is64 ? sizeof(Elf64_Sym) : sizeof(Elf32_Sym)));
-        if (is64) {
-            ParseSymbolTable<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(file, offset, size, strOffset, strSize, callback,
-                                                                label);
-        } else {
-            ParseSymbolTable<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(file, offset, size, strOffset, strSize, callback,
-                                                                label);
-        }
+        spdlog::debug("SymbolTable: Parsing {} of {} ({} symbols)", label, modulePath, sh->sh_size / sizeof(Elf64_Sym));
+        ParseSymbolTable(file, sh->sh_offset, sh->sh_size, strSec->sh_offset, strSec->sh_size, callback, label);
     }
     return true;
 }

@@ -107,7 +107,7 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | `Hooks_Manifest` | 固定 Manifest 预取 | setManifestid 固定的 GID 启动时预取至 `depotcache/` |
 | `Hooks_SteamUI` | 库可见性 | steamui.dll FillInAppOverview 合成购买时间戳（PurchasedTime）确保库内即时显示与留存 |
 | `Hooks_Misc` | OnlineFix 与生命周期监控 | SpawnProcess / OptedInMask（原子化真实 AppID）；addinject 配置的模块按进程名轮询注入；MonitorGameLifecycle 监控游戏退出并静默派发异步备份信号 |
-| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → 本地签名 TOML → **运行时符号表**（官方客户端内部符号已被 strip，实际仅能命中 `Steam_BGetCallback`/`Steam_FreeLastCallback` 等导出）→ 内置特征码扫描（当前仅 Windows 注册）→ **远程签名库拉取**（按 `windows-x64`/`linux-x64`/`linux-i386`/`macos-universal` 规范目录寻址）；含 RVA 合理性校验与歧义跳过；模块基址由 `BinaryParser::GetModuleBase` 提供（Windows HMODULE / Linux `dlpi_addr` / macOS dyld 镜像头）；结构布局由 `offsetof` 静态断言自证（锚点源自 Windows 客户端，非 Windows 布局仍需逐平台实测确认） |
+| `PatternLoader` | 函数寻址 | 五级解析：SHA256 键控 RVA 缓存 → 本地签名 TOML → **运行时符号表**（官方客户端内部符号已被 strip，实际仅能命中 `Steam_BGetCallback`/`Steam_FreeLastCallback` 等导出）→ 内置特征码扫描（当前仅 Windows 注册）→ **远程签名库拉取**（按 `windows-x64`/`linux-x64`/`macos-universal` 规范目录寻址）；含 RVA 合理性校验与歧义跳过；模块基址由 `BinaryParser::GetModuleBase` 提供（Windows HMODULE / Linux `dlpi_addr` / macOS dyld 镜像头）；结构布局由 `offsetof` 静态断言自证（锚点源自 Windows 客户端，非 Windows 布局仍需逐平台实测确认） |
 | `SymbolTable` | 符号枚举 | ELF 节区解析（32/64 位，dynsym+symtab）/ Mach-O LC_SYMTAB 内存遍历 / PE 导出表；`__cxa_demangle` 反修饰 |
 | `LuaConfig` | 解锁规则存储 | **双缓冲快照**：统一 `Has(id)` 谓词；读端永远看到完整数据，重载在后台槽构建后指针切换；Lua 沙箱移除 io/package.loadlib/os.* 危险面 |
 | `DlcStore` | DLC 元数据 | Steam API 异步发现 + 本地二进制缓存（锁外写盘、原子替换） |

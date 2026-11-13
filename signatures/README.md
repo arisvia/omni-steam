@@ -10,9 +10,9 @@ All dynamic client signatures are automatically harvested by CI and hosted on th
 ## Platform directories
 
 Only 64-bit targets are published: `windows-x64`, `linux-x64`, `macos-universal`.
-`linux-i386` is intentionally absent — OmniSteam does not ship a 32-bit core, and
-keeping the namespace empty makes any hand-built 32-bit core fail closed rather
-than consume x64 RVAs.
+There is no 32-bit namespace: OmniSteam does not build or ship a 32-bit core.
+CMake rejects 32-bit toolchains at configure time, and the harvest/derive tools
+skip 32-bit ELF images outright.
 
 ## How the anchor map crosses ABIs
 

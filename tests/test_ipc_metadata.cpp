@@ -128,17 +128,10 @@ void TestSteamStructureInvariants() {
     OMNI_CHECK(offsetof(CallbackMsg_t, m_iCallback) == 0x04);
     OMNI_CHECK(offsetof(CallbackMsg_t, m_pubParam) == 0x08);
     OMNI_CHECK(offsetof(PackageInfo, Status) == 0x18);
-#if defined(OMNI_ARCH_X64)
     OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x40);
     OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x58);
     OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 24); // no m_pElements, matches client
     OMNI_CHECK(sizeof(CallbackMsg_t) == 24);
-#elif defined(OMNI_ARCH_X86)
-    OMNI_CHECK(offsetof(PackageInfo, AppIdVec) == 0x38);
-    OMNI_CHECK(offsetof(PackageInfo, DepotIdVec) == 0x48);
-    OMNI_CHECK(sizeof(CUtlVector<AppId_t>) == 16);
-    OMNI_CHECK(sizeof(CallbackMsg_t) == 16);
-#endif
 
     std::cout << "[PASS] TestSteamStructureInvariants\n";
 }

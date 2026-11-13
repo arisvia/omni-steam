@@ -170,7 +170,7 @@ struct EncryptedAppTicketResponse_t {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(CallbackMsg_t) == (sizeof(void*) == 8 ? 24 : 16), "CallbackMsg_t layout drifted");
+static_assert(sizeof(CallbackMsg_t) == 24, "CallbackMsg_t layout drifted");
 static_assert(LicensesUpdated_t::k_iCallback == 125, "LicensesUpdated_t callback ID drifted");
 static_assert(EncryptedAppTicketResponse_t::k_iCallback == 154, "EncryptedAppTicketResponse_t callback ID drifted");
 // ==============================================================================
@@ -323,7 +323,7 @@ struct CSteamApp {
 // Structure Layout Invariants (self-verifying; replaces hand-maintained offset
 // tables that drifted from the real client layout — see upstream Structs.h).
 // Arch-neutral invariants are derived from the structs themselves; absolute
-// anchors are per-architecture (x64 and i386 layouts differ).
+// anchors assume a 64-bit client (OmniSteam supports 64-bit platforms only).
 // ==============================================================================
 #include <cstddef>
 static_assert(offsetof(PackageInfo, Status) == 0x18, "PackageInfo::Status offset drifted");
@@ -339,12 +339,7 @@ static_assert(offsetof(AppOwnership, ExistInPackageNums) == 0x14, "AppOwnership:
 static_assert(offsetof(AppOwnership, bOwnsLicense) == 0x24, "AppOwnership::bOwnsLicense offset drifted");
 static_assert(offsetof(AppOwnership, bFreeLicense) == 0x28, "AppOwnership::bFreeLicense offset drifted");
 static_assert(offsetof(AppOwnership, bFamilyShared) == 0x35, "AppOwnership::bFamilyShared offset drifted");
-#if defined(OMNI_ARCH_X64)
-static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "x64 PackageInfo::AppIdVec anchor drifted");
-static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "x64 PackageInfo::DepotIdVec anchor drifted");
-static_assert(sizeof(CUtlVector<AppId_t>) == 24, "x64 CUtlVector must stay 24 bytes");
-#elif defined(OMNI_ARCH_X86)
-static_assert(offsetof(PackageInfo, AppIdVec) == 0x38, "x86 PackageInfo::AppIdVec anchor drifted");
-static_assert(offsetof(PackageInfo, DepotIdVec) == 0x48, "x86 PackageInfo::DepotIdVec anchor drifted");
-static_assert(sizeof(CUtlVector<AppId_t>) == 16, "x86 CUtlVector must stay 16 bytes");
-#endif
+static_assert(sizeof(void*) == 8, "OmniSteam requires a 64-bit target");
+static_assert(offsetof(PackageInfo, AppIdVec) == 0x40, "PackageInfo::AppIdVec anchor drifted");
+static_assert(offsetof(PackageInfo, DepotIdVec) == 0x58, "PackageInfo::DepotIdVec anchor drifted");
+static_assert(sizeof(CUtlVector<AppId_t>) == 24, "CUtlVector must stay 24 bytes");

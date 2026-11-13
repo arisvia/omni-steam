@@ -17,11 +17,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# Canonical architecture macros (see AGENTS.md conventions)
+# Canonical architecture macros (see AGENTS.md conventions).
+# OmniSteam targets 64-bit platforms only: the Steam client itself is 64-bit on
+# every supported OS, and the hook payloads assume 8-byte pointers throughout.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    message(FATAL_ERROR
+        "OmniSteam requires a 64-bit target (x86_64 or arm64); 32-bit builds are not supported. "
+        "Remove -m32 / i386 toolchain flags from your configure line.")
+endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
     add_compile_definitions(OMNI_ARCH_ARM64)
-elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-    add_compile_definitions(OMNI_ARCH_X86)
 else()
     add_compile_definitions(OMNI_ARCH_X64)
 endif()

@@ -21,7 +21,7 @@
 2. **Package 0 扩容三件套（剩余阻塞）**：`CUtlMemoryGrow`、`GetPackageInfo`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates` 在非 Windows 二进制中既无 RTTI 类也无唯一字面量，需人工逆向一版参考 RVA 后用 `--emit-map` 固化为本平台锚点图，此后即可自动跟版本。
 3. **steamui 库可见性**：`FillInAppOverview` 目前只注册了 `steamui.dll`；Linux/macOS 需为 `steamui.so`/`steamui.dylib` 建锚点，否则解锁游戏无法稳定出现在库中。
 4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
-5. **linux-i386 已移出支持矩阵**：Valve 已于 2026-10 将 Linux 客户端推向 64 位，CI/Release 不再构建 i386，harvest 只收 64 位二进制；运行时保留 `linux-i386` 命名空间以便手工 32 位构建 fail-closed。
+5. **i386 已完全移除**：Valve 已于 2026-10 将 Linux 客户端推向 64 位。CI/Release 不再构建 i386；CMake 在 32 位工具链下直接 `FATAL_ERROR`；`OMNI_ARCH_X86` 宏、ELF32 解析分支、32 位 xref 路径、`ubuntu12_32` 安装路径与 `linux-i386` 签名命名空间均已删除。harvest/derive 遇到 32 位 ELF 直接跳过。
 6. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
 7. **macOS arm64 实测**：funchook 官方声明不支持 macOS arm64（`mprotect` EINVAL），universal 构建后需真机验证 x86_64（Rosetta 客户端）与 arm64 两条路径。
 8. **真机冒烟验证**：以 `core_status.json` 的逐 hook 状态为准，在真实客户端上跑一次完整解锁链路（当前无此回归手段）。

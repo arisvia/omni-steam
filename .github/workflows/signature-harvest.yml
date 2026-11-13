@@ -381,7 +381,7 @@ jobs:
           fi
           STAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           # harvest_signatures.py already emits canonical platform dirs
-          # (windows-x64 / linux-x64 / linux-i386 / macos-universal) matching
+          # (windows-x64 / linux-x64 / macos-universal) matching
           # PatternLoader::GetSignaturePlatformDir.
           {
             echo "# OmniSteam Signature Database"

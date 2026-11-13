@@ -170,7 +170,11 @@ def collect_symbols_pe(binary: Path) -> tuple[dict[str, int], list[str]]:
 def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     data_sha = sha256_file(binary)
     detected = kind or detect_kind(binary)
-    out_dir = out_dir / platform_dir(binary, detected)
+    platform = platform_dir(binary, detected)
+    if platform == "unsupported":
+        print(f"[harvest] {binary.name}: 32-bit ELF skipped (64-bit targets only)")
+        return 0
+    out_dir = out_dir / platform
     print(f"[harvest] {binary.name} sha256={data_sha} kind={detected} platform={out_dir.name}")
     notes: list[str] = []
     if detected == "elf":
@@ -254,26 +258,22 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
 def platform_dir(binary: Path, kind: str) -> str:
     """Canonical platform directory consumed by PatternLoader's remote tier
     (see PatternLoader::GetSignaturePlatformDir) and by the collect step of
-    signature-harvest.yml. Linux must be split by architecture: the 32-bit
-    ubuntu12_32 steamclient.so has its own binary hash and its own TOML
-    namespace (signatures/linux-i386/), otherwise i386 clients would 404."""
+    signature-harvest.yml.
+
+    OmniSteam targets 64-bit platforms only. A 32-bit ELF is reported as
+    "unsupported" so the caller skips it instead of publishing RVAs into a
+    namespace no runtime consumes.
+    """
     if kind == "pe":
         return "windows-x64"
     if kind == "macho":
         return "macos-universal"
     if kind == "elf":
-        import struct
-
         with binary.open("rb") as fh:
-            ident = fh.read(20)
-        if len(ident) >= 19:
-            ei_class, ei_machine = ident[4], struct.unpack_from("<H", ident, 18)[0]
-            if ei_class == 2:
-                return "linux-x64"
-            if ei_class == 1 and ei_machine in (3, 40, 8):  # EM_386 / EM_ARM / EM_MIPS
-                return "linux-i386"
-            if ei_class == 2 or ei_class == 1:
-                return "linux-x64"
+            ident = fh.read(5)
+        if len(ident) >= 5 and ident[4] == 2:  # ELFCLASS64
+            return "linux-x64"
+        return "unsupported"
     return "unknown"
 
 

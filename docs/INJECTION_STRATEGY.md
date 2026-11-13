@@ -47,7 +47,7 @@
   RTTI/vtable 遍历，已产出 9 个函数锚点（含 `ConfigStore_GetBinary`/`RecvPkt`/`BBuildAndAsyncSendFrame`/
   `IPCProcessMessage`/`OptedInMask`），另有 `Steam_BGetCallback`/`Steam_FreeLastCallback` 走导出符号。
   仍缺 Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview`（见 ROADMAP §2）。
-  i386 已移出支持矩阵，harvest 只收 64 位二进制。
+  仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过。
 
 ---
 

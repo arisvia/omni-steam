@@ -62,8 +62,7 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
     """Returns (checked, failed)."""
     transferred = transfer_via_map(img, anchor_map)
     text_va, text = img.text()
-    is64 = img.kind != "elf" or img.data[4] == 2
-    index = build_xref_index(text_va, text, is64)
+    index = build_xref_index(text_va, text)
     checked = failed = 0
     for name, probe in CROSS_CHECKS.items():
         via_vtable = transferred.get(name, {}).get("rva")

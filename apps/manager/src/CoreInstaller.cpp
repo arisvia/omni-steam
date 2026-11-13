@@ -112,9 +112,8 @@ CoreStatusInfo CoreInstaller::GetStatus() {
     std::string coreDylib = (fs::path(info.steamInstallPath) / "libomnisteam.dylib").generic_string();
     info.installed = fs::exists(coreDylib);
 #else
-    std::string coreSo32 = (fs::path(info.steamInstallPath) / "ubuntu12_32" / "libomnisteam.so").generic_string();
-    std::string coreSo64 = (fs::path(info.steamInstallPath) / "ubuntu12_64" / "libomnisteam.so").generic_string();
-    info.installed = fs::exists(coreSo32) || fs::exists(coreSo64);
+    std::string coreSo = (fs::path(info.steamInstallPath) / "ubuntu12_64" / "libomnisteam.so").generic_string();
+    info.installed = fs::exists(coreSo);
 #endif
 
     // Read live heartbeat status if available
@@ -306,13 +305,10 @@ bool CoreInstaller::UninstallCore() {
         removedAny = true;
     }
 #else
-    std::vector<std::string> files = {"ubuntu12_32/libomnisteam.so", "ubuntu12_64/libomnisteam.so"};
-    for (const auto& f : files) {
-        std::string p = (fs::path(steamPath) / f).generic_string();
-        if (fs::exists(p)) {
-            fs::remove(p);
-            removedAny = true;
-        }
+    std::string soPath = (fs::path(steamPath) / "ubuntu12_64" / "libomnisteam.so").generic_string();
+    if (fs::exists(soPath)) {
+        fs::remove(soPath);
+        removedAny = true;
     }
 #endif
 

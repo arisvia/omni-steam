@@ -4,7 +4,7 @@
 - **Language**: C++20 standard, C11 standard.
 - **Targets**:
   - **Windows (x64)**: Steamclient hook (`libomnisteam.dll`), Proxy DLL (`xinput1_4.dll`), Native ImGui / Web Manager (`omnisteam.exe`).
-  - **Linux (x86_64 & i386)**: Dynamic Preload hook (`libomnisteam.so` built for both 64-bit and 32-bit `ubuntu12_32`), CLI & Web GUI Manager.
+  - **Linux (x86_64)**: Dynamic Preload hook (`libomnisteam.so` in `ubuntu12_64`), CLI & Web GUI Manager.
   - **macOS (Apple Silicon arm64 & Intel x86_64)**: Universal binary Mach-O hook (`libomnisteam.dylib`).
 - **Hook Engine**: `funchook` (Capstone 5.0.1 based, universal across x86/x64/ARM64).
 
@@ -32,7 +32,7 @@
   - `OMNI_PLATFORM_WINDOWS`
   - `OMNI_PLATFORM_LINUX`
   - `OMNI_PLATFORM_MACOS`
-  - `OMNI_ARCH_X64`, `OMNI_ARCH_X86`, `OMNI_ARCH_ARM64`
+  - `OMNI_ARCH_X64`, `OMNI_ARCH_ARM64` (64-bit targets only; CMake fails the configure step on 32-bit)
 
 ### E. Return Paths in Non-Void Functions
 - **Rule**: Every non-void function MUST guarantee a return value on all execution paths.

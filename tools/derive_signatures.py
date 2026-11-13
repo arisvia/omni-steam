@@ -424,33 +424,25 @@ def parse_pe(path: Path) -> Image:
 
 
 def parse_elf(path: Path) -> Image:
+    """Parse a 64-bit ELF image.
+
+    OmniSteam targets 64-bit platforms only, so ELF32 is rejected outright
+    rather than half-parsed into RVAs that no runtime would consume.
+    """
     img = Image(path, "elf")
     d = img.data
-    is64 = d[4] == 2
-    little = d[5] == 1
-    end = "<" if little else ">"
-    if is64:
-        e_shoff = struct.unpack_from(end + "Q", d, 0x28)[0]
-        e_shentsize = struct.unpack_from(end + "H", d, 0x3A)[0]
-        e_shnum = struct.unpack_from(end + "H", d, 0x3C)[0]
-        e_shstrndx = struct.unpack_from(end + "H", d, 0x3E)[0]
-        shentsize = e_shentsize
+    if d[4] != 2:  # EI_CLASS != ELFCLASS64
+        raise ValueError(f"{path.name}: not a 64-bit ELF image (64-bit targets only)")
+    end = "<" if d[5] == 1 else ">"
+    e_shoff = struct.unpack_from(end + "Q", d, 0x28)[0]
+    shentsize = struct.unpack_from(end + "H", d, 0x3A)[0]
+    e_shnum = struct.unpack_from(end + "H", d, 0x3C)[0]
+    e_shstrndx = struct.unpack_from(end + "H", d, 0x3E)[0]
 
-        def shdr(i: int) -> tuple[int, int, int, int, int]:
-            off = e_shoff + i * shentsize
-            name, typ, flags, addr, offset, size = struct.unpack_from(end + "IIQQQQ", d, off)
-            return name, typ, flags, addr, offset, size
-    else:
-        e_shoff = struct.unpack_from(end + "I", d, 0x20)[0]
-        e_shentsize = struct.unpack_from(end + "H", d, 0x2E)[0]
-        e_shnum = struct.unpack_from(end + "H", d, 0x30)[0]
-        e_shstrndx = struct.unpack_from(end + "H", d, 0x32)[0]
-        shentsize = e_shentsize
-
-        def shdr(i: int) -> tuple[int, int, int, int, int, int]:
-            off = e_shoff + i * shentsize
-            name, typ, flags, addr, offset, size = struct.unpack_from(end + "IIIIII", d, off)
-            return name, typ, flags, addr, offset, size
+    def shdr(i: int) -> tuple[int, int, int, int, int, int]:
+        off = e_shoff + i * shentsize
+        name, typ, flags, addr, offset, size = struct.unpack_from(end + "IIQQQQ", d, off)
+        return name, typ, flags, addr, offset, size
 
     str_sh = shdr(e_shstrndx)
     str_off, str_size = str_sh[4], str_sh[5]
@@ -479,21 +471,17 @@ def parse_elf(path: Path) -> Image:
     # Program headers give the authoritative VA<->offset mapping. Section
     # headers alone can disagree at boundaries (and .bss carries no bytes),
     # so prefer PT_LOAD ranges and keep sections only for name lookups.
-    e_phoff = struct.unpack_from(end + ("Q" if is64 else "I"), d, 0x20 if is64 else 0x1C)[0]
-    e_phentsize = struct.unpack_from(end + "H", d, 0x36 if is64 else 0x2A)[0]
-    e_phnum = struct.unpack_from(end + "H", d, 0x38 if is64 else 0x2C)[0]
+    e_phoff = struct.unpack_from(end + "Q", d, 0x20)[0]
+    e_phentsize = struct.unpack_from(end + "H", d, 0x36)[0]
+    e_phnum = struct.unpack_from(end + "H", d, 0x38)[0]
     loads: list[tuple[int, int, int]] = []
     for i in range(e_phnum):
         po = e_phoff + i * e_phentsize
         p_type = struct.unpack_from(end + "I", d, po)[0]
         if p_type != 1:  # PT_LOAD
             continue
-        if is64:
-            p_offset, p_vaddr = struct.unpack_from(end + "QQ", d, po + 8)
-            p_filesz = struct.unpack_from(end + "Q", d, po + 32)[0]
-        else:
-            p_offset, p_vaddr = struct.unpack_from(end + "II", d, po + 4)
-            p_filesz = struct.unpack_from(end + "I", d, po + 16)[0]
+        p_offset, p_vaddr = struct.unpack_from(end + "QQ", d, po + 8)
+        p_filesz = struct.unpack_from(end + "Q", d, po + 32)[0]
         if p_filesz:
             loads.append((p_vaddr, p_filesz, p_offset))
     if loads:
@@ -511,17 +499,13 @@ def parse_elf(path: Path) -> Image:
     # VAs of every vtable slot, type_info pointer and static-object pointer.
     # The file bytes at those slots are zero, so this index is the only way to
     # traverse RTTI on a PIE shared object.
-    rel_types = {8, 1027} if is64 else {8}
+    rel_types = {8, 1027}  # R_X86_64_RELATIVE / R_AARCH64_RELATIVE
     for i in range(e_shnum):
         _name, typ, _flags, _addr, offset, size = shdr(i)
         if typ != 4:  # SHT_RELA
             continue
-        entry = 24 if is64 else 12
-        for ro in range(offset, offset + size - entry + 1, entry):
-            if is64:
-                r_offset, r_info, r_addend = struct.unpack_from(end + "QQq", d, ro)
-            else:
-                r_offset, r_info, r_addend = struct.unpack_from(end + "IIi", d, ro)
+        for ro in range(offset, offset + size - 24 + 1, 24):
+            r_offset, r_info, r_addend = struct.unpack_from(end + "QQq", d, ro)
             if (r_info & 0xFFFFFFFF) in rel_types:
                 img.index_pointer(r_offset, r_addend)
     if img.reloc_ptrs:
@@ -779,24 +763,17 @@ def find_string_vas(img: Image, probe: str) -> list[int]:
     return vas
 
 
-def find_xrefs(text_va: int, text: bytes, target_va: int, is64: bool) -> list[int]:
-    """VAs of RIP-relative LEA/MOV instructions in .text referencing target_va."""
+def find_xrefs(text_va: int, text: bytes, target_va: int) -> list[int]:
+    """VAs of RIP-relative LEA/MOV instructions in .text referencing target_va.
+
+    x86-64 only: REX.W lea/mov r64, [rip+disp32] (48/4C 8D/8B, modrm mod=0 rm=5).
+    """
     xrefs: list[int] = []
-    n = len(text)
-    if is64:
-        # REX.W lea/mov r64, [rip+disp32]: 48/4C 8D/8B modrm(mod=0,rm=5) disp32
-        for i in range(n - 7):
-            if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
-                disp = struct.unpack_from("<i", text, i + 3)[0]
-                if text_va + i + 7 + disp == target_va:
-                    xrefs.append(text_va + i)
-    else:
-        # 32-bit: 8D/8B modrm(mod=0,rm=5) disp32
-        for i in range(n - 6):
-            if text[i] in (0x8D, 0x8B) and (text[i + 1] & 0xC7) == 0x05:
-                disp = struct.unpack_from("<i", text, i + 2)[0]
-                if text_va + i + 6 + disp == target_va:
-                    xrefs.append(text_va + i)
+    for i in range(len(text) - 7):
+        if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
+            disp = struct.unpack_from("<i", text, i + 3)[0]
+            if text_va + i + 7 + disp == target_va:
+                xrefs.append(text_va + i)
     return xrefs
 
 
@@ -804,7 +781,7 @@ PAD_BYTES = {0xCC, 0x90, 0x00}
 TERM_BYTES = {0xC3, 0xC9, 0xCB}  # ret / leave / retf
 
 
-def recover_function_start(text_va: int, text: bytes, xref_va: int, is64: bool) -> int | None:
+def recover_function_start(text_va: int, text: bytes, xref_va: int) -> int | None:
     """Walk back from the xref to a padding-bounded 16-byte alignment; require
     that some direct call in .text targets the candidate (strong evidence)."""
     off = xref_va - text_va
@@ -834,7 +811,7 @@ def recover_function_start(text_va: int, text: bytes, xref_va: int, is64: bool) 
     return None
 
 
-def build_xref_index(text_va: int, text: bytes, is64: bool) -> dict[int, list[int]]:
+def build_xref_index(text_va: int, text: bytes) -> dict[int, list[int]]:
     """One pass over .text collecting every RIP-relative LEA/MOV target.
 
     find_xrefs() rescans the whole code section per probe; with a 30 MB .text
@@ -842,24 +819,16 @@ def build_xref_index(text_va: int, text: bytes, is64: bool) -> dict[int, list[in
     index costs a single pass and makes each probe lookup O(1).
     """
     index: dict[int, list[int]] = {}
-    n = len(text)
-    if is64:
-        for i in range(n - 7):
-            if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
-                disp = struct.unpack_from("<i", text, i + 3)[0]
-                index.setdefault(text_va + i + 7 + disp, []).append(text_va + i)
-    else:
-        for i in range(n - 6):
-            if text[i] in (0x8D, 0x8B) and (text[i + 1] & 0xC7) == 0x05:
-                disp = struct.unpack_from("<i", text, i + 2)[0]
-                index.setdefault(text_va + i + 6 + disp, []).append(text_va + i)
+    for i in range(len(text) - 7):
+        if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
+            disp = struct.unpack_from("<i", text, i + 3)[0]
+            index.setdefault(text_va + i + 7 + disp, []).append(text_va + i)
     return index
 
 
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
-    is64 = img.kind != "elf" or img.data[4] == 2
     text_va, text = img.text()
-    xref_index = build_xref_index(text_va, text, is64)
+    xref_index = build_xref_index(text_va, text)
     resolved: dict[str, dict] = {}
     details: list[dict] = []
     for name, probes in STRING_PROBES.items():
@@ -878,7 +847,7 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
                 for x in xrefs:
                     # Exact boundary table (eh_frame_hdr/.pdata/LC_FUNCTION_STARTS)
                     # when available; padding-walk heuristic as fallback.
-                    start = img.containing_function(x) or recover_function_start(text_va, text, x, is64)
+                    start = img.containing_function(x) or recover_function_start(text_va, text, x)
                     if start is not None:
                         starts.add(start)
         if len(starts) == 1:

@@ -8,7 +8,7 @@
 #include "OmniPlatform/OmniPlatform.h"
 
 // Offline contract tests for OmniPlatform::Http. Everything here has to pass with no
-// outbound network: GitHub's i386/macOS/Windows runners and restricted CI egress make
+// outbound network: GitHub's macOS/Windows runners and restricted CI egress make
 // real endpoint assertions flaky, and the whole point of the checks below is that a
 // bad URL or an unreachable host fails *before* anything leaves the process.
 namespace {
