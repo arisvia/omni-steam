@@ -31,7 +31,39 @@ client does not store them in the file image:
 | ELF (PIE) | `R_X86_64_RELATIVE` / `R_AARCH64_RELATIVE` addend in `.rela.dyn` |
 | Mach-O | slot marked by the `LC_DYLD_INFO` rebase stream, or a `LC_DYLD_CHAINED_FIXUPS` chain entry |
 
-`tools/validate_signatures.py` cross-checks every target reachable by both the
-vtable transfer and an independent qualified-VProf-string cross-reference, and
-fails CI on any disagreement — a wrong RVA hooks unrelated code and crashes the
-client, so it must never be published.
+## Reaching non-virtual members: callee fingerprints
+
+Some unlock targets are not virtual at all — `CPackageInfoCache` only has
+destructor slots, so no anchor map entry can name `GetPackageInfo`. For those,
+`derive_signatures.py` anchors a **caller** by string literal and then selects
+the direct callee whose decoded instructions match a structural fingerprint of
+the data structure it walks:
+
+| Clause | Meaning |
+| :--- | :--- |
+| load `[this+0x20]` | utlrbtree root node index |
+| load `[this+0x38]` | node array base |
+| `shl …, 5` | 32-byte node stride |
+| `cmp` against `[node+0x10]` | the uint32 key |
+| at least one `call` | the create/insert path for a missing id |
+
+The last clause matters: macOS emits the pure `Find` helper as a separate
+call-free function with an identical lookup head, and it must be rejected.
+This tier needs `capstone`; without it the tier is skipped rather than guessed.
+
+## Two-mechanism CI gate
+
+`tools/validate_signatures.py` cross-checks every target reachable by two
+independent mechanisms and fails CI on any disagreement — a wrong RVA hooks
+unrelated code and crashes the client, so it must never be published.
+
+| Target | Mechanism A | Mechanism B |
+| :--- | :--- | :--- |
+| `RecvPkt`, `BBuildAndAsyncSendFrame` | vtable slot transfer | qualified VProf string xref |
+| `GetPackageInfo` | callee fingerprint from `CheckAppOwnership` | `package_info_print` ConCommand registration → handler → tail call with `accessToken = 0` |
+
+The ConCommand check is ABI-aware: MSVC passes the callback in `r8` before the
+help text, SysV in `rdx` after it, so the handler is identified as the only LEA
+in the constructor block targeting executable code. MSVC inlines the package
+creation path into that handler, so Windows reports `n/a` for this particular
+cross-check instead of failing a check it cannot run.

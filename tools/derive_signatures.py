@@ -13,11 +13,16 @@ recompilation:
      padding-bounded 16-byte alignment, then require corroborating evidence
      (a direct E9/E8 call target, or a valid decodable prologue reaching the
      xref site).
+  4. Callee-fingerprint transfer: anchor a caller by string xref, then pick
+     the direct callee whose decoded instruction sequence matches a structural
+     fingerprint of the target (used for non-virtual members such as
+     CPackageInfoCache::GetPackageInfo, which no vtable slot can reach).
 
 Emits the same TOML schema PatternLoader consumes
 (binary_sha256 + [functions] name = { rva = "...", source = "derived:..." }).
-Zero third-party dependencies for ELF/Mach-O; pefile is optional (PE parsing
-falls back to a self-contained header parser when absent).
+Zero third-party dependencies for the string/vtable tiers; pefile is optional
+(PE parsing falls back to a self-contained header parser) and capstone is
+optional (only the callee-fingerprint tier needs it, and is skipped without it).
 """
 
 from __future__ import annotations
@@ -43,7 +48,11 @@ from pathlib import Path
 # Linux/macOS, not any missing relocation support. Qualified probes are also
 # far more selective: exactly one function owns each budget name.
 STRING_PROBES: dict[str, list[str]] = {
-    "CheckAppOwnership": ["CheckAppOwnership"],
+    # MSVC keeps this literal qualified ("CUser::CheckAppOwnership") while
+    # GCC/Clang emit it bare, so the qualified spelling must be tried first:
+    # the bare substring lands 7 bytes into the Windows literal and never
+    # matches the LEA target.
+    "CheckAppOwnership": ["CUser::CheckAppOwnership", "CheckAppOwnership"],
     "BBuildAndAsyncSendFrame": [
         "CWebSocketConnection::BBuildAndAsyncSendFrame",
         "BBuildAndAsyncSendFrame",
@@ -826,6 +835,150 @@ def build_xref_index(text_va: int, text: bytes) -> dict[int, list[int]]:
     return index
 
 
+# --------------------------------------------------------------------------
+# Tier 4: callee-fingerprint transfer (non-virtual members)
+#
+# CPackageInfoCache::GetPackageInfo is NOT virtual - the class only has
+# destructor slots - so no anchor map can reach it. It is however a direct
+# callee of CUser::CheckAppOwnership, which tier 1 anchors on every platform.
+# We therefore anchor the CALLER by string, then select the callee by a
+# structural fingerprint of the utlrbtree lookup the function performs.
+#
+# The fingerprint is ABI-independent because it describes the data structure,
+# not the instruction encoding:
+#   [this+0x20]  root node index      [this+0x38]  node array base
+#   node stride 32 (shl 5)            key compared at [node+0x10]
+#   at least one direct call          the create/insert path for a missing id
+# The last clause separates GetPackageInfo from the pure Find helper, which
+# macOS emits as a separate call-free function with the same lookup head.
+# --------------------------------------------------------------------------
+
+PACKAGE_CACHE_CALLER = "CheckAppOwnership"
+
+
+def _capstone():
+    """Return a configured x86-64 disassembler, or None when unavailable.
+
+    Only the x86-64 slices are fingerprinted: the macOS arm64 slice is covered
+    by transferring the x86_64 result, since both slices are built from the
+    same source and the runtime consumes one RVA namespace per platform.
+    """
+    try:
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+    except ImportError:
+        return None
+    md = Cs(CS_ARCH_X86, CS_MODE_64)
+    md.detail = True
+    return md
+
+
+def function_instructions(img: Image, rva: int, md) -> list:
+    """Decode one function body.
+
+    ELF .eh_frame_hdr and Mach-O LC_FUNCTION_STARTS give exact boundaries.
+    PE .pdata additionally lists unwind chains, so the next entry can sit
+    INSIDE the body; there we decode to the first int3 pad instead, which is
+    how MSVC separates functions.
+    """
+    va = img.base + rva
+    off = img.va_to_offset(va)
+    if off is None:
+        return []
+    if img.kind == "pe":
+        out = []
+        for ins in md.disasm(img.data[off : off + 0x2000], va):
+            if ins.mnemonic == "int3":
+                break
+            out.append(ins)
+        return out
+    starts = img.func_starts
+    import bisect
+
+    i = bisect.bisect_left(starts, va)
+    end = starts[i + 1] if i + 1 < len(starts) else va + 0x2000
+    return list(md.disasm(img.data[off : off + (end - va)], va))
+
+
+def direct_call_targets(img: Image, rva: int, md) -> set[int]:
+    """Callees of a function, excluding its own internal branch targets.
+
+    A local `jmp` (loop back-edge, hot/cold split) points INSIDE the body and
+    is not a callee; keeping those produced self-referential "candidates".
+    """
+    seq = function_instructions(img, rva, md)
+    if not seq:
+        return set()
+    lo = seq[0].address - img.base
+    hi = seq[-1].address - img.base
+    out = set()
+    for ins in seq:
+        if ins.mnemonic not in ("call", "jmp") or not ins.op_str.startswith("0x"):
+            continue
+        try:
+            tgt = int(ins.op_str, 16)
+        except ValueError:
+            continue
+        rva_tgt = tgt - img.base
+        if in_text(img, tgt) and not (lo <= rva_tgt <= hi):
+            out.add(rva_tgt)
+    return out
+
+
+def is_package_cache_accessor(img: Image, rva: int, md) -> bool:
+    """Structural fingerprint of CPackageInfoCache::GetPackageInfo."""
+    from capstone.x86 import X86_OP_MEM
+
+    seq = function_instructions(img, rva, md)
+    if not seq:
+        return False
+    head = seq[:24]
+    # GCC/Clang sign-extend the 32-bit root index with movsxd where MSVC uses
+    # a plain mov; both are loads of the same field.
+    loads = ("mov", "movsxd", "movslq")
+    root = any(
+        i.mnemonic in loads
+        and any(o.type == X86_OP_MEM and o.mem.disp == 0x20 and o.mem.index == 0 for o in i.operands)
+        for i in head
+    )
+    nodes = any(
+        i.mnemonic in loads
+        and any(o.type == X86_OP_MEM and o.mem.disp == 0x38 and o.mem.index == 0 for o in i.operands)
+        for i in head
+    )
+    stride = any(i.mnemonic == "shl" and i.op_str.endswith(", 5") for i in seq[:32])
+    key = any(
+        i.mnemonic == "cmp" and any(o.type == X86_OP_MEM and o.mem.disp == 0x10 for o in i.operands)
+        for i in seq[:32]
+    )
+    creates = any(i.mnemonic == "call" for i in seq)
+    return root and nodes and stride and key and creates
+
+
+def derive_callee_fingerprints(img: Image) -> tuple[dict[str, dict], list[dict]]:
+    md = _capstone()
+    if md is None:
+        return {}, [{"target": "GetPackageInfo", "status": "skipped", "reason": "capstone not installed"}]
+    callers, _ = derive(img)
+    anchor = callers.get(PACKAGE_CACHE_CALLER)
+    if not anchor:
+        return {}, [{"target": "GetPackageInfo", "status": "unresolved",
+                     "reason": f"caller {PACKAGE_CACHE_CALLER} not anchored"}]
+    caller_rva = int(anchor["rva"], 16)
+    candidates = sorted(
+        t for t in direct_call_targets(img, caller_rva, md) if is_package_cache_accessor(img, t, md)
+    )
+    if len(candidates) == 1:
+        return (
+            {"GetPackageInfo": {"rva": f"0x{candidates[0]:x}", "source": "derived:callee-fingerprint"}},
+            [{"target": "GetPackageInfo", "caller": PACKAGE_CACHE_CALLER,
+              "caller_rva": anchor["rva"], "resolved": True}],
+        )
+    # Ambiguity is a hard stop: a wrong RVA crashes the client, a missing one
+    # only disables a hook.
+    return {}, [{"target": "GetPackageInfo", "status": "ambiguous" if candidates else "unresolved",
+                 "caller": PACKAGE_CACHE_CALLER, "candidates": [hex(c) for c in candidates]}]
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     text_va, text = img.text()
     xref_index = build_xref_index(text_va, text)
@@ -921,6 +1074,13 @@ def main() -> int:
     for name, meta in string_resolved.items():
         resolved.setdefault(name, meta)
     details.extend(string_details)
+
+    fp_resolved, fp_details = derive_callee_fingerprints(img)
+    for name, meta in fp_resolved.items():
+        resolved.setdefault(name, meta)
+    details.extend(fp_details)
+    if fp_resolved:
+        print(f"[derive] callee-fingerprint tier: {', '.join(sorted(fp_resolved))}")
     print(f"[derive] {args.binary.name} sha256={digest[:16]} kind={kind}: {len(resolved)} function(s) derived")
 
 

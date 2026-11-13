@@ -32,8 +32,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from derive_signatures import (  # noqa: E402
     Image,
+    _capstone,
     build_xref_index,
+    direct_call_targets,
     find_string_vas,
+    function_instructions,
+    in_text,
     parse_elf,
     parse_macho,
     transfer_via_map,
@@ -46,6 +50,14 @@ CROSS_CHECKS: dict[str, str] = {
     "BBuildAndAsyncSendFrame": "CWebSocketConnection::BBuildAndAsyncSendFrame",
 }
 
+# GetPackageInfo is non-virtual, so the anchor map cannot name it. Its second
+# mechanism is the `package_info_print` console command: the ConCommand ctor
+# registration site passes the handler address, and the handler tail-calls
+# GetPackageInfo(cache, packageId, /*accessToken=*/0) on the cache-miss path.
+# This shares no code with the callee-fingerprint tier (which starts from
+# CheckAppOwnership and matches the utlrbtree lookup shape).
+PKG_CMD_HELP = "Dumps package info for packageID"
+
 
 def load_image(path: Path) -> Image | None:
     head = path.read_bytes()[:8]
@@ -56,6 +68,74 @@ def load_image(path: Path) -> Image | None:
     if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
         return parse_macho(path)
     return None
+
+
+def package_cmd_handlers(img: Image, md) -> set[int]:
+    """Handler addresses registered for the package_info_print ConCommand.
+
+    The ctor argument block loads the command name, the help text and the
+    callback with RIP-relative LEAs. MSVC puts the callback in r8 (before the
+    help text) and SysV in rdx (after it), so ordering is ABI-dependent; the
+    invariant is that the callback is the ONLY LEA in the block whose target
+    lands in executable code.
+    """
+    from capstone.x86 import X86_OP_MEM, X86_REG_RIP
+
+    text_va, text = img.text()
+    index = build_xref_index(text_va, text)
+    sites = set()
+    for sva in find_string_vas(img, PKG_CMD_HELP):
+        for xref in index.get(sva, []):
+            fn = img.containing_function(xref)
+            if fn is not None:
+                sites.add((fn - img.base, xref))
+    out: set[int] = set()
+    for fn, xref in sites:
+        seq = function_instructions(img, fn, md)
+        pos = next((i for i, ins in enumerate(seq) if ins.address == xref), None)
+        if pos is None:
+            continue
+        lo = pos
+        while lo > 0 and seq[lo - 1].mnemonic != "call":
+            lo -= 1
+        hi = pos
+        while hi < len(seq) - 1 and seq[hi].mnemonic != "call":
+            hi += 1
+        for ins in seq[lo : hi + 1]:
+            if ins.mnemonic != "lea":
+                continue
+            for op in ins.operands:
+                if op.type == X86_OP_MEM and op.mem.base == X86_REG_RIP:
+                    tgt = ins.address + ins.size + op.mem.disp
+                    if in_text(img, tgt):
+                        out.add(tgt - img.base)
+    return out
+
+
+def package_info_via_concommand(img: Image, md) -> set[int]:
+    """GetPackageInfo RVAs reachable from the console command handler.
+
+    The cache-miss path passes accessToken = 0, so the third argument register
+    (r8 on MSVC, rdx on SysV) is zeroed right before the transfer.
+    """
+    zero3 = ("r8", "r8d") if img.kind == "pe" else ("rdx", "edx")
+    out: set[int] = set()
+    for handler in package_cmd_handlers(img, md):
+        seq = function_instructions(img, handler, md)
+        for n, ins in enumerate(seq):
+            if ins.mnemonic not in ("call", "jmp") or not ins.op_str.startswith("0x"):
+                continue
+            try:
+                tgt = int(ins.op_str, 16) - img.base
+            except ValueError:
+                continue
+            for prev in seq[max(0, n - 6) : n]:
+                ops = [o.strip() for o in prev.op_str.split(",")]
+                if prev.mnemonic == "xor" and len(ops) == 2 and ops[0] == ops[1] and ops[0] in zero3:
+                    out.add(tgt)
+                elif prev.mnemonic == "mov" and len(ops) == 2 and ops[0] in zero3 and ops[1] == "0":
+                    out.add(tgt)
+    return out
 
 
 def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
@@ -85,6 +165,30 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
                 file=sys.stderr,
             )
             failed += 1
+    md = _capstone()
+    if md is not None:
+        from derive_signatures import derive_callee_fingerprints
+
+        fp, _ = derive_callee_fingerprints(img)
+        via_fp = fp.get("GetPackageInfo", {}).get("rva")
+        if via_fp:
+            independent = {f"0x{r:x}" for r in package_info_via_concommand(img, md)}
+            if not independent:
+                # MSVC inlines the package creation path into the handler, so
+                # this platform has no second mechanism; do not fail closed on
+                # a check that cannot run.
+                print(f"[validate] {img.path.name}: GetPackageInfo n/a (no ConCommand call site)")
+            else:
+                checked += 1
+                if len(independent) == 1 and via_fp in independent:
+                    print(f"[validate] {img.path.name}: GetPackageInfo OK ({via_fp})")
+                else:
+                    print(
+                        f"[validate] {img.path.name}: GetPackageInfo MISMATCH "
+                        f"fingerprint={via_fp} concommand={sorted(independent)}",
+                        file=sys.stderr,
+                    )
+                    failed += 1
     return checked, failed
 
 

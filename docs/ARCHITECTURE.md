@@ -22,8 +22,8 @@ OmniSteam 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Dec
 | :--- | :--- | :--- | :--- |
 | 注入载体 | `xinput1_4.dll` 代理劫持 | `LD_PRELOAD`（脚本；Manager 未自动化） | `DYLD_INSERT_LIBRARIES`（手动） |
 | Hook 引擎 (funchook) | ✅ | ✅ | ✅（universal 构建；arm64 下 mprotect 行为待真机验证） |
-| 函数特征签名库 | ✅（内置 12 目标 + 上游同步 + vtable 派生） | ✅ 9 函数（限定名 string-xref + 跨 ABI vtable 锚点移植） | ✅ 9 函数（同左，经 Mach-O rebase 解析） |
-| 所有权/解密/请求码解锁 | ✅ | ⚠️ 所有权/解密/请求码/成就链路锚点已齐；仍缺 Package 0 扩容三件套（`CUtlMemoryGrow`/`GetPackageInfo`/`MarkLicenseAsChanged`）与 `steamui` 侧 `FillInAppOverview` | ⚠️ 同左 |
+| 函数特征签名库 | ✅ 10 函数（内置特征 + 上游同步 + vtable 移植 + 被调指纹） | ✅ 11 函数（限定名 string-xref + 跨 ABI vtable 锚点移植 + 被调指纹） | ✅ 11 函数（同左，经 Mach-O rebase 解析） |
+| 所有权/解密/请求码解锁 | ✅ | ⚠️ 所有权/解密/请求码/成就链路锚点已齐，`GetPackageInfo` 已派生；仍缺 `CUtlMemoryGrow`/`MarkLicenseAsChanged`/`ProcessPendingLicenseUpdates` 与 `steamui` 侧 `FillInAppOverview` | ⚠️ 同左 |
 | Manager CLI/Web/云存档 | ✅ | ✅ | ✅ |
 
 ---

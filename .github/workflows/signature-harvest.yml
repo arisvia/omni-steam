@@ -101,13 +101,19 @@ jobs:
         run: |
           python3 tools/harvest_signatures.py --scan-root steam-dist-cls --out signatures-out
 
-      - name: Derive signatures (string xrefs + vtable anchor transfer)
+      - name: Derive signatures (string xrefs + vtable anchor transfer + callee fingerprints)
         run: |
-          # Two independent mechanisms, both version-agnostic:
+          # capstone backs the callee-fingerprint tier, which reaches the
+          # NON-virtual CPackageInfoCache::GetPackageInfo that no vtable slot
+          # can name. Without it that tier is skipped, not silently wrong.
+          python3 -m pip install --quiet capstone
+          # Three independent mechanisms, all version-agnostic:
           #  - qualified VProf literals ("CCMInterface::RecvPkt") survive
           #    recompiles and .eh_frame_hdr gives exact function boundaries;
           #  - the committed anchor map replays MSVC-recorded vtable slots onto
-          #    the Itanium vtables, resolved through R_X86_64_RELATIVE addends.
+          #    the Itanium vtables, resolved through R_X86_64_RELATIVE addends;
+          #  - callee fingerprints anchor CheckAppOwnership by string, then
+          #    select the callee matching the utlrbtree lookup shape.
           for f in $(find steam-dist-cls/linux-x64 -type f | sort); do
             python3 tools/derive_signatures.py --binary "$f" \
               --map signatures/anchor-map-windows.json \
@@ -231,7 +237,7 @@ jobs:
       - name: Derive signatures via committed anchor map
         shell: pwsh
         run: |
-          pip install pefile
+          pip install pefile capstone
           # Self-loop tier 1: transfer anchors from the committed map (class
           # RTTI names + vtable slot indices - no Valve bytes, lives in-repo).
           # Works for ANY new client version with zero network dependency.
@@ -318,8 +324,9 @@ jobs:
       - name: Harvest signatures
         run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos-universal
 
-      - name: Derive signatures (string xrefs + vtable anchor transfer)
+      - name: Derive signatures (string xrefs + vtable anchor transfer + callee fingerprints)
         run: |
+          python3 -m pip install --quiet capstone
           # Mach-O vtables live behind the LC_DYLD_INFO rebase stream (or
           # chained fixups); derive_signatures resolves those before walking
           # RTTI, so the same committed anchor map replays onto macOS.

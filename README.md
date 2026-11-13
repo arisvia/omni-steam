@@ -4,7 +4,7 @@
 
 OmniSteam 是一个现代、开源、跨平台的 Steam 客户端增强工具。当前 **Windows x64 完整可用**；
 Linux x64 (含 Steam Deck / SteamOS) 与 macOS (universal) 的注入载体、Manager、云存档
-与主解锁链路签名锚点（9 函数）已可用，Package 0 扩容与库内可见性锚点仍在补齐（进度见 [ROADMAP §2](docs/ROADMAP.md)，
+与主解锁链路签名锚点（11 函数，含 Package 0 的 `GetPackageInfo`）已可用，其余 Package 0 扩容与库内可见性锚点仍在补齐（进度见 [ROADMAP §2](docs/ROADMAP.md)，
 平台能力矩阵见 [架构文档](docs/ARCHITECTURE.md#1-架构总览)）。
 
 采用 **"隐身注入核心 (Headless Core) + 独立管理面板 (Decoupled Manager) + 掌机原生插件 (Decky Plugin)"**
