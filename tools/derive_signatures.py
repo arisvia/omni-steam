@@ -1582,15 +1582,22 @@ def ui_fill_call_targets(img: Image, caller_rva: int, md_x86, md_arm) -> set[int
             if fresh is None:
                 continue
             # arg2 (rsi on SysV-shaped builds, rdx on newer MSVC) must be
-            # loaded from exactly that register right before the call.
-            arg2 = None
-            for p in reversed(win):
-                ops = [o.strip() for o in p.op_str.split(",")]
-                if ops and ops[0] in ("rsi", "esi", "rdx", "edx"):
-                    if p.mnemonic == "mov" and len(ops) == 2:
-                        arg2 = ops[1]
+            # loaded from exactly that register; check each candidate
+            # register's LAST write separately, because an unrelated write
+            # to the other arg register must not shadow the match.
+            matched = False
+            for cand in (("rsi", "esi"), ("rdx", "edx")):
+                src = None
+                for p in reversed(win):
+                    ops = [o.strip() for o in p.op_str.split(",")]
+                    if ops and ops[0] in cand:
+                        if p.mnemonic == "mov" and len(ops) == 2:
+                            src = ops[1]
+                        break
+                if src == fresh:
+                    matched = True
                     break
-            if arg2 == fresh:
+            if matched:
                 try:
                     out.add(int(ins.op_str, 16) - img.base)
                 except ValueError:
