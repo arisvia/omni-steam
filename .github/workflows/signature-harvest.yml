@@ -82,6 +82,10 @@ jobs:
           echo "Unique steamclient.so copies: $COUNT"
           find steam-dist -name 'steamclient*.so' -printf '%p\n'
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
+          # Best effort: the desktop client ships steamui.so (steamcmd does
+          # not). Upload whatever the deb/bootstrap extraction gave us.
+          find . "$HOME" -name 'steamui*.so' -type f -exec cp {} steam-dist/ \; 2>/dev/null || true
+          find steam-dist -name 'steamui*.so' -printf '%p\n'
 
       - name: Select 64-bit client binaries
         run: |
@@ -131,8 +135,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: steam-binaries-linux
+          # steamui.so ships with the desktop client, not steamcmd; upload it
+          # when present so the non-Windows FillInAppOverview reference set
+          # can grow without a separate download job.
           path: |
             steam-dist/**/steamclient*.so*
+            steam-dist/**/steamui*.so*
           retention-days: 7
           if-no-files-found: warn
 
@@ -351,8 +359,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: steam-binaries-macos
+          # The collect step already copies steamui*.dylib into steam-dist;
+          # publish it so FillInAppOverview can be derived for non-Windows
+          # steamui (reference set currently has steamui.dll only).
           path: |
             steam-dist/**/*steamclient*
+            steam-dist/**/*steamui*
           retention-days: 7
           if-no-files-found: warn
 

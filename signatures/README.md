@@ -51,6 +51,27 @@ The last clause matters: macOS emits the pure `Find` helper as a separate
 call-free function with an identical lookup head, and it must be rejected.
 This tier needs `capstone`; without it the tier is skipped rather than guessed.
 
+## License subsystem caller anchors
+
+The three Package-0 targets `CUtlMemoryGrow`, `MarkLicenseAsChanged` and
+`ProcessPendingLicenseUpdates` have no unique literal and no RTTI class of
+their own. Two *callers* inside the subsystem are anchorable by qualified VProf
+budget literals and are now emitted by the string-xref tier on all three
+platforms (Windows keeps the `CUser::` prefix, GCC/Clang emit the bare name):
+
+| Anchor | Windows | Linux | macOS |
+| :--- | :--- | :--- | :--- |
+| `BUpdateLicenses` (`CUser::BUpdateLicenses`) | `0x998fcb` | `0x1632fe0` | `0xa75220` |
+| `OnLicensesUpdated` (`CCompatManager::OnLicensesUpdated`) | `0x59f730` | `0x102de80` | `0x69e1b0` |
+
+These are the entry points for a future callee-fingerprint tier. The
+`CInternalCallback<CUserAppManager, LicensesUpdated_t>` route is a dead end:
+its `Run()` is ICF-merged with three sibling event callbacks into one generic
+dispatcher, so it cannot name an event-specific handler. Candidate RVAs
+identified from the call graph are listed in `docs/ROADMAP.md` §2.2 but are
+**not** published: two independent mechanisms must agree before any of them
+reaches a TOML. A wrong RVA hooks unrelated code and crashes the client.
+
 ## Two-mechanism CI gate
 
 `tools/validate_signatures.py` cross-checks every target reachable by two

@@ -19,8 +19,15 @@
 
 1. ~~**签名锚点补全（核心阻塞）**~~ **已完成主链路**：重定位解析层（ELF `R_X86_64_RELATIVE` addend / Mach-O `LC_DYLD_INFO` rebase 与 chained fixups）打通了 strip 后的 RTTI 遍历，Windows 锚点图按 Itanium 同序槽位跨 ABI 移植；限定名 VProf 探针修复了 `RecvPkt`/`BBuildAndAsyncSendFrame` 的"0 xref"。Linux/macOS 各 9 函数，`tools/validate_signatures.py` 双机制交叉校验守门。
 2. **Package 0 扩容（部分完成）**：`GetPackageInfo` **已三平台自动派生**（Windows `0x49b040` / Linux `0xeb8b70` / macOS `0x59a008`，随版本自动重算）。它是非虚函数，vtable 槽位无法覆盖，改用新增的**被调指纹派生**：先按字面量锚定调用方 `CheckAppOwnership`，再在其直接 callee 中匹配 utlrbtree 查找结构（`[this+0x20]` 根索引、`[this+0x38]` 节点数组、`shl 5` 步长、`[node+0x10]` 键比较、且含创建路径调用）。第二机制 `package_info_print` 控制台命令注册点独立复核，已纳入 CI 守门。
-   仍缺 `CUtlMemoryGrow`、`MarkLicenseAsChanged`、`ProcessPendingLicenseUpdates`：无唯一字面量、无 RTTI 类、且调用方本身尚未锚定，需先锚定许可子系统调用方再套用同一指纹机制。**按 fail-closed 原则不猜测 RVA。**
-3. **steamui 库可见性（缺二进制）**：`FillInAppOverview` 只注册了 `steamui.dll`。本机参考集里**没有** `steamui.so`/`steamui.dylib`，无法派生；且当前 `steamui.dll` 内该限定名字面量 `CSteamUIAppController::FillInAppOverview` **零 xref**（经指针表引用，非 RIP LEA），内置字节特征在该版本也已失配。需先取得非 Windows 的 steamui 模块，再补指针表引用解析。
+   许可子系统调用方已锚定：`CUser::BUpdateLicenses` 与 `CCompatManager::OnLicensesUpdated` 的限定名 VProf 字面量在 WIN/LIN/MAC 上均为唯一 xref，已作为 `STRING_PROBES` 加入派生层（win 12 / lin 13 / mac 13 函数，`validate_signatures.py` 4 项交叉校验 0 失败，损坏 anchor-map 的负向对照正确非零退出）。二者 RVAs：
+
+   | 锚点 | Windows | Linux | macOS |
+   | :--- | :--- | :--- | :--- |
+   | `CUser::BUpdateLicenses` | `0x998fcb` | `0x1632fe0` | `0xa75220` |
+   | `CCompatManager::OnLicensesUpdated` | `0x59f730` | `0x102de80` | `0x69e1b0` |
+
+   由这两个调用方出发的调用图已定位 `MarkLicenseAsChanged`（WIN `0x9aa750` / LIN `0x1620d50` / MAC `0xa70f0c`，签名 `(this, packageId, bool)`，头部把 bool 落到字节栈槽）与 `ProcessPendingLicenseUpdates`（LIN `0x1621620` / MAC `0xa74e12` / WIN `0x998700` 所在的待处理向量循环，按 `0x50` 步长遍历并回写计数、返回 bool）的**候选**。`CInternalCallback<CUserAppManager, LicensesUpdated_t>` 的 `Run()` 被 ICF 与另外三个事件回调合并成同一分发器，不能作为第二机制。这些候选**尚未接入派生层、未双机制复核，因此未发布到 TOML**；`CUtlMemoryGrow` 仍无唯一锚点。**按 fail-closed 原则不猜测 RVA**，下一步是为两个候选各补一条共享零代码路径的独立机制再纳入 CI 守门。
+3. **steamui 库可见性（缺二进制）**：`FillInAppOverview` 只注册了 `steamui.dll`。本机参考集里**没有** `steamui.so`/`steamui.dylib`；且当前 `steamui.dll` 内该限定名字面量 `CSteamUIAppController::FillInAppOverview` **零 xref**（经指针表引用，非 RIP LEA），内置字节特征在该版本也已失配。CI 的 macOS harvest job 本就会从 Steam.app 收集 `steamui*.dylib`，已把产物 glob 扩到 `*steamui*`；Linux job 增加 `steamui*.so` 的尽力收集（桌面客户端才有，steamcmd 无）。**仍需**：确认这两个产物实际上传，再补指针表引用解析。
 4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
 5. **i386 已完全移除**：Valve 已于 2026-10 将 Linux 客户端推向 64 位。CI/Release 不再构建 i386；CMake 在 32 位工具链下直接 `FATAL_ERROR`；`OMNI_ARCH_X86` 宏、ELF32 解析分支、32 位 xref 路径、`ubuntu12_32` 安装路径与 `linux-i386` 签名命名空间均已删除。harvest/derive 遇到 32 位 ELF 直接跳过。
 6. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
@@ -33,6 +40,11 @@
    `steamclient64.dll`（sha `71b391fe…`）上**全部 0 命中**，只有 `RecvPkt` 等少数仍匹配。
    这些特征属于旧版本，实际可用性依赖派生层而非内置特征。保留它们作为旧版兜底，
    但平台能力不应再以"内置特征齐全"为依据。
+10. **macOS universal CI 构建**：首次 push 触发的 CI 暴露三处 macOS runner 问题，均已修复：
+   `cmake_args` 里 `arm64;x86_64` 未加引号被 shell 当命令分隔符（exit 127）→ 单引号包裹；
+   Homebrew Python 受 PEP 668 保护导致 `pip install capstone` 退出 1 → harvest job 改用一次性 venv（derive 与 validate 两步都走 venv）；
+   `FindOpenSSL` 抓到 arm64-only 的 Homebrew `openssl@4`，x86_64 slice 链接报 `_EVP_sha256 not found` → `src/Platform/Darwin/Hash.cpp` 改用 libSystem 的 CommonCrypto，APPLE 分支不再链接 OpenSSL。
+   待 `e97498a` 的 CI 确认全绿后再视为闭环。
 
 ## 3. 后续演进规划 【📋 规划中】
 
