@@ -42,6 +42,7 @@ from derive_signatures import (  # noqa: E402
     license_via_rtti,
     parse_elf,
     parse_macho,
+    parse_pe,
     transfer_via_map,
 )
 
@@ -69,6 +70,11 @@ def load_image(path: Path) -> Image | None:
         return parse_elf(path)
     if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
         return parse_macho(path)
+    if head[:2] == b"MZ":
+        try:
+            return parse_pe(path)
+        except ValueError:
+            return None  # 32-bit PE: no 64-bit runtime consumes its RVAs
     return None
 
 
@@ -142,9 +148,21 @@ def package_info_via_concommand(img: Image, md) -> set[int]:
 
 def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
     """Returns (checked, failed)."""
+    from derive_signatures import pe_public_entry
+
     transferred = transfer_via_map(img, anchor_map)
     text_va, text = img.text()
     index = build_xref_index(text_va, text)
+    md_pe = _capstone() if img.kind == "pe" else None
+
+    def entry_of(rva: int) -> int:
+        # A string xref can sit in an MSVC cold chunk whose .pdata entry is
+        # not the public function start; compare entries, not chunks.
+        if md_pe is None:
+            return rva
+        e = pe_public_entry(img, rva, md_pe)
+        return rva if e is None else e
+
     checked = failed = 0
     for name, probe in CROSS_CHECKS.items():
         via_vtable = transferred.get(name, {}).get("rva")
@@ -155,7 +173,7 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
             for xref in index.get(sva, []):
                 fn = img.containing_function(xref)
                 if fn is not None:
-                    starts.add(fn - img.base)
+                    starts.add(entry_of(fn - img.base))
         independent = {f"0x{s:x}" for s in starts}
         checked += 1
         if len(independent) == 1 and via_vtable in independent:
@@ -223,7 +241,7 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
                 for xref in index.get(sva, []):
                     fn = img.containing_function(xref)
                     if fn is not None:
-                        vprof.add(fn - img.base)
+                        vprof.add(entry_of(fn - img.base))
             if vprof:
                 break
         asserts: set[int] = set()
@@ -231,7 +249,7 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
             for xref in index.get(sva, []):
                 fn = img.containing_function(xref)
                 if fn is not None:
-                    asserts.add(fn - img.base)
+                    asserts.add(entry_of(fn - img.base))
         if vprof and asserts:
             checked += 1
             if len(vprof) == 1 and vprof == asserts:
@@ -259,11 +277,14 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
                 ui, _ = derive_ui_overview(simg, res)
                 m1 = res.get("FillInAppOverview", {}).get("rva")
                 m2 = ui.get("FillInAppOverview", {}).get("rva")
-                if m1 is None and m2 is None:
-                    print(f"[validate] {img.path.name}: {label} n/a (not derivable)")
+                if m1 is None or m2 is None:
+                    # derive publishes FillInAppOverview only when BOTH
+                    # mechanisms agree, so a build where one side is not
+                    # derivable carries no published RVA to contradict.
+                    print(f"[validate] {img.path.name}: {label} n/a (single mechanism only)")
                     continue
                 checked += 1
-                if m1 is not None and m1 == m2:
+                if m1 == m2:
                     print(f"[validate] {img.path.name}: {label} OK ({m1})")
                 else:
                     print(

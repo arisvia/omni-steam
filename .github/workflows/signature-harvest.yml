@@ -274,6 +274,14 @@ jobs:
           python tools/derive_signatures.py --binary $ref --reference-binary $ref --reference-toml $toml --emit-map signatures/anchor-map-windows.json --out signatures-out/windows-x64
         continue-on-error: true
 
+      - name: Validate derived anchors
+        shell: pwsh
+        run: |
+          # The gate was Linux/macOS-only until validate_signatures learned
+          # PE; without it a Windows-side mechanism drift ships unchecked.
+          python tools/validate_signatures.py --scan-root steam-dist `
+            --map signatures/anchor-map-windows.json
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         if: always()  # keep forensic evidence even when later steps fail

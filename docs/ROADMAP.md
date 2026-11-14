@@ -40,7 +40,11 @@
    `steamclient64.dll`（sha `71b391fe…`）上**全部 0 命中**，只有 `RecvPkt` 等少数仍匹配。
    这些特征属于旧版本，实际可用性依赖派生层而非内置特征。保留它们作为旧版兜底，
    但平台能力不应再以"内置特征齐全"为依据。
-   另：参考 `steamui.dll` 为 i386 二进制，其 `FillInAppOverview` 特征 0 命中属位宽失配而非版本漂移；64 位客户端是否附带 64 位 steamui.dll 待真机确认。
+   另：仓库内参考 `steamui.dll` 为 i386 二进制（特征 0 命中属位宽失配）；**真机 64 位客户端确认附带 64 位 `steamui.dll`**（2026-11-14 CI 采集，`FillInAppOverview` 字面量在 x64 PE 命中 `0x63b0d0`），i386 参考仅作历史样本保留。
+11. **新客户端编码漂移（2026-11-14 CI 实测三处，均已适配）**：
+    - macOS 客户端从 classic `LC_DYLD_INFO` rebase 切到 `LC_DYLD_CHAINED_FIXUPS`（`DYLD_CHAINED_PTR_64_OFFSET`，fmt 6）。旧 chained 解析器位域全错，按 Apple `fixup-chains.h` 重写：ptr64 的 `next` 在 bits 51-62（4 字节步长）、`high8`（bits 36-43）补目标 bits 56-63、`segment_offset` 相对 image base 而非段 vmaddr、page_start 逐页累加且 MULTI 项是 chain_starts[] 索引。四处任一错都会让指针索引静默为空、整条 RTTI 族失效（新 mac 客户端曾因此 transfer 0）。重写后新 mac 客户端 RTTI 族复活，trio 双链恢复。
+    - 待处理许可向量的排空循环从指针步长（`sub reg, 0x50`）改为索引步长（`lea r,[r+r*4]` + scale-8 索引 / `shl 4`），且 tag 比较出现反向位移编码（指针自向量尾向前跑：`[end-0x50+0x14]` == `[end-0x3c]`，与 `[elem+0x14]` 同字段）。谓词接受两种步长与两种位移，并加两条收紧子句防假阳性：tag 比较必须唯一（许可 dispatcher 会比多个 tag）、函数体 ≤256 条指令（真排空 31-75 条，dispatcher 数百条）。
+    - Windows `steamui.dll` 的 `FillInAppOverview` 调用点落在冷块，且 MSVC 把新追加消息经 `r9` 中转（`mov [rax+rcx*8+8], r9` + `mov rdx, r9`）。M2 指纹改为"元素槽存储源寄存器 == arg2（rsi/rdx）最后写入源"，并在整个热/冷簇内扫描调用点。
 10. **macOS universal CI 构建**：首次 push 触发的 CI 暴露三处 macOS runner 问题，均已修复：
    `cmake_args` 里 `arm64;x86_64` 未加引号被 shell 当命令分隔符（exit 127）→ 单引号包裹；
    Homebrew Python 受 PEP 668 保护导致 `pip install capstone` 退出 1 → harvest job 改用一次性 venv（derive 与 validate 两步都走 venv）；

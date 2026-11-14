@@ -654,43 +654,71 @@ def _parse_macho_chained(img: Image, segments: list[tuple[int, int, int]], off: 
         if not info_off:
             continue
         b = off + starts_off + info_off
+        # dyld_chained_starts_in_segment: size u32 @0, page_size u16 @4,
+        # pointer_format u16 @6, segment_offset u64 @8, max_valid_pointer
+        # u32 @16, page_count u16 @20, page_start[] u16 @22.
         _sz, page_size, ptr_format = struct.unpack_from("<IHH", d, b)
         seg_offset = struct.unpack_from("<Q", d, b + 8)[0]
-        page_count = struct.unpack_from("<H", d, b + 18)[0]
+        page_count = struct.unpack_from("<H", d, b + 20)[0]
         if not page_size:
             continue
         seg_base = segments[s][0]
+        # page_start[] holds byte offsets into each page, or START_NONE, or
+        # START_MULTI: an index into the chain_starts[] pool that follows the
+        # page_start array (entries run until one carries START_LAST).
+        chain_pool = b + 22 + page_count * 2
+        # next field stride: 4 bytes for the 64-bit formats, 8 for arm64e.
+        stride = 8 if ptr_format in (1, 9, 12) else 4
+        # segment_offset is relative to the IMAGE BASE, not to the segment's
+        # own vmaddr, and page_start offsets are relative to their page.
         for p in range(page_count):
-            start = struct.unpack_from("<H", d, b + 20 + p * 2)[0]
+            start = struct.unpack_from("<H", d, b + 22 + p * 2)[0]
             if start == 0xFFFF:  # DYLD_CHAINED_PTR_START_NONE
                 continue
-            page_va = seg_base + seg_offset + p * page_size
-            offset_in_page = start * 8 if start & 0x8000 else start
-            slot_va = page_va + offset_in_page
-            for _ in range(4096):
-                file_off = img.va_to_offset(slot_va)
-                if file_off is None or file_off + 8 > len(d):
-                    break
-                raw = struct.unpack_from("<Q", d, file_off)[0]
-                if ptr_format in (2, 6):  # DYLD_CHAINED_PTR_64[_OFFSET]
-                    if raw >> 63:  # bind
+            page_slots: list[int] = []
+            if start & 0x8000:  # DYLD_CHAINED_PTR_START_MULTI
+                idx = start & 0x7FFF
+                while True:
+                    ent = struct.unpack_from("<H", d, chain_pool + idx * 2)[0]
+                    page_slots.append(ent & 0x7FFF)
+                    if ent & 0x8000:  # DYLD_CHAINED_PTR_START_LAST
+                        break
+                    idx += 1
+            else:
+                page_slots.append(start)
+            page_va = img.base + seg_offset + p * page_size
+            for slot_va_base in page_slots:
+                slot_va = page_va + slot_va_base
+                for _ in range(4096):
+                    file_off = img.va_to_offset(slot_va)
+                    if file_off is None or file_off + 8 > len(d):
+                        break
+                    raw = struct.unpack_from("<Q", d, file_off)[0]
+                    # *_OFFSET formats store a runtime offset from the image
+                    # base; the plain formats store the preferred vmaddr.
+                    # Dylibs are linked at base 0, so the offset IS the VA.
+                    bias = img.base if ptr_format in (6, 7, 9, 12) else 0
+                    if ptr_format in (2, 6):  # DYLD_CHAINED_PTR_64[_OFFSET]
+                        # target:36 high8:8 reserved:7 next:12(bits 51-62)
+                        # bind:1(bit 63); high8 supplies bits 56-63.
                         nxt = (raw >> 51) & 0xFFF
-                    else:
-                        target = raw & 0xFFFFFFFFF
-                        img.index_pointer(slot_va, target + (text_base if ptr_format == 6 else 0))
-                        nxt = (raw >> 51) & 0xFFF
-                elif ptr_format in (1, 7, 10, 13):  # ARM64E variants
-                    if (raw >> 62) & 1:  # bind
+                        if not raw >> 63:  # rebase
+                            target = (((raw >> 36) & 0xFF) << 56) | (raw & 0xFFFFFFFFF)
+                            img.index_pointer(slot_va, target + bias)
+                    elif ptr_format in (1, 9, 12):  # ARM64E userland variants
+                        # target:43 high8:8 next:11(bits 51-61) bind:1(62)
+                        # auth:1(63); auth-rebase carries a 32-bit offset.
                         nxt = (raw >> 51) & 0x7FF
+                        if not (raw >> 62) & 1:  # plain rebase
+                            target = (((raw >> 43) & 0xFF) << 56) | (raw & 0x7FFFFFFFFFF)
+                            img.index_pointer(slot_va, target + bias)
+                        elif raw >> 63:  # auth rebase: target:32 runtimeOffset
+                            img.index_pointer(slot_va, (raw & 0xFFFFFFFF) + bias)
                     else:
-                        target = raw & 0xFFFFFFFF
-                        img.index_pointer(slot_va, target + (text_base if ptr_format == 7 else 0))
-                        nxt = (raw >> 51) & 0x7FF
-                else:
-                    break
-                if not nxt:
-                    break
-                slot_va += nxt * 8
+                        break
+                    if not nxt:
+                        break
+                    slot_va += nxt * stride
 
 
 CPU_X86_64 = 0x01000007
@@ -1237,28 +1265,93 @@ def has_pending_drain_shape(img: Image, rva: int, md) -> bool:
     seq = license_instructions(img, rva, md)
     if not seq:
         return False
-    tag = any(
-        i.mnemonic == "cmp"
-        and any(o.type == X86_OP_MEM and o.mem.disp == PENDING_TAG_DISP
+    # The drain is a leaf loop (31-75 instructions across every observed
+    # build/compiler). License dispatchers that also touch the pending
+    # vector run into the hundreds of instructions; capping the size keeps
+    # them out without weakening the structural clauses below.
+    if len(seq) > 256:
+        return False
+    # Exactly one tag compare: the drain loop validates the element it is
+    # about to consume once. Large license dispatchers compare several tags
+    # (0x50/0x86/0x40/...) across unrelated sub-loops and must not match.
+    # The tag compare addresses the element either from its start
+    # ([elem+0x14]) or from a pointer running backwards off the vector end
+    # ([end-0x50+0x14] == [end-0x3c]); both name the same field.
+    tag_disps = (PENDING_TAG_DISP, PENDING_TAG_DISP - PENDING_ELEM_STRIDE)
+    tags = [
+        i
+        for i in seq
+        if i.mnemonic == "cmp"
+        and any(o.type == X86_OP_MEM and o.mem.disp in tag_disps
                 and o.mem.base not in (X86_REG_RBP, X86_REG_RSP) for o in i.operands)
         and i.op_str.endswith(f", {hex(PENDING_ELEM_STRIDE)}")
-        for i in seq
-    )
-    stride = any(
+    ]
+    tag = len(tags) == 1
+    # The element offset is index*80 or a running pointer; compilers emit
+    # either a pointer stride (sub/add reg, +-0x50) or an index stride
+    # (lea r,[r+r*4] = *5, then *8 via a scaled index, add r,r or shl r,4).
+    # Both encodings describe the same 80-byte element vector; the tag
+    # clause above keeps the pair specific to this structure.
+    from capstone.x86 import X86_OP_REG
+
+    pointer_stride = any(
         (i.mnemonic == "sub" and i.op_str.endswith(", 0x50") and not i.op_str.startswith("rsp"))
         or (i.mnemonic == "add" and i.op_str.endswith(", -0x50") and not i.op_str.startswith("rsp"))
         for i in seq
     )
+    lea5: set[int] = set()
+    for i in seq:
+        if i.mnemonic != "lea":
+            continue
+        ops = i.operands
+        if len(ops) == 2 and ops[1].type == X86_OP_MEM:
+            m = ops[1].mem
+            if m.index and m.index == m.base and m.scale == 4 and m.disp == 0:
+                lea5.add(ops[0].reg)
+    index_stride = False
+    if lea5:
+        for i in seq:
+            for o in i.operands:
+                if o.type == X86_OP_MEM and o.mem.index in lea5 and o.mem.scale == 8:
+                    index_stride = True
+            ops = i.operands
+            if len(ops) == 2 and ops[0].type == X86_OP_REG and ops[0].reg in lea5:
+                if (i.mnemonic == "add" and ops[1].type == X86_OP_REG and ops[1].reg == ops[0].reg) or (
+                    i.mnemonic == "shl" and i.op_str.endswith(", 4")
+                ):
+                    index_stride = True
     calls = any(i.mnemonic == "call" for i in seq)
-    return tag and stride and calls
+    return tag and (pointer_stride or index_stride) and calls
+
+
+def _pe_is_function_entry(img: Image, rva: int, md) -> bool:
+    """True when a .pdata entry starts a function, not a hot/cold sub-chunk.
+
+    MSVC separates FUNCTIONS with int3 padding but keeps the chunks of one
+    function contiguous, so a sub-chunk's start is always reachable from the
+    preceding entry's pad-terminated decode while a function start is not.
+    Prologue mnemonics are not a discriminator: MSVC entries open with mov
+    spills as often as with push/sub.
+    """
+    import bisect
+
+    va = img.base + rva
+    i = bisect.bisect_left(img.func_starts, va)
+    if i >= len(img.func_starts) or img.func_starts[i] != va:
+        return False
+    if i == 0:
+        return True
+    prev = img.func_starts[i - 1]
+    return not any(ins.address == va for ins in license_instructions(img, prev - img.base, md))
 
 
 def pe_public_entry(img: Image, rva: int, md) -> int | None:
     """Map an MSVC cold chunk to the public entry whose body reaches it.
 
     .pdata lists unwind sub-ranges as separate entries, so the chunk that
-    contains a call site is not necessarily the function entry. The entry
-    must start with a prologue and its decode must cover the chunk.
+    contains a call site is not necessarily the function entry. The entry is
+    the function-start .pdata entry whose pad-terminated decode covers the
+    chunk; separate functions are excluded by their int3 padding.
     """
     if img.kind != "pe":
         return rva
@@ -1266,20 +1359,18 @@ def pe_public_entry(img: Image, rva: int, md) -> int | None:
 
     va = img.base + rva
     i = bisect.bisect_left(img.func_starts, va)
-    if i < len(img.func_starts) and img.func_starts[i] == va:
-        body = license_instructions(img, rva, md)
-        if body and body[0].mnemonic in ("push", "sub"):
-            return rva
+    if i < len(img.func_starts) and img.func_starts[i] == va and _pe_is_function_entry(img, rva, md):
+        return rva
     best = None
     for f in img.func_starts[max(0, i - 16) : i]:
         frva = f - img.base
         if rva - frva > 0x400:
             continue
-        body = license_instructions(img, frva, md)
-        if not body or body[0].mnemonic not in ("push", "sub"):
+        if not _pe_is_function_entry(img, frva, md):
             continue
-        if any(ins.address == va for ins in body):
+        if any(ins.address == va for ins in license_instructions(img, frva, md)):
             best = frva
+            break  # nearest preceding function entry wins
     return best
 
 
@@ -1473,19 +1564,33 @@ def ui_fill_call_targets(img: Image, caller_rva: int, md_x86, md_arm) -> set[int
     else:
         if md_x86 is None:
             return out
-        seq = function_instructions(img, caller_rva, md_x86)
+        # The call site can live in a cold chunk, so decode the whole
+        # hot/cold cluster rather than the entry's first .pdata range.
+        seq, _covered = license_cluster(img, caller_rva, md_x86)
         for n, ins in enumerate(seq):
             if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
                 continue
             win = seq[max(0, n - 10) : n]
-            fresh_arg2 = False
+            # The freshly appended overview message: the register written
+            # into the CUtlVector element slot [base + index*8 + 8].
+            fresh = None
+            for p in win:
+                if p.mnemonic == "mov" and "*8 + 8], " in p.op_str:
+                    dst, _sep, src = p.op_str.partition(", ")
+                    if "[" in dst:
+                        fresh = src.strip()
+            if fresh is None:
+                continue
+            # arg2 (rsi on SysV-shaped builds, rdx on newer MSVC) must be
+            # loaded from exactly that register right before the call.
+            arg2 = None
             for p in reversed(win):
                 ops = [o.strip() for o in p.op_str.split(",")]
-                if ops and ops[0] in ("rsi", "esi"):
-                    fresh_arg2 = p.mnemonic == "mov" and len(ops) == 2 and ops[1] == "rax"
+                if ops and ops[0] in ("rsi", "esi", "rdx", "edx"):
+                    if p.mnemonic == "mov" and len(ops) == 2:
+                        arg2 = ops[1]
                     break
-            stored = any(p.mnemonic == "mov" and "*8 + 8], rax" in p.op_str for p in win)
-            if fresh_arg2 and stored:
+            if arg2 == fresh:
                 try:
                     out.add(int(ins.op_str, 16) - img.base)
                 except ValueError:
@@ -1525,6 +1630,12 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
         xref_index = build_xref_index(text_va, text)
     resolved: dict[str, dict] = {}
     details: list[dict] = []
+    # MSVC splits hot/cold chunks into separate .pdata entries, so a string
+    # xref can land in a chunk whose entry is NOT the public function start.
+    # Map every PE hit back to the entry whose body reaches the chunk, or
+    # the string tier publishes chunk RVAs that disagree with every other
+    # mechanism (and with the hook, which needs the entry).
+    md_pe = _capstone() if img.kind == "pe" else None
     for name, probes in STRING_PROBES.items():
         starts: set[int] = set()
         probe_report = []
@@ -1545,6 +1656,10 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
                     if start is None and img.cpu_type != CPU_ARM64:
                         start = recover_function_start(text_va, text, x)
                     if start is not None:
+                        if md_pe is not None:
+                            entry = pe_public_entry(img, start - img.base, md_pe)
+                            if entry is not None:
+                                start = img.base + entry
                         starts.add(start)
         if len(starts) == 1:
             rva = starts.pop() - img.base
