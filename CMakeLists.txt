@@ -236,24 +236,42 @@ if(WIN32)
     add_compile_definitions(OMNI_PLATFORM_WINDOWS)
     set(PLATFORM_LIBS winhttp bcrypt ws2_32 psapi)
 elseif(APPLE)
-    # Fat (arm64+x86_64) builds cannot link Homebrew's single-arch libraries.
-    # The macOS SDK ships a universal LibreSSL and libcurl, so prefer those
-    # and fall back to Homebrew only for single-arch setups.
+    # Fat (arm64+x86_64) builds cannot link Homebrew's single-arch libraries:
+    # Homebrew keg libraries (openssl@3/@4, curl) are built for the runner
+    # architecture only, so the x86_64 slice of a universal dylib fails with
+    # "symbol not found for architecture x86_64" (e.g. _EVP_sha256). The
+    # macOS SDK ships a universal LibreSSL and libcurl as .tbd linker stubs;
+    # bind them directly for fat builds. FindOpenSSL's OPENSSL_ROOT_DIR hint
+    # is NOT sufficient here - it still prefers a Homebrew keg when one is
+    # installed via prefix/env detection.
     execute_process(
         COMMAND xcrun --show-sdk-path
         OUTPUT_VARIABLE OMNI_MACOS_SDK_PATH
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET
     )
-    if(OMNI_MACOS_SDK_PATH AND EXISTS "${OMNI_MACOS_SDK_PATH}/usr/lib/libssl.tbd")
-        set(OPENSSL_ROOT_DIR "${OMNI_MACOS_SDK_PATH}/usr")
-        set(CURL_INCLUDE_DIR "${OMNI_MACOS_SDK_PATH}/usr/include" CACHE FILEPATH "SDK curl headers")
-        set(CURL_LIBRARY "${OMNI_MACOS_SDK_PATH}/usr/lib/libcurl.tbd" CACHE FILEPATH "SDK libcurl stub")
+    set(OMNI_FAT_BUILD OFF)
+    if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+        set(OMNI_FAT_BUILD ON)
     endif()
-    find_package(OpenSSL REQUIRED)
-    find_package(CURL REQUIRED)
+    if(OMNI_FAT_BUILD AND OMNI_MACOS_SDK_PATH AND EXISTS "${OMNI_MACOS_SDK_PATH}/usr/lib/libssl.tbd")
+        message(STATUS "Universal build: linking SDK LibreSSL/libcurl stubs")
+        include_directories("${OMNI_MACOS_SDK_PATH}/usr/include")
+        foreach(_lib ssl crypto curl)
+            if(NOT TARGET OpenSSLSDKStub_${_lib})
+                add_library(OpenSSLSDKStub_${_lib} SHARED IMPORTED)
+                set_target_properties(OpenSSLSDKStub_${_lib} PROPERTIES
+                    IMPORTED_LOCATION "${OMNI_MACOS_SDK_PATH}/usr/lib/lib${_lib}.tbd")
+            endif()
+        endforeach()
+        set(PLATFORM_LIBS OpenSSLSDKStub_crypto OpenSSLSDKStub_ssl OpenSSLSDKStub_curl)
+    else()
+        find_package(OpenSSL REQUIRED)
+        find_package(CURL REQUIRED)
+        set(PLATFORM_LIBS OpenSSL::Crypto OpenSSL::SSL CURL::libcurl)
+    endif()
     find_package(Threads REQUIRED)
-    set(PLATFORM_LIBS OpenSSL::Crypto OpenSSL::SSL CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
+    set(PLATFORM_LIBS ${PLATFORM_LIBS} Threads::Threads ${CMAKE_DL_LIBS})
 else()
     add_compile_definitions(OMNI_PLATFORM_LINUX)
     find_package(OpenSSL REQUIRED)
