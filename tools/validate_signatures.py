@@ -38,6 +38,8 @@ from derive_signatures import (  # noqa: E402
     find_string_vas,
     function_instructions,
     in_text,
+    license_producer,
+    license_via_rtti,
     parse_elf,
     parse_macho,
     transfer_via_map,
@@ -189,6 +191,58 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
                         file=sys.stderr,
                     )
                     failed += 1
+        # License trio: the producer chain (BParseResponseMessage VProf
+        # literal -> call-site argument shape -> drain caller) must agree
+        # with the RTTI gate chain (CUser vtables -> drain -> bool=false
+        # callee). Different anchor families, different traversals.
+        mark_p, pplu_p, _ = license_producer(img, md)
+        mark_r, pplu_r, _ = license_via_rtti(img, md)
+        for name, prod, gate in (
+            ("MarkLicenseAsChanged", mark_p, mark_r),
+            ("ProcessPendingLicenseUpdates", pplu_p, pplu_r),
+        ):
+            if prod is None and gate is None:
+                print(f"[validate] {img.path.name}: {name} n/a (not derivable)")
+                continue
+            checked += 1
+            if prod is not None and prod == gate:
+                print(f"[validate] {img.path.name}: {name} OK ({hex(prod)})")
+            else:
+                print(
+                    f"[validate] {img.path.name}: {name} MISMATCH "
+                    f"producer={hex(prod) if prod is not None else None} "
+                    f"rtti={hex(gate) if gate is not None else None}",
+                    file=sys.stderr,
+                )
+                failed += 1
+        # BUpdateLicenses: two distinct literals owned by the same function
+        # (VProf budget + in-body assert message) must name the same start.
+        vprof: set[int] = set()
+        for probe in ("CUser::BUpdateLicenses", "BUpdateLicenses"):
+            for sva in find_string_vas(img, probe):
+                for xref in index.get(sva, []):
+                    fn = img.containing_function(xref)
+                    if fn is not None:
+                        vprof.add(fn - img.base)
+            if vprof:
+                break
+        asserts: set[int] = set()
+        for sva in find_string_vas(img, "pvecLicensesPrev not sorted"):
+            for xref in index.get(sva, []):
+                fn = img.containing_function(xref)
+                if fn is not None:
+                    asserts.add(fn - img.base)
+        if vprof and asserts:
+            checked += 1
+            if len(vprof) == 1 and vprof == asserts:
+                print(f"[validate] {img.path.name}: BUpdateLicenses OK ({hex(next(iter(vprof)))})")
+            else:
+                print(
+                    f"[validate] {img.path.name}: BUpdateLicenses MISMATCH "
+                    f"vprof={sorted(hex(v) for v in vprof)} assert={sorted(hex(a) for a in asserts)}",
+                    file=sys.stderr,
+                )
+                failed += 1
     return checked, failed
 
 

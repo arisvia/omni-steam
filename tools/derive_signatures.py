@@ -71,6 +71,13 @@ STRING_PROBES: dict[str, list[str]] = {
     # VProf spelling, GCC/Clang emit the bare budget name.
     "BUpdateLicenses": ["CUser::BUpdateLicenses", "BUpdateLicenses"],
     "OnLicensesUpdated": ["CCompatManager::OnLicensesUpdated"],
+    # Producer anchor for the license trio (tier 5). MSVC keeps the qualified
+    # VProf spelling (the bare literal has zero RIP xrefs there - pointer
+    # table); GCC/Clang emit the bare budget name with exactly one xref.
+    "BParseResponseMessage": [
+        "CPICSJobRequestProductInfoUpdate::BParseResponseMessage",
+        "BParseResponseMessage",
+    ],
 }
 
 TOML_TEMPLATE = """\
@@ -990,6 +997,354 @@ def derive_callee_fingerprints(img: Image) -> tuple[dict[str, dict], list[dict]]
                  "caller": PACKAGE_CACHE_CALLER, "candidates": [hex(c) for c in candidates]}]
 
 
+# --------------------------------------------------------------------------
+# Tier 5: license subsystem (MarkLicenseAsChanged / ProcessPendingLicenseUpdates)
+#
+# Both are non-virtual CUser members with no string literals of their own, so
+# neither the anchor map nor a direct probe can name them. Two derivation
+# chains that share no code path converge on each:
+#
+#   Producer (string-xref family):
+#     'CPICSJobRequestProductInfoUpdate::BParseResponseMessage' VProf literal
+#     -> the call site passing (user=[cache+0x1d8], pkg, false)
+#     -> MarkLicenseAsChanged; then the unique caller of Mark that drains the
+#     pending-update vector (stride 0x50, tag [elem+0x14]==0x50)
+#     -> ProcessPendingLicenseUpdates.
+#
+#   Gate (RTTI family):
+#     CUser typeinfo -> vtables -> the virtual slot whose body calls a
+#     pending-vector drain -> ProcessPendingLicenseUpdates; the drain's
+#     unique bool=false callee -> MarkLicenseAsChanged.
+#
+# A target is emitted only when both chains agree on a single RVA.
+# CUtlMemoryGrow stays unresolved on purpose: the hook is optional
+# (GrowAndAppend has an explicit malloc fallback) and the template has no
+# unique anchor - many instantiations, and the old byte pattern is dead.
+# --------------------------------------------------------------------------
+
+LICENSE_PRODUCER_ANCHOR = "BParseResponseMessage"
+LICENSE_CORROBORATOR = "BUpdateLicenses"
+PENDING_TAG_DISP = 0x14
+PENDING_ELEM_STRIDE = 0x50
+
+
+def license_instructions(img: Image, rva: int, md) -> list:
+    """Function body decode hardened for MSVC hot/cold chunks.
+
+    A dense .pdata neighbour (<0x40 bytes away) is an unwind sub-range of the
+    same body: keep the int3-stop walk. A distant neighbour is a real chunk
+    boundary: decode the whole range skipping int3 pads, because assert
+    paths split a chunk with int3 and continue afterwards (stopping at the
+    first int3 lost the MarkLicenseAsChanged call in the Windows cold chunk).
+    """
+    if img.kind != "pe":
+        return function_instructions(img, rva, md)
+    import bisect
+
+    va = img.base + rva
+    off = img.va_to_offset(va)
+    if off is None:
+        return []
+    i = bisect.bisect_right(img.func_starts, va)
+    nxt = img.func_starts[i] if i < len(img.func_starts) else va + 0x2000
+    if nxt - va < 0x40:
+        return function_instructions(img, rva, md)
+    end = min(nxt, va + 0x4000)
+    return [ins for ins in md.disasm(img.data[off : off + (end - va)], va) if ins.mnemonic != "int3"]
+
+
+_JCC = ("jmp", "je", "jne", "jg", "jge", "jl", "jle", "ja", "jae", "jb", "jbe", "js", "jns")
+
+
+def license_cluster(img: Image, rva: int, md) -> tuple[list, set]:
+    """Instructions of a function plus its MSVC hot/cold chunk cluster.
+
+    Returns (seq, covered_rvas); branch targets inside the cluster are not
+    callees. ELF/Mach-O boundaries are exact, so the cluster is one function.
+    """
+    seq: list = []
+    covered: set[int] = set()
+    seen: set[int] = set()
+    queue = [rva]
+    while queue and len(seen) < 24:
+        cur = queue.pop(0)
+        if cur in seen or cur in covered:
+            continue
+        seen.add(cur)
+        body = license_instructions(img, cur, md)
+        if not body:
+            continue
+        seq.extend(body)
+        for ins in body:
+            covered.add(ins.address - img.base)
+        if img.kind != "pe":
+            continue
+        for ins in body:
+            if ins.mnemonic not in _JCC or not ins.op_str.startswith("0x"):
+                continue
+            try:
+                tgt = int(ins.op_str, 16) - img.base
+            except ValueError:
+                continue
+            if tgt in seen or tgt in covered or not in_text(img, img.base + tgt):
+                continue
+            if abs(tgt - rva) > 0x40000 or img.containing_function(img.base + tgt) is None:
+                continue
+            queue.append(tgt)
+    return seq, covered
+
+
+def cluster_call_targets(img: Image, rva: int, md) -> set[int]:
+    seq, covered = license_cluster(img, rva, md)
+    out = set()
+    for ins in seq:
+        if ins.mnemonic not in ("call", "jmp") or not ins.op_str.startswith("0x"):
+            continue
+        try:
+            tgt = int(ins.op_str, 16) - img.base
+        except ValueError:
+            continue
+        if in_text(img, img.base + tgt) and tgt not in covered:
+            out.add(tgt)
+    return out
+
+
+def _bool_and_this_setup(img: Image, seq: list, n: int) -> tuple[int | None, bool]:
+    """Argument setup before call seq[n]: (third-arg value, this-is-field-load).
+
+    The bool is 0/1 only when its register was last set by xor/mov-imm; any
+    other write invalidates the window so a stale xor cannot leak across an
+    unrelated overwrite. The this check requires a load from a heap object
+    field ([base+disp], base neither rsp nor rbp) - the cache->user pointer.
+    """
+    from capstone.x86 import X86_OP_MEM, X86_REG_RBP, X86_REG_RSP
+
+    if img.kind == "pe":
+        boolregs, thisregs = ("r8b", "r8d"), ("rcx", "ecx")
+    else:
+        boolregs, thisregs = ("dl", "edx"), ("rdi", "edi")
+    boolval = None
+    fieldload = False
+    seen_bool = seen_this = False
+    for prev in reversed(seq[max(0, n - 10) : n]):
+        ops = [o.strip() for o in prev.op_str.split(",")]
+        if len(ops) != 2:
+            continue
+        dst = ops[0]
+        if not seen_bool and dst in boolregs:
+            seen_bool = True
+            if prev.mnemonic == "xor" and dst == ops[1]:
+                boolval = 0
+            elif prev.mnemonic == "mov" and ops[1] in ("0", "1"):
+                boolval = int(ops[1])
+        if not seen_this and dst in thisregs:
+            seen_this = True
+            if prev.mnemonic == "mov":
+                for op in prev.operands:
+                    if (op.type == X86_OP_MEM and op.mem.index == 0 and op.mem.disp > 0
+                            and op.mem.base not in (X86_REG_RBP, X86_REG_RSP)):
+                        fieldload = True
+        if seen_bool and seen_this:
+            break
+    return boolval, fieldload
+
+
+def mark_call_targets(img: Image, rva: int, md) -> set[int]:
+    """External calls from rva's cluster passing (this=[obj+field], pkg, false)."""
+    seq, covered = license_cluster(img, rva, md)
+    out = set()
+    for n, ins in enumerate(seq):
+        if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
+            continue
+        try:
+            tgt = int(ins.op_str, 16) - img.base
+        except ValueError:
+            continue
+        if tgt in covered or not in_text(img, img.base + tgt):
+            continue
+        boolval, fieldload = _bool_and_this_setup(img, seq, n)
+        if boolval == 0 and fieldload:
+            out.add(tgt)
+    return out
+
+
+def has_pending_drain_shape(img: Image, rva: int, md) -> bool:
+    """Structural fingerprint of the pending-license-update drain loop:
+    element tag compare [elem+0x14]==0x50 plus 0x50-byte stride arithmetic.
+    ABI-independent: it describes the data structure, not the encoding.
+    Both clauses exclude stack-relative operands: CheckAppOwnership compares
+    a stack local at [rbp+0x14] and takes stack addresses at [rsp+0x50],
+    which the loose form matched as a false drain."""
+    from capstone.x86 import X86_OP_MEM, X86_REG_RBP, X86_REG_RSP
+
+    seq = license_instructions(img, rva, md)
+    if not seq:
+        return False
+    tag = any(
+        i.mnemonic == "cmp"
+        and any(o.type == X86_OP_MEM and o.mem.disp == PENDING_TAG_DISP
+                and o.mem.base not in (X86_REG_RBP, X86_REG_RSP) for o in i.operands)
+        and i.op_str.endswith(f", {hex(PENDING_ELEM_STRIDE)}")
+        for i in seq
+    )
+    stride = any(
+        (i.mnemonic == "sub" and i.op_str.endswith(", 0x50") and not i.op_str.startswith("rsp"))
+        or (i.mnemonic == "add" and i.op_str.endswith(", -0x50") and not i.op_str.startswith("rsp"))
+        for i in seq
+    )
+    calls = any(i.mnemonic == "call" for i in seq)
+    return tag and stride and calls
+
+
+def pe_public_entry(img: Image, rva: int, md) -> int | None:
+    """Map an MSVC cold chunk to the public entry whose body reaches it.
+
+    .pdata lists unwind sub-ranges as separate entries, so the chunk that
+    contains a call site is not necessarily the function entry. The entry
+    must start with a prologue and its decode must cover the chunk.
+    """
+    if img.kind != "pe":
+        return rva
+    import bisect
+
+    va = img.base + rva
+    i = bisect.bisect_left(img.func_starts, va)
+    if i < len(img.func_starts) and img.func_starts[i] == va:
+        body = license_instructions(img, rva, md)
+        if body and body[0].mnemonic in ("push", "sub"):
+            return rva
+    best = None
+    for f in img.func_starts[max(0, i - 16) : i]:
+        frva = f - img.base
+        if rva - frva > 0x400:
+            continue
+        body = license_instructions(img, frva, md)
+        if not body or body[0].mnemonic not in ("push", "sub"):
+            continue
+        if any(ins.address == va for ins in body):
+            best = frva
+    return best
+
+
+def license_producer(img: Image, md) -> tuple[int | None, int | None, list]:
+    """Producer chain: BParseResponseMessage string anchor -> Mark -> drain."""
+    details: list[dict] = []
+    anchors, _ = derive(img)
+    anchor = anchors.get(LICENSE_PRODUCER_ANCHOR)
+    if not anchor:
+        return None, None, [{"target": "license-trio", "status": "unresolved",
+                             "reason": f"{LICENSE_PRODUCER_ANCHOR} not anchored"}]
+    arva = int(anchor["rva"], 16)
+    marks = mark_call_targets(img, arva, md)
+    details.append({"mechanism": "producer", "anchor": LICENSE_PRODUCER_ANCHOR,
+                    "anchor_rva": anchor["rva"], "mark_candidates": sorted(hex(m) for m in marks)})
+    if len(marks) != 1:
+        return None, None, details
+    mark = marks.pop()
+    cor = anchors.get(LICENSE_CORROBORATOR)
+    if cor:
+        cor_ok = mark in cluster_call_targets(img, int(cor["rva"], 16), md)
+        details.append({"mechanism": "producer", "corroborator": LICENSE_CORROBORATOR,
+                        "calls_mark": cor_ok})
+        if not cor_ok:
+            return None, None, details
+    text_va, text = img.text()
+    target = img.base + mark
+    callers: set[int] = set()
+    i = 0
+    while True:
+        i = text.find(b"\xe8", i)
+        if i < 0 or i + 5 > len(text):
+            break
+        rel = struct.unpack_from("<i", text, i + 1)[0]
+        if text_va + i + 5 + rel == target:
+            fn = img.containing_function(text_va + i)
+            if fn is not None:
+                callers.add(fn - img.base)
+        i += 1
+    drains = set()
+    for c in sorted(callers):
+        if has_pending_drain_shape(img, c, md):
+            e = pe_public_entry(img, c, md)
+            if e is not None:
+                drains.add(e)
+    details.append({"mechanism": "producer", "mark": hex(mark),
+                    "drain_callers": sorted(hex(d) for d in drains)})
+    if len(drains) != 1:
+        return mark, None, details
+    return mark, drains.pop(), details
+
+
+def license_via_rtti(img: Image, md) -> tuple[int | None, int | None, list]:
+    """Gate chain: CUser RTTI -> vtable slots -> pending drain -> Mark.
+
+    Shares no code path with the producer: different anchor family (RTTI
+    relocations vs VProf literals) and different traversal (vtable slots vs
+    call-site argument shapes).
+    """
+    details: list[dict] = []
+    ti = ".?AVCUser@@" if img.kind == "pe" else "5CUser"
+    drains: set[int] = set()
+    for vt in find_vtables_for_typeinfo(img, ti):
+        for slot in range(128):
+            p = deref_qword(img, vt + slot * 8)
+            if p is None or not in_text(img, p):
+                break
+            for t in cluster_call_targets(img, p - img.base, md):
+                if has_pending_drain_shape(img, t, md):
+                    e = pe_public_entry(img, t, md)
+                    if e is not None:
+                        drains.add(e)
+    details.append({"mechanism": "rtti-vtable-drain", "typeinfo": ti,
+                    "drains": sorted(hex(d) for d in drains)})
+    if len(drains) != 1:
+        return None, None, details
+    pplu = drains.pop()
+    seq, covered = license_cluster(img, pplu, md)
+    marks: set[int] = set()
+    for n, ins in enumerate(seq):
+        if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
+            continue
+        try:
+            tgt = int(ins.op_str, 16) - img.base
+        except ValueError:
+            continue
+        if tgt in covered or not in_text(img, img.base + tgt):
+            continue
+        boolval, _ = _bool_and_this_setup(img, seq, n)
+        if boolval == 0:
+            marks.add(tgt)
+    details.append({"mechanism": "rtti-vtable-drain", "pplu": hex(pplu),
+                    "mark_candidates": sorted(hex(m) for m in marks)})
+    mark = marks.pop() if len(marks) == 1 else None
+    return mark, pplu, details
+
+
+def derive_license_trio(img: Image) -> tuple[dict[str, dict], list[dict]]:
+    md = _capstone()
+    if md is None:
+        return {}, [{"target": "license-trio", "status": "skipped", "reason": "capstone not installed"}]
+    mark_p, pplu_p, det_p = license_producer(img, md)
+    mark_r, pplu_r, det_r = license_via_rtti(img, md)
+    details = det_p + det_r
+    resolved: dict[str, dict] = {}
+    for name, a, b in (
+        ("MarkLicenseAsChanged", mark_p, mark_r),
+        ("ProcessPendingLicenseUpdates", pplu_p, pplu_r),
+    ):
+        if a is not None and a == b:
+            resolved[name] = {"rva": f"0x{a:x}", "source": "derived:license-dual-chain"}
+            details.append({"target": name, "resolved": True, "rva": hex(a)})
+        else:
+            details.append({"target": name,
+                            "status": "unresolved" if (a is None and b is None) else "mismatch",
+                            "producer": hex(a) if a is not None else None,
+                            "rtti": hex(b) if b is not None else None})
+    details.append({"target": "CUtlMemoryGrow", "status": "deferred",
+                    "reason": "optional hook with malloc fallback; no unique anchor across template instantiations"})
+    return resolved, details
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     text_va, text = img.text()
     xref_index = build_xref_index(text_va, text)
@@ -1092,6 +1447,12 @@ def main() -> int:
     details.extend(fp_details)
     if fp_resolved:
         print(f"[derive] callee-fingerprint tier: {', '.join(sorted(fp_resolved))}")
+    trio_resolved, trio_details = derive_license_trio(img)
+    for name, meta in trio_resolved.items():
+        resolved.setdefault(name, meta)
+    details.extend(trio_details)
+    if trio_resolved:
+        print(f"[derive] license-trio tier: {', '.join(sorted(trio_resolved))}")
     print(f"[derive] {args.binary.name} sha256={digest[:16]} kind={kind}: {len(resolved)} function(s) derived")
 
 

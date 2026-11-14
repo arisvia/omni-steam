@@ -17,16 +17,16 @@
 
 按打通顺序排列：
 
-1. ~~**签名锚点补全（核心阻塞）**~~ **已完成主链路**：重定位解析层（ELF `R_X86_64_RELATIVE` addend / Mach-O `LC_DYLD_INFO` rebase 与 chained fixups）打通了 strip 后的 RTTI 遍历，Windows 锚点图按 Itanium 同序槽位跨 ABI 移植；限定名 VProf 探针修复了 `RecvPkt`/`BBuildAndAsyncSendFrame` 的"0 xref"。Linux/macOS 各 9 函数，`tools/validate_signatures.py` 双机制交叉校验守门。
+1. ~~**签名锚点补全（核心阻塞）**~~ **已完成主链路**：重定位解析层（ELF `R_X86_64_RELATIVE` addend / Mach-O `LC_DYLD_INFO` rebase 与 chained fixups）打通了 strip 后的 RTTI 遍历，Windows 锚点图按 Itanium 同序槽位跨 ABI 移植；限定名 VProf 探针修复了 `RecvPkt`/`BBuildAndAsyncSendFrame` 的"0 xref"。Windows 15 / Linux 16 / macOS 16 函数，`tools/validate_signatures.py` 双机制交叉校验守门。
 2. **Package 0 扩容（部分完成）**：`GetPackageInfo` **已三平台自动派生**（Windows `0x49b040` / Linux `0xeb8b70` / macOS `0x59a008`，随版本自动重算）。它是非虚函数，vtable 槽位无法覆盖，改用新增的**被调指纹派生**：先按字面量锚定调用方 `CheckAppOwnership`，再在其直接 callee 中匹配 utlrbtree 查找结构（`[this+0x20]` 根索引、`[this+0x38]` 节点数组、`shl 5` 步长、`[node+0x10]` 键比较、且含创建路径调用）。第二机制 `package_info_print` 控制台命令注册点独立复核，已纳入 CI 守门。
-   许可子系统调用方已锚定：`CUser::BUpdateLicenses` 与 `CCompatManager::OnLicensesUpdated` 的限定名 VProf 字面量在 WIN/LIN/MAC 上均为唯一 xref，已作为 `STRING_PROBES` 加入派生层（win 12 / lin 13 / mac 13 函数，`validate_signatures.py` 4 项交叉校验 0 失败，损坏 anchor-map 的负向对照正确非零退出）。二者 RVAs：
+   许可子系统调用方已锚定：`CUser::BUpdateLicenses` 与 `CCompatManager::OnLicensesUpdated` 的限定名 VProf 字面量在 WIN/LIN/MAC 上均为唯一 xref，已作为 `STRING_PROBES` 加入派生层（win 15 / lin 16 / mac 16 函数，`validate_signatures.py` 10 项交叉校验 0 失败，损坏 anchor-map 的负向对照正确非零退出）。二者 RVAs：
 
    | 锚点 | Windows | Linux | macOS |
    | :--- | :--- | :--- | :--- |
    | `CUser::BUpdateLicenses` | `0x998fcb` | `0x1632fe0` | `0xa75220` |
    | `CCompatManager::OnLicensesUpdated` | `0x59f730` | `0x102de80` | `0x69e1b0` |
 
-   由这两个调用方出发的调用图已定位 `MarkLicenseAsChanged`（WIN `0x9aa750` / LIN `0x1620d50` / MAC `0xa70f0c`，签名 `(this, packageId, bool)`，头部把 bool 落到字节栈槽）与 `ProcessPendingLicenseUpdates`（LIN `0x1621620` / MAC `0xa74e12` / WIN `0x998700` 所在的待处理向量循环，按 `0x50` 步长遍历并回写计数、返回 bool）的**候选**。`CInternalCallback<CUserAppManager, LicensesUpdated_t>` 的 `Run()` 被 ICF 与另外三个事件回调合并成同一分发器，不能作为第二机制。这些候选**尚未接入派生层、未双机制复核，因此未发布到 TOML**；`CUtlMemoryGrow` 仍无唯一锚点。**按 fail-closed 原则不猜测 RVA**，下一步是为两个候选各补一条共享零代码路径的独立机制再纳入 CI 守门。
+   许可三件套中的两个已按双机制发布（`derived:license-dual-chain`）：`MarkLicenseAsChanged`（WIN `0x9aa750` / LIN `0x1620d50` / MAC `0xa70f0c`，签名 `(this, packageId, bool)`）与 `ProcessPendingLicenseUpdates`（WIN `0x9986e0` / LIN `0x1621620` / MAC `0xa74e12`，按 `0x50` 步长遍历待处理向量并回写计数、返回 bool；WIN 的 `0x998700` 是其循环冷块，公共入口经 .pdata 前向回溯确定）。两条共享零代码路径的推导链：**生产链**（string-xref 族）以 `CPICSJobRequestProductInfoUpdate::BParseResponseMessage` 限定名 VProf 字面量锚定调用方，匹配 `(user=[cache+0x1d8], pkg, false)` 调用点形状得到 Mark，再取 Mark 的唯一向量排空调用方得到 PPLU；**守门链**（RTTI 族）从 CUser typeinfo 遍历 vtable 槽位，找到调用排空函数的虚槽得到 PPLU，再取其唯一 bool=false 被调得到 Mark。两链必须各自唯一且 RVA 一致才写入 TOML，`validate_signatures.py` 独立重跑两链复核。`CInternalCallback<..., LicensesUpdated_t>` 的 `Run()` 被 ICF 合并，不能作为机制（历史结论保留）。`CUtlMemoryGrow` **正式挂起**：钩子可选（`GrowAndAppend` 有显式 malloc 兜底），模板实例化众多且旧字节特征已死，无唯一锚点，fail-closed 不发布。
 3. **steamui 库可见性（macOS 二进制已取得，派生仍未接线）**：`23598e8` 的 harvest 产物确认 `steam-binaries-macos` 内含 `steamui.dylib`（Linux 产物只有 steamclient.so，与 steamcmd 不带桌面 UI 一致）。该模块内限定名 `CSteamUIAppController::FillInAppOverview` 有**唯一 RIP xref** → x86_64 slice 函数入口 `0x574a40`；`derive_signatures.py` 的裸子串探针已改为限定名优先（裸名落在字面量 +0x17，永不匹配 LEA），本机实测可派生。
    **两道阻塞，故未发布 TOML**：① `parse_macho` 只解析 fat 里最大的 x86_64 slice，arm64 slice 的限定名字面量在另一偏移（`0xd938a1`），不能假定共用 RVA；② `PatternLoader::GetTargetModuleName()` 只返回 steamclient，`moduleHash` 恒为 steamclient 的哈希，而 `DeclaresMatchingHash` 要求 TOML 的 `binary_sha256` 与之相等 —— steamui-keyed TOML **永远不会在运行时被消费**。因此 macOS derive 循环保持只扫 `*steamclient*.dylib`，steamui 产物仅作参考二进制。Windows `steamui.dll` 该字面量零 xref（指针表引用）+ 内置特征失配，派生层正确报告 0 函数（fail-closed）。下一步：先给 steamui 建立按模块哈希的独立加载/消费路径，再补 arm64 slice 与 Windows 指针表解析，并补第二机制。
 4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
