@@ -1,0 +1,10 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "steamui.dylib"
+binary_sha256 = "1bf1a790710c04c9cdfcbaad61782fd636c941813cd2fa9b9e14b7ff9b4155a8"
+kind = "macho"
+
+[functions]
+BBuildAndAsyncSendFrame = { rva = "0xb40f20", rva_arm64 = "0xb22e0c", source = "derived:string-xref" }
+BuildCompleteAppOverviewChange = { rva = "0x573ec2", rva_arm64 = "0x5cb344", source = "derived:string-xref" }
+FillInAppOverview = { rva = "0x574a40", rva_arm64 = "0x5cbedc", source = "derived:ui-dual-chain" }

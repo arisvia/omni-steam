@@ -1,0 +1,9 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "steamclient.dylib"
+binary_sha256 = "42776e12adaa3114dac4b64fc4fff182cb03d44b2e94d29a48f103ffafc79428"
+kind = "macho"
+
+[functions]
+CheckAppOwnership = { rva = "0x9e349c", source = "derived:string-xref" }
+SpawnProcess = { rva = "0x9f133a", source = "derived:string-xref" }
