@@ -133,6 +133,7 @@ jobs:
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
+        if: always()  # keep forensic evidence even when the validate gate fails
         with:
           name: steam-binaries-linux
           # steamui.so ships with the desktop client, not steamcmd; upload it
@@ -275,6 +276,7 @@ jobs:
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
+        if: always()  # keep forensic evidence even when later steps fail
         with:
           name: steam-binaries-windows
           path: steam-dist/*.dll
@@ -364,6 +366,7 @@ jobs:
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
+        if: always()  # the gate blocks publication; it must not destroy evidence
         with:
           name: steam-binaries-macos
           # The collect step already copies steamui*.dylib into steam-dist;
