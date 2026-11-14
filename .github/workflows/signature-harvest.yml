@@ -123,6 +123,12 @@ jobs:
               --map signatures/anchor-map-windows.json \
               --out signatures-out/linux-x64 || true
           done
+          # steamui.so ships with the desktop client only; derive it when
+          # present (separate module hash, no anchor map needed).
+          for f in $(find steam-dist -iname 'steamui*.so' | sort); do
+            python3 tools/derive_signatures.py --binary "$f" \
+              --out signatures-out/linux-x64 || true
+          done
 
       - name: Validate derived anchors
         run: |
@@ -252,6 +258,12 @@ jobs:
           # Works for ANY new client version with zero network dependency.
           if (Test-Path "signatures/anchor-map-windows.json") {
             python tools/derive_signatures.py --binary steam-dist/steamclient64.dll --map signatures/anchor-map-windows.json --out signatures-out/windows-x64
+            # steamui is a separate module with its own hash; the 64-bit
+            # client ships a 64-bit steamui.dll whose FillInAppOverview is
+            # dual-chain derivable without the anchor map.
+            if (Test-Path "steam-dist\steamui.dll") {
+              python tools/derive_signatures.py --binary steam-dist/steamui.dll --out signatures-out/windows-x64
+            }
             exit 0
           }
           # Self-loop tier 2 (bootstrap only): no committed map yet - transfer
