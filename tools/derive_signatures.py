@@ -60,6 +60,13 @@ STRING_PROBES: dict[str, list[str]] = {
     "SpawnProcess": ["SpawnProcess"],
     "FillInAppOverview": ["FillInAppOverview"],
     "RecvPkt": ["CCMInterface::RecvPkt"],
+    # License subsystem entry points. These are NOT the three Package-0
+    # targets (CUtlMemoryGrow / MarkLicenseAsChanged /
+    # ProcessPendingLicenseUpdates) - they are the anchored callers whose
+    # neighborhoods those targets live in. Windows keeps the qualified
+    # VProf spelling, GCC/Clang emit the bare budget name.
+    "BUpdateLicenses": ["CUser::BUpdateLicenses", "BUpdateLicenses"],
+    "OnLicensesUpdated": ["CCompatManager::OnLicensesUpdated"],
 }
 
 TOML_TEMPLATE = """\

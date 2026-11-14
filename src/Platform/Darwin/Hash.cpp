@@ -1,33 +1,32 @@
+#include <CommonCrypto/CommonDigest.h>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
-#include <openssl/evp.h>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 
+// ponytail: SHA-256 only; no streaming/HMAC is needed here. CommonCrypto lives
+// in libSystem (universal), so fat arm64+x86_64 builds need no OpenSSL at all.
+// If more digests/HMAC are ever required, add them here rather than reintroducing
+// a Homebrew keg dependency that only carries one architecture.
 namespace OmniPlatform {
-
-std::string Hash::Sha256(const std::vector<uint8_t>& data) {
-    uint8_t hash[EVP_MAX_MD_SIZE];
-    unsigned int length = 0;
-
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx)
-        return "";
-
-    EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
-    EVP_DigestUpdate(ctx, data.data(), data.size());
-    EVP_DigestFinal_ex(ctx, hash, &length);
-    EVP_MD_CTX_free(ctx);
-
+namespace {
+std::string ToHex(const uint8_t (&hash)[CC_SHA256_DIGEST_LENGTH]) {
     std::ostringstream oss;
-    for (unsigned int i = 0; i < length; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    for (uint8_t byte : hash) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
     }
     return oss.str();
+}
+} // namespace
+
+std::string Hash::Sha256(const std::vector<uint8_t>& data) {
+    uint8_t hash[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.data(), static_cast<CC_LONG>(data.size()), hash);
+    return ToHex(hash);
 }
 
 std::string Hash::Sha256File(const std::string& filePath) {
@@ -35,29 +34,19 @@ std::string Hash::Sha256File(const std::string& filePath) {
     if (!file)
         return "";
 
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx)
-        return "";
-
-    EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+    CC_SHA256_CTX ctx;
+    CC_SHA256_Init(&ctx);
     char buf[4096];
     while (file.read(buf, sizeof(buf))) {
-        EVP_DigestUpdate(ctx, buf, file.gcount());
+        CC_SHA256_Update(&ctx, buf, static_cast<CC_LONG>(file.gcount()));
     }
     if (file.gcount() > 0) {
-        EVP_DigestUpdate(ctx, buf, file.gcount());
+        CC_SHA256_Update(&ctx, buf, static_cast<CC_LONG>(file.gcount()));
     }
 
-    uint8_t hash[EVP_MAX_MD_SIZE];
-    unsigned int length = 0;
-    EVP_DigestFinal_ex(ctx, hash, &length);
-    EVP_MD_CTX_free(ctx);
-
-    std::ostringstream oss;
-    for (unsigned int i = 0; i < length; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return oss.str();
+    uint8_t hash[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(hash, &ctx);
+    return ToHex(hash);
 }
 
 } // namespace OmniPlatform
