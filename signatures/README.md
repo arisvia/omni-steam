@@ -72,6 +72,19 @@ identified from the call graph are listed in `docs/ROADMAP.md` §2.2 but are
 **not** published: two independent mechanisms must agree before any of them
 reaches a TOML. A wrong RVA hooks unrelated code and crashes the client.
 
+## steamui reference binary
+
+The macOS harvest artifact now publishes `steamui.dylib` (Linux steamcmd has
+no `steamui.so`). Its qualified budget literal
+`CSteamUIAppController::FillInAppOverview` has exactly one RIP xref and
+`derive_signatures.py` now probes the qualified spelling first — the bare
+substring sits 0x17 bytes into the literal and never matches a LEA target.
+The Windows `steamui.dll` has zero xrefs (pointer-table reference) and
+correctly derives 0 functions. **No steamui TOML is published**: PatternLoader
+hashes only the target module (`steamclient*`), so a steamui-keyed document
+would be rejected by `DeclaresMatchingHash` and never consumed. See
+`docs/ROADMAP.md` §2.3 for the remaining wiring work.
+
 ## Two-mechanism CI gate
 
 `tools/validate_signatures.py` cross-checks every target reachable by two

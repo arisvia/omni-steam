@@ -58,7 +58,11 @@ STRING_PROBES: dict[str, list[str]] = {
         "BBuildAndAsyncSendFrame",
     ],
     "SpawnProcess": ["SpawnProcess"],
-    "FillInAppOverview": ["FillInAppOverview"],
+    # macOS steamui.dylib keeps the qualified VProf budget literal with exactly
+    # one RIP xref; the bare substring lands 0x17 bytes into it and never
+    # matches a LEA target. MSVC steamui.dll has zero xrefs (pointer table),
+    # so that platform still reports n/a rather than a wrong RVA.
+    "FillInAppOverview": ["CSteamUIAppController::FillInAppOverview", "FillInAppOverview"],
     "RecvPkt": ["CCMInterface::RecvPkt"],
     # License subsystem entry points. These are NOT the three Package-0
     # targets (CUtlMemoryGrow / MarkLicenseAsChanged /

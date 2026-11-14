@@ -27,7 +27,8 @@
    | `CCompatManager::OnLicensesUpdated` | `0x59f730` | `0x102de80` | `0x69e1b0` |
 
    由这两个调用方出发的调用图已定位 `MarkLicenseAsChanged`（WIN `0x9aa750` / LIN `0x1620d50` / MAC `0xa70f0c`，签名 `(this, packageId, bool)`，头部把 bool 落到字节栈槽）与 `ProcessPendingLicenseUpdates`（LIN `0x1621620` / MAC `0xa74e12` / WIN `0x998700` 所在的待处理向量循环，按 `0x50` 步长遍历并回写计数、返回 bool）的**候选**。`CInternalCallback<CUserAppManager, LicensesUpdated_t>` 的 `Run()` 被 ICF 与另外三个事件回调合并成同一分发器，不能作为第二机制。这些候选**尚未接入派生层、未双机制复核，因此未发布到 TOML**；`CUtlMemoryGrow` 仍无唯一锚点。**按 fail-closed 原则不猜测 RVA**，下一步是为两个候选各补一条共享零代码路径的独立机制再纳入 CI 守门。
-3. **steamui 库可见性（缺二进制）**：`FillInAppOverview` 只注册了 `steamui.dll`。本机参考集里**没有** `steamui.so`/`steamui.dylib`；且当前 `steamui.dll` 内该限定名字面量 `CSteamUIAppController::FillInAppOverview` **零 xref**（经指针表引用，非 RIP LEA），内置字节特征在该版本也已失配。CI 的 macOS harvest job 本就会从 Steam.app 收集 `steamui*.dylib`，已把产物 glob 扩到 `*steamui*`；Linux job 增加 `steamui*.so` 的尽力收集（桌面客户端才有，steamcmd 无）。**仍需**：确认这两个产物实际上传，再补指针表引用解析。
+3. **steamui 库可见性（macOS 二进制已取得，派生仍未接线）**：`23598e8` 的 harvest 产物确认 `steam-binaries-macos` 内含 `steamui.dylib`（Linux 产物只有 steamclient.so，与 steamcmd 不带桌面 UI 一致）。该模块内限定名 `CSteamUIAppController::FillInAppOverview` 有**唯一 RIP xref** → x86_64 slice 函数入口 `0x574a40`；`derive_signatures.py` 的裸子串探针已改为限定名优先（裸名落在字面量 +0x17，永不匹配 LEA），本机实测可派生。
+   **两道阻塞，故未发布 TOML**：① `parse_macho` 只解析 fat 里最大的 x86_64 slice，arm64 slice 的限定名字面量在另一偏移（`0xd938a1`），不能假定共用 RVA；② `PatternLoader::GetTargetModuleName()` 只返回 steamclient，`moduleHash` 恒为 steamclient 的哈希，而 `DeclaresMatchingHash` 要求 TOML 的 `binary_sha256` 与之相等 —— steamui-keyed TOML **永远不会在运行时被消费**。因此 macOS derive 循环保持只扫 `*steamclient*.dylib`，steamui 产物仅作参考二进制。Windows `steamui.dll` 该字面量零 xref（指针表引用）+ 内置特征失配，派生层正确报告 0 函数（fail-closed）。下一步：先给 steamui 建立按模块哈希的独立加载/消费路径，再补 arm64 slice 与 Windows 指针表解析，并补第二机制。
 4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
 5. **i386 已完全移除**：Valve 已于 2026-10 将 Linux 客户端推向 64 位。CI/Release 不再构建 i386；CMake 在 32 位工具链下直接 `FATAL_ERROR`；`OMNI_ARCH_X86` 宏、ELF32 解析分支、32 位 xref 路径、`ubuntu12_32` 安装路径与 `linux-i386` 签名命名空间均已删除。harvest/derive 遇到 32 位 ELF 直接跳过。
 6. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
@@ -44,7 +45,7 @@
    `cmake_args` 里 `arm64;x86_64` 未加引号被 shell 当命令分隔符（exit 127）→ 单引号包裹；
    Homebrew Python 受 PEP 668 保护导致 `pip install capstone` 退出 1 → harvest job 改用一次性 venv（derive 与 validate 两步都走 venv）；
    `FindOpenSSL` 抓到 arm64-only 的 Homebrew `openssl@4`，x86_64 slice 链接报 `_EVP_sha256 not found` → `src/Platform/Darwin/Hash.cpp` 改用 libSystem 的 CommonCrypto，APPLE 分支不再链接 OpenSSL。
-   待 `e97498a` 的 CI 确认全绿后再视为闭环。
+   `23598e8` 的 CI 已全绿闭环：Windows x64 / ubuntu x86_64 / macOS universal 三个 build 全部 `success`，Signature Harvest 全部 `success`（`e97498a` 的工作流被新 push 的 concurrency 取消，由 `23598e8` 覆盖验证）。
 
 ## 3. 后续演进规划 【📋 规划中】
 
