@@ -342,13 +342,16 @@ jobs:
           # Mach-O vtables live behind the LC_DYLD_INFO rebase stream (or
           # chained fixups); derive_signatures resolves those before walking
           # RTTI, so the same committed anchor map replays onto macOS.
-          # steamui*.dylib is collected and uploaded as a reference binary,
-          # but is NOT derived into a TOML here: PatternLoader only hashes the
-          # target module (steamclient), so a steamui-keyed TOML would be
-          # rejected by DeclaresMatchingHash and never consumed.
           for f in $(find steam-dist -iname '*steamclient*.dylib' | sort); do
             .derive-venv/bin/python3 tools/derive_signatures.py --binary "$f" \
               --map signatures/anchor-map-windows.json \
+              --out signatures-out/macos-universal || true
+          done
+          # steamui is derived too: PatternLoader consumes per-module
+          # hash-keyed TOMLs, and fat binaries carry per-slice RVAs
+          # (rva + rva_arm64) gated by the FillInAppOverview dual chain.
+          for f in $(find steam-dist -iname 'steamui*.dylib' | sort); do
+            .derive-venv/bin/python3 tools/derive_signatures.py --binary "$f" \
               --out signatures-out/macos-universal || true
           done
 

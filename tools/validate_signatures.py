@@ -243,6 +243,34 @@ def validate(img: Image, anchor_map: dict) -> tuple[int, int]:
                     file=sys.stderr,
                 )
                 failed += 1
+        # steamui FillInAppOverview: the direct VProf literal must agree with
+        # the BuildCompleteAppOverviewChange caller fingerprint, on EVERY
+        # slice of a fat binary (arm64 RVAs differ from x86_64).
+        if "steamui" in img.path.name.lower():
+            from derive_signatures import CPU_ARM64, derive, derive_ui_overview, macho_slice_cpus, parse_macho
+
+            slices = [img]
+            if img.kind == "macho" and img.cpu_type != CPU_ARM64 and CPU_ARM64 in macho_slice_cpus(img.path):
+                slices.append(parse_macho(img.path, CPU_ARM64))
+            for simg in slices:
+                arch = "arm64" if simg.cpu_type == CPU_ARM64 else "x86_64"
+                label = f"FillInAppOverview[{arch}]"
+                res, _ = derive(simg)
+                ui, _ = derive_ui_overview(simg, res)
+                m1 = res.get("FillInAppOverview", {}).get("rva")
+                m2 = ui.get("FillInAppOverview", {}).get("rva")
+                if m1 is None and m2 is None:
+                    print(f"[validate] {img.path.name}: {label} n/a (not derivable)")
+                    continue
+                checked += 1
+                if m1 is not None and m1 == m2:
+                    print(f"[validate] {img.path.name}: {label} OK ({m1})")
+                else:
+                    print(
+                        f"[validate] {img.path.name}: {label} MISMATCH literal={m1} fingerprint={m2}",
+                        file=sys.stderr,
+                    )
+                    failed += 1
     return checked, failed
 
 
@@ -257,7 +285,8 @@ def main() -> int:
     for path in sorted(args.scan_root.rglob("*")):
         if not path.is_file():
             continue
-        if "steamclient" not in path.name.lower():
+        name = path.name.lower()
+        if "steamclient" not in name and "steamui" not in name:
             continue
         img = load_image(path)
         if img is None:

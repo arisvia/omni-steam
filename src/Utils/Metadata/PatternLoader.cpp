@@ -39,6 +39,54 @@ std::string GetTargetModuleName() {
 #endif
 }
 
+// steamui is a separate module with its own hash and RVA namespace; the
+// loader must consume signature documents keyed to EACH loaded module.
+std::string GetUiModuleName() {
+#if defined(OMNI_PLATFORM_WINDOWS)
+    return "steamui.dll";
+#elif defined(OMNI_PLATFORM_MACOS)
+    return "steamui.dylib";
+#else
+    return "steamui.so";
+#endif
+}
+
+struct LoadedModule {
+    std::string name;
+    uintptr_t base = 0;
+    std::string hash;
+};
+
+LoadedModule ResolveModule(const std::string& name) {
+    LoadedModule m;
+    m.name = name;
+    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(name);
+    m.base = OmniPlatform::BinaryParser::GetModuleBase(name);
+    std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
+    m.hash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
+    return m;
+}
+
+// Fat Mach-O dylibs carry one RVA namespace per slice. The loaded slice's
+// architecture decides which field applies: mach_header_64 at the module
+// base, magic 0xFEEDFACF, cputype at +4 (CPU_TYPE_ARM64 = 0x0100000C).
+bool LoadedSliceIsArm64(uintptr_t moduleBase) {
+#if defined(OMNI_PLATFORM_MACOS)
+    if (moduleBase == 0)
+        return false;
+    uint32_t magic = 0;
+    uint32_t cputype = 0;
+    std::memcpy(&magic, reinterpret_cast<const void*>(moduleBase), sizeof(magic));
+    if (magic != 0xFEEDFACF)
+        return false;
+    std::memcpy(&cputype, reinterpret_cast<const void*>(moduleBase + 4), sizeof(cputype));
+    return cputype == 0x0100000C;
+#else
+    (void)moduleBase;
+    return false;
+#endif
+}
+
 std::string NormalizeFunctionName(const std::string& name) {
     if (name == "ConfigStoreGetBinary" || name == "ConfigStore_GetBinary" || name == "LoadDepotDecryptionKey") {
         return "ConfigStore_GetBinary";
@@ -107,15 +155,23 @@ uintptr_t ModuleBaseFor(const std::string& moduleName) {
     return OmniPlatform::BinaryParser::GetModuleBase(moduleName);
 }
 
-std::string CurrentCachePath() {
-    std::string modName = GetTargetModuleName();
-    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
-    std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
-    std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
-    if (moduleHash.empty()) {
+std::string CachePathFor(const LoadedModule& client, const LoadedModule& ui) {
+    if (client.hash.empty()) {
         return "";
     }
-    return GetCacheDirectory() + "/pattern_" + moduleHash + ".cache";
+    // The cache must invalidate when EITHER module changes: steamui updates
+    // independently of steamclient. Keep the legacy single-hash name when no
+    // UI module is present.
+    std::string key = client.hash;
+    if (!ui.hash.empty()) {
+        const std::string combined = client.hash + "|" + ui.hash;
+        key = OmniPlatform::Hash::Sha256(std::vector<uint8_t>(combined.begin(), combined.end()));
+    }
+    return GetCacheDirectory() + "/pattern_" + key + ".cache";
+}
+
+std::string CurrentCachePath() {
+    return CachePathFor(ResolveModule(GetTargetModuleName()), ResolveModule(GetUiModuleName()));
 }
 
 // Binary cache structure v2:
@@ -264,10 +320,12 @@ std::optional<toml::table> ParseTomlDocument(const std::string& source, bool fro
 // derive_signatures.py emit inline tables (`name = { rva = "0x..", source = .. }`),
 // while hand-written or legacy documents may use a bare string/integer scalar;
 // accept both so a schema drift can never silently drop every entry again.
-uint64_t ParseRvaNode(const toml::node& node) {
+uint64_t ParseRvaNode(const toml::node& node, bool arm64) {
     const toml::node* valueNode = &node;
     if (auto* table = node.as_table()) {
-        valueNode = table->get("rva");
+        // Fat Mach-O documents carry rva (x86_64) plus rva_arm64. Select by
+        // loaded slice; a missing architecture field fails closed (0).
+        valueNode = table->get(arm64 ? "rva_arm64" : "rva");
         if (!valueNode)
             return 0;
     }
@@ -285,11 +343,11 @@ uint64_t ParseRvaNode(const toml::node& node) {
 }
 
 // Applies a parsed signature document ([functions] table of name -> rva).
-size_t ApplyParsedSignatures(const toml::table& parsed, uintptr_t moduleBase) {
+size_t ApplyParsedSignatures(const toml::table& parsed, uintptr_t moduleBase, bool arm64) {
     size_t applied = 0;
     if (auto* functions = parsed["functions"].as_table()) {
         for (const auto& [name, node] : *functions) {
-            uint64_t rva = ParseRvaNode(node);
+            uint64_t rva = ParseRvaNode(node, arm64);
             if (rva == 0 || rva > (512ull << 20))
                 continue;
             g_resolvedAddresses[NormalizeFunctionName(std::string(name))] = moduleBase + rva;
@@ -310,18 +368,19 @@ bool DeclaresMatchingHash(const toml::table& parsed, const std::string& moduleHa
 
 // Parse + hash-gate + apply for an in-memory TOML document. Callers inside
 // Initialize already hold g_patternMutex; the public wrapper takes the lock.
-size_t ApplySignatureDocumentUnlocked(const std::string& tomlText, uintptr_t moduleBase,
-                                      const std::string& moduleHash) {
+size_t ApplySignatureDocumentUnlocked(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash,
+                                      bool arm64) {
     auto parsed = ParseTomlDocument(tomlText, false);
     if (!parsed || !DeclaresMatchingHash(*parsed, moduleHash))
         return 0;
-    return ApplyParsedSignatures(*parsed, moduleBase);
+    return ApplyParsedSignatures(*parsed, moduleBase, arm64);
 }
 
 // Loads hash-keyed signature TOMLs produced by tools/harvest_signatures.py
 // (see .github/workflows/signature-harvest.yml). Each file declares the
 // SHA256 of the binary it was harvested from; only matching files apply.
-void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBase, const std::string& moduleHash) {
+void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBase, const std::string& moduleHash,
+                            bool arm64) {
     if (moduleBase == 0)
         return;
 
@@ -346,7 +405,7 @@ void LoadExternalSignatures(const std::string& signaturesDir, uintptr_t moduleBa
         if (!DeclaresMatchingHash(*parsed, moduleHash))
             continue;
 
-        appliedFunctions += ApplyParsedSignatures(*parsed, moduleBase);
+        appliedFunctions += ApplyParsedSignatures(*parsed, moduleBase, arm64);
         ++appliedFiles;
     }
 
@@ -369,7 +428,7 @@ std::string GetSignaturePlatformDir() {
 // Runtime remote fallback: fetches a fresh signature document from the CDN
 // mirrors when local sources cannot resolve every registered target. This is
 // what makes Windows pattern breakage self-healing across Steam updates.
-void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) {
+void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase, bool arm64) {
     if (moduleHash.empty() || moduleBase == 0)
         return;
 
@@ -387,7 +446,7 @@ void FetchRemoteSignatures(const std::string& moduleHash, uintptr_t moduleBase) 
             if (resp.statusCode != 200 || resp.body.empty())
                 continue;
 
-            size_t applied = ApplySignatureDocumentUnlocked(resp.body, moduleBase, moduleHash);
+            size_t applied = ApplySignatureDocumentUnlocked(resp.body, moduleBase, moduleHash, arm64);
             if (applied > 0) {
                 spdlog::info("PatternLoader: Fetched {} signatures from {}", applied, url);
                 return;
@@ -476,9 +535,10 @@ bool AllRegisteredTargetsResolved() {
     return true;
 }
 
-size_t ApplySignatureDocumentText(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash) {
+size_t ApplySignatureDocumentText(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash,
+                                  bool arm64) {
     std::lock_guard<std::mutex> lock(g_patternMutex);
-    return ApplySignatureDocumentUnlocked(tomlText, moduleBase, moduleHash);
+    return ApplySignatureDocumentUnlocked(tomlText, moduleBase, moduleHash, arm64);
 }
 
 void Initialize(const std::string& /*unused*/) {
@@ -488,49 +548,61 @@ void Initialize(const std::string& /*unused*/) {
 
     RegisterCoreSignatures();
 
-    std::string modName = GetTargetModuleName();
-    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
-    uintptr_t moduleBase = OmniPlatform::BinaryParser::GetModuleBase(modName);
-    std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
-    std::string moduleHash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
-
-    if (moduleHash.empty()) {
+    LoadedModule client = ResolveModule(GetTargetModuleName());
+    LoadedModule ui = ResolveModule(GetUiModuleName());
+    if (client.hash.empty()) {
         // Module missing OR Sha256File failed (locked/inaccessible binary).
         // Without a hash we cannot key the RVA cache nor validate external
         // signatures, and a wrong-address hook is worse than a dormant one.
-        spdlog::warn("PatternLoader: Target module {} not hashable, falling back to on-demand pattern scan", modName);
+        spdlog::warn("PatternLoader: Target module {} not hashable, falling back to on-demand pattern scan",
+                     client.name);
         return;
     }
+    const bool clientArm64 = LoadedSliceIsArm64(client.base);
+    const bool uiArm64 = LoadedSliceIsArm64(ui.base);
+    const bool hasUi = ui.base != 0 && !ui.hash.empty();
 
-    std::string cacheFile = CurrentCachePath();
+    std::string cacheFile = CachePathFor(client, ui);
 
-    // 1. Check if we already have cached RVAs for this exact binary hash
+    // 1. Check if we already have cached RVAs for this exact binary pair
     if (LoadRvaCache(cacheFile)) {
         spdlog::info("PatternLoader: Hash {} matched, all RVAs loaded from local cache in 0.01ms (Zero Scan)",
-                     moduleHash);
+                     client.hash);
         // A cache written before a signature drop can lack entries the shipped
         // TOMLs now carry for the same hash; top those up without rescanning.
-        LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
-        LoadExternalSignatures("signatures", moduleBase, moduleHash);
+        LoadExternalSignatures(GetCacheDirectory() + "/signatures", client.base, client.hash, clientArm64);
+        LoadExternalSignatures("signatures", client.base, client.hash, clientArm64);
+        if (hasUi) {
+            LoadExternalSignatures(GetCacheDirectory() + "/signatures", ui.base, ui.hash, uiArm64);
+            LoadExternalSignatures("signatures", ui.base, ui.hash, uiArm64);
+        }
         if (AllRegisteredTargetsResolved()) {
             return;
         }
-        spdlog::info("PatternLoader: cache incomplete for {}, continuing resolution", moduleHash);
+        spdlog::info("PatternLoader: cache incomplete for {}, continuing resolution", client.hash);
     }
 
-    // 2. Merge harvested signature TOMLs shipped with the deployment
-    LoadExternalSignatures(GetCacheDirectory() + "/signatures", moduleBase, moduleHash);
-    LoadExternalSignatures("signatures", moduleBase, moduleHash);
+    // 2. Merge harvested signature TOMLs shipped with the deployment,
+    //    keyed to each module's own hash and applied at its own base.
+    LoadExternalSignatures(GetCacheDirectory() + "/signatures", client.base, client.hash, clientArm64);
+    LoadExternalSignatures("signatures", client.base, client.hash, clientArm64);
+    if (hasUi) {
+        LoadExternalSignatures(GetCacheDirectory() + "/signatures", ui.base, ui.hash, uiArm64);
+        LoadExternalSignatures("signatures", ui.base, ui.hash, uiArm64);
+    }
 
-    // 3. Resolve remaining targets from the module's own symbol table
+    // 3. Resolve remaining targets from each module's own symbol table
     //    (zero-maintenance path; adapts to any client update automatically)
-    ResolveViaSymbolTable(modName, moduleBase);
+    ResolveViaSymbolTable(client.name, client.base);
+    if (hasUi) {
+        ResolveViaSymbolTable(ui.name, ui.base);
+    }
 
     // 4. One-time dynamic pattern scan for whatever is still unresolved.
     //    Runs BEFORE any network access: on a healthy client this resolves
     //    everything locally and no HTTP request is ever issued.
     spdlog::info("PatternLoader: Binary hash changed or new version detected ({}), performing initial pattern scan...",
-                 moduleHash);
+                 client.hash);
     for (const auto& [name, entry] : g_patterns) {
         if (g_resolvedAddresses.count(name))
             continue;
@@ -539,7 +611,7 @@ void Initialize(const std::string& /*unused*/) {
             uintptr_t finalAddr = found + entry.offset;
             g_resolvedAddresses[name] = finalAddr;
             spdlog::info("PatternLoader: Resolved {} at {:p} (RVA: 0x{:X})", name, reinterpret_cast<void*>(finalAddr),
-                         finalAddr - moduleBase);
+                         finalAddr - ModuleBaseFor(entry.moduleName));
         } else {
             spdlog::warn("PatternLoader: Failed to find pattern for {} in {}", name, entry.moduleName);
         }
@@ -548,7 +620,10 @@ void Initialize(const std::string& /*unused*/) {
     // 5. Only when built-in patterns actually failed (Steam update broke
     //    them) ask the remote signature database for the current hash.
     if (g_resolvedAddresses.size() < g_patterns.size()) {
-        FetchRemoteSignatures(moduleHash, moduleBase);
+        FetchRemoteSignatures(client.hash, client.base, clientArm64);
+        if (hasUi) {
+            FetchRemoteSignatures(ui.hash, ui.base, uiArm64);
+        }
     }
 
     // 6. Save resolved RVAs to local cache for instant future launches
@@ -571,20 +646,22 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
         return itAddr->second;
     }
 
-    // Check if the symbol is directly exported by the target module
-    std::string modName = GetTargetModuleName();
-    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(modName);
+    // Check if the symbol is directly exported by the OWNING module: the
+    // pattern entry names it (FillInAppOverview lives in steamui, not
+    // steamclient); fall back to the primary client module otherwise.
+    auto itPat = g_patterns.find(normalized);
+    std::string exportModule = itPat != g_patterns.end() ? itPat->second.moduleName : GetTargetModuleName();
+    auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(exportModule);
     if (hModule) {
         void* proc = OmniPlatform::DynamicLibrary::GetFunction(hModule, functionName);
         if (proc) {
             uintptr_t addr = reinterpret_cast<uintptr_t>(proc);
             g_resolvedAddresses[normalized] = addr;
-            spdlog::info("PatternLoader: Resolved exported symbol {} in {} at {:p}", functionName, modName, proc);
+            spdlog::info("PatternLoader: Resolved exported symbol {} in {} at {:p}", functionName, exportModule, proc);
             return addr;
         }
     }
 
-    auto itPat = g_patterns.find(normalized);
     if (itPat == g_patterns.end()) {
         spdlog::warn("PatternLoader: Unknown function name: {}", functionName);
         return 0;

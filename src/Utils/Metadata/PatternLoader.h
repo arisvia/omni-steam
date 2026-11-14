@@ -19,5 +19,6 @@ bool RegisterPattern(const std::string& functionName, const std::string& moduleN
 // declared binary_sha256 matches moduleHash; returns the applied count.
 // Shared by the remote-fetch path and the schema regression tests.
 // Caller must hold the pattern lock (Initialize and its callees do).
-size_t ApplySignatureDocumentText(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash);
+size_t ApplySignatureDocumentText(const std::string& tomlText, uintptr_t moduleBase, const std::string& moduleHash,
+                                  bool arm64 = false);
 } // namespace PatternLoader

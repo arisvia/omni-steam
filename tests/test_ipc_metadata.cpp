@@ -51,6 +51,36 @@ SchemaProbeInt = 0x3000
     std::cout << "[PASS] TestSignatureDocumentSchema\n";
 }
 
+void TestSignatureArchSelection() {
+    // Fat Mach-O documents carry per-slice RVAs (rva = x86_64, rva_arm64).
+    // The applier must select the field matching the loaded slice and fail
+    // closed when that field is absent - a wrong-slice RVA hooks wild code.
+    const uintptr_t base = 0x200000;
+    const std::string hash = "cafecafecafecafe";
+    const std::string doc = R"toml(
+binary_sha256 = "cafecafecafecafe"
+kind = "macho"
+
+[functions]
+ArchProbeBoth = { rva = "0x1000", rva_arm64 = "0x9000", source = "derived:ui-dual-chain" }
+ArchProbeX86Only = { rva = "0x2000", source = "derived:string-xref" }
+ArchProbeArmOnly = { rva_arm64 = "0x3000", source = "derived:string-xref" }
+)toml";
+
+    // x86_64 slice: the rva field applies; the arm64-only entry stays dormant.
+    OMNI_CHECK(PatternLoader::ApplySignatureDocumentText(doc, base, hash, false) == 2);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("ArchProbeBoth") == base + 0x1000);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("ArchProbeX86Only") == base + 0x2000);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("ArchProbeArmOnly") == 0);
+
+    // arm64 slice: rva_arm64 applies; the x86-only entry is not re-applied,
+    // and the shared entry switches to the arm64 RVA.
+    OMNI_CHECK(PatternLoader::ApplySignatureDocumentText(doc, base, hash, true) == 2);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("ArchProbeBoth") == base + 0x9000);
+    OMNI_CHECK(PatternLoader::GetFunctionAddress("ArchProbeArmOnly") == base + 0x3000);
+    std::cout << "[PASS] TestSignatureArchSelection\n";
+}
+
 void TestSteamIPCBuffer() {
     SteamIPC::BufferWriter writer;
     writer.Write<uint32_t>(1361510);
@@ -283,6 +313,7 @@ int main() {
     std::cout << "Running OmniSteam IPC & Metadata Tests...\n";
     TestPatternLoader();
     TestSignatureDocumentSchema();
+    TestSignatureArchSelection();
     TestSteamIPCBuffer();
     TestIPCHeaderValidation();
     TestManifestClientResolution();

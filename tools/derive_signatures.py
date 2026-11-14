@@ -78,6 +78,10 @@ STRING_PROBES: dict[str, list[str]] = {
         "CPICSJobRequestProductInfoUpdate::BParseResponseMessage",
         "BParseResponseMessage",
     ],
+    # steamui: caller anchor for the FillInAppOverview dual chain (tier 6).
+    # The literal carries a " - app" VProf suffix; the bare name also occurs
+    # in an unreferenced log string, so only the full spelling is probed.
+    "BuildCompleteAppOverviewChange": ["CSteamUIAppController::BuildCompleteAppOverviewChange - app"],
 }
 
 TOML_TEMPLATE = """\
@@ -350,6 +354,7 @@ class Image:
     def __init__(self, path: Path, kind: str) -> None:
         self.path = path
         self.kind = kind
+        self.cpu_type = 0  # Mach-O slice CPU type (0 for ELF/PE)
         self.data = path.read_bytes()
         self.base = 0
         self.sections: list[tuple[int, int, int]] = []  # (va, size, file_offset)
@@ -431,6 +436,9 @@ def parse_pe(path: Path) -> Image:
     opt_size = struct.unpack_from("<H", d, pe_off + 20)[0]
     opt_off = pe_off + 24
     magic = struct.unpack_from("<H", d, opt_off)[0]
+    machine = struct.unpack_from("<H", d, pe_off + 4)[0]
+    if machine != 0x8664 or magic != 0x20B:
+        raise ValueError(f"{path.name}: not a 64-bit PE image (64-bit targets only)")
     img.base = struct.unpack_from("<Q" if magic == 0x20B else "<I", d, opt_off + 24)[0]
     sec_off = opt_off + opt_size
     for i in range(num_sections):
@@ -685,18 +693,39 @@ def _parse_macho_chained(img: Image, segments: list[tuple[int, int, int]], off: 
                 slot_va += nxt * 8
 
 
-def parse_macho(path: Path) -> Image:
+CPU_X86_64 = 0x01000007
+CPU_ARM64 = 0x0100000C
+
+
+def macho_slice_cpus(path: Path) -> list[int]:
+    """CPU types present in a Mach-O (one for thin, several for fat)."""
+    with path.open("rb") as f:
+        d = f.read(4096)
+    if d[:4] != b"\xca\xfe\xba\xbe":
+        return [struct.unpack_from("<I", d, 4)[0]]
+    nfat = struct.unpack_from(">I", d, 4)[0]
+    return [struct.unpack_from(">I", d, 8 + i * 20)[0] for i in range(nfat)]
+
+
+def parse_macho(path: Path, cpu: int | None = None) -> Image:
     img = Image(path, "macho")
     d = img.data
-    if d[:4] == b"\xca\xfe\xba\xbe":  # fat: use the largest slice
+    if d[:4] == b"\xca\xfe\xba\xbe":  # fat: select by CPU, else largest slice
         nfat = struct.unpack_from(">I", d, 4)[0]
         best_off, best_size = 0, 0
         for i in range(nfat):
-            _, _, off, size, _ = struct.unpack_from(">IIIII", d, 8 + i * 20)
-            if size > best_size:
+            scpu, _, off, size, _ = struct.unpack_from(">IIIII", d, 8 + i * 20)
+            if cpu is not None:
+                if scpu == cpu:
+                    best_off, best_size = off, size
+                    break
+            elif size > best_size:
                 best_off, best_size = off, size
+        if best_size == 0:
+            raise ValueError(f"{path.name}: no Mach-O slice for CPU {hex(cpu) if cpu is not None else 'any'}")
         img.data = d[best_off : best_off + best_size]
         d = img.data
+    img.cpu_type = struct.unpack_from("<I", d, 4)[0]
     ncmds = struct.unpack_from("<I", d, 16)[0]
     off = 32
     func_starts_data = None
@@ -850,6 +879,34 @@ def build_xref_index(text_va: int, text: bytes) -> dict[int, list[int]]:
         if text[i] in (0x48, 0x4C) and text[i + 1] in (0x8D, 0x8B) and (text[i + 2] & 0xC7) == 0x05:
             disp = struct.unpack_from("<i", text, i + 3)[0]
             index.setdefault(text_va + i + 7 + disp, []).append(text_va + i)
+    return index
+
+
+def build_xref_index_arm64(text_va: int, text: bytes) -> dict[int, list[int]]:
+    """ARM64 string xrefs: ADRP+ADD pairs (there is no RIP-relative LEA).
+
+    Pure encoding scan: every ADRP whose page result is consumed by an ADD
+    #imm12 within the next few instructions contributes one target. The
+    string tier needs no disassembler on arm64; LC_FUNCTION_STARTS already
+    gives exact function boundaries.
+    """
+    index: dict[int, list[int]] = {}
+    for i in range(0, len(text) - 4, 4):
+        w = struct.unpack_from("<I", text, i)[0]
+        if (w & 0x9F000000) != 0x90000000:  # ADRP
+            continue
+        imm = (((w >> 5) & 0x7FFFF) << 2) | ((w >> 29) & 3)
+        if imm & 0x100000:
+            imm -= 0x200000
+        page = ((text_va + i) & ~0xFFF) + (imm << 12)
+        rd = w & 0x1F
+        for j in range(i + 4, min(i + 24, len(text) - 4), 4):
+            w2 = struct.unpack_from("<I", text, j)[0]
+            if (w2 & 0xFF000000) != 0x91000000:  # ADD (immediate, 64-bit)
+                continue
+            if ((w2 >> 5) & 0x1F) == rd and not ((w2 >> 22) & 1):
+                index.setdefault(page + ((w2 >> 10) & 0xFFF), []).append(text_va + i)
+                break
     return index
 
 
@@ -1345,9 +1402,127 @@ def derive_license_trio(img: Image) -> tuple[dict[str, dict], list[dict]]:
     return resolved, details
 
 
+# --------------------------------------------------------------------------
+# Tier 6: steamui FillInAppOverview (dual chain, per Mach-O slice)
+#
+# M1: the qualified 'CSteamUIAppController::FillInAppOverview' VProf literal
+#     (RIP xref on x86_64, ADRP+ADD on arm64).
+# M2: the caller 'CSteamUIAppController::BuildCompleteAppOverviewChange - app'
+#     anchored by its own literal; inside it, the unique call that passes the
+#     freshly appended overview message as the second argument:
+#       x86-64: last write to rsi is `mov rsi, rax`, and rax was just stored
+#               into a CUtlVector element slot [base+index*8+8];
+#       arm64:  x1 is untouched in the window and `str x1, [xN, #8]` stored
+#               it into the element slot.
+# Emitted only when M1 and M2 agree on one RVA, per slice. The fat TOML
+# carries rva (x86_64) plus rva_arm64; the runtime selects by loaded slice
+# and fails closed when the needed architecture is absent.
+# --------------------------------------------------------------------------
+
+UI_CALLER_ANCHOR = "BuildCompleteAppOverviewChange"
+
+
+def _arm64_capstone():
+    try:
+        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_MODE_LITTLE_ENDIAN
+    except ImportError:
+        return None
+    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM | CS_MODE_LITTLE_ENDIAN)
+    md.detail = True
+    return md
+
+
+def arm64_function_instructions(img: Image, rva: int, md) -> list:
+    import bisect
+
+    va = img.base + rva
+    off = img.va_to_offset(va)
+    if off is None:
+        return []
+    i = bisect.bisect_left(img.func_starts, va)
+    end = img.func_starts[i + 1] if i + 1 < len(img.func_starts) else va + 0x2000
+    return list(md.disasm(img.data[off : off + (end - va)], va))
+
+
+_ARM64_WRITES = ("mov", "movz", "movk", "movn", "mvn", "neg", "ldr", "ldur", "ldp", "add", "adds",
+                 "sub", "subs", "orr", "orn", "eor", "eon", "and", "ands", "adr", "adrp", "csel",
+                 "csinc", "csinv", "cneg", "cinc", "lsl", "lsr", "asr", "ror", "mul", "udiv", "sdiv")
+
+
+def ui_fill_call_targets(img: Image, caller_rva: int, md_x86, md_arm) -> set[int]:
+    out: set[int] = set()
+    if img.cpu_type == CPU_ARM64:
+        if md_arm is None:
+            return out
+        seq = arm64_function_instructions(img, caller_rva, md_arm)
+        for n, ins in enumerate(seq):
+            if ins.mnemonic != "bl" or not ins.op_str.startswith("#0x"):
+                continue
+            win = seq[max(0, n - 8) : n]
+            x1_written = any(
+                p.mnemonic in _ARM64_WRITES and p.op_str.split(",")[0].strip() in ("x1", "w1") for p in win
+            )
+            stored = any(
+                p.mnemonic == "str" and p.op_str.startswith("x1, [") and p.op_str.endswith("#8]") for p in win
+            )
+            if stored and not x1_written:
+                try:
+                    out.add(int(ins.op_str[1:], 16) - img.base)
+                except ValueError:
+                    pass
+    else:
+        if md_x86 is None:
+            return out
+        seq = function_instructions(img, caller_rva, md_x86)
+        for n, ins in enumerate(seq):
+            if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
+                continue
+            win = seq[max(0, n - 10) : n]
+            fresh_arg2 = False
+            for p in reversed(win):
+                ops = [o.strip() for o in p.op_str.split(",")]
+                if ops and ops[0] in ("rsi", "esi"):
+                    fresh_arg2 = p.mnemonic == "mov" and len(ops) == 2 and ops[1] == "rax"
+                    break
+            stored = any(p.mnemonic == "mov" and "*8 + 8], rax" in p.op_str for p in win)
+            if fresh_arg2 and stored:
+                try:
+                    out.add(int(ins.op_str, 16) - img.base)
+                except ValueError:
+                    pass
+    return out
+
+
+def derive_ui_overview(img: Image, resolved: dict) -> tuple[dict[str, dict], list[dict]]:
+    """FillInAppOverview dual chain; `resolved` carries the string-tier hits."""
+    anchor = resolved.get(UI_CALLER_ANCHOR)
+    if not anchor:
+        return {}, [{"target": "FillInAppOverview", "status": "unresolved",
+                     "reason": f"{UI_CALLER_ANCHOR} not anchored"}]
+    md_x86 = _capstone() if img.cpu_type != CPU_ARM64 else None
+    md_arm = _arm64_capstone() if img.cpu_type == CPU_ARM64 else None
+    if (md_x86 is None and md_arm is None):
+        return {}, [{"target": "FillInAppOverview", "status": "skipped", "reason": "capstone not installed"}]
+    tgts = ui_fill_call_targets(img, int(anchor["rva"], 16), md_x86, md_arm)
+    details = [{"target": "FillInAppOverview", "mechanism": "ui-caller-fingerprint",
+                "caller_rva": anchor["rva"], "candidates": sorted(hex(t) for t in tgts)}]
+    if len(tgts) != 1:
+        return {}, details
+    m2 = tgts.pop()
+    m1 = resolved.get("FillInAppOverview")
+    if m1 and int(m1["rva"], 16) == m2:
+        return {"FillInAppOverview": {"rva": f"0x{m2:x}", "source": "derived:ui-dual-chain"}}, details
+    details.append({"target": "FillInAppOverview", "status": "mismatch" if m1 else "unresolved",
+                    "literal": m1["rva"] if m1 else None, "fingerprint": hex(m2)})
+    return {}, details
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     text_va, text = img.text()
-    xref_index = build_xref_index(text_va, text)
+    if img.cpu_type == CPU_ARM64:
+        xref_index = build_xref_index_arm64(text_va, text)
+    else:
+        xref_index = build_xref_index(text_va, text)
     resolved: dict[str, dict] = {}
     details: list[dict] = []
     for name, probes in STRING_PROBES.items():
@@ -1366,7 +1541,9 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
                 for x in xrefs:
                     # Exact boundary table (eh_frame_hdr/.pdata/LC_FUNCTION_STARTS)
                     # when available; padding-walk heuristic as fallback.
-                    start = img.containing_function(x) or recover_function_start(text_va, text, x)
+                    start = img.containing_function(x)
+                    if start is None and img.cpu_type != CPU_ARM64:
+                        start = recover_function_start(text_va, text, x)
                     if start is not None:
                         starts.add(start)
         if len(starts) == 1:
@@ -1412,7 +1589,11 @@ def main() -> int:
         print(f"[derive] anchor map written: {args.emit_map} ({len(anchor_map['anchors'])} names, {total} slots)")
         return 0
 
-    img = parser_cls(args.binary)
+    try:
+        img = parser_cls(args.binary)
+    except ValueError as e:
+        print(f"[derive] skipping {args.binary.name}: {e}")
+        return 0
 
 
     digest = sha256_file(args.binary)
@@ -1453,6 +1634,33 @@ def main() -> int:
     details.extend(trio_details)
     if trio_resolved:
         print(f"[derive] license-trio tier: {', '.join(sorted(trio_resolved))}")
+    ui_resolved, ui_details = derive_ui_overview(img, resolved)
+    details.extend(ui_details)
+    if "FillInAppOverview" in resolved and "FillInAppOverview" not in ui_resolved:
+        # A single-mechanism literal hit is not publishable (iron rule).
+        resolved.pop("FillInAppOverview")
+    for name, meta in ui_resolved.items():
+        resolved[name] = meta
+    if ui_resolved:
+        print(f"[derive] steamui tier: {', '.join(sorted(ui_resolved))}")
+    # Fat Mach-O: merge the arm64 slice (string-xref + UI tiers only; the
+    # call-graph tiers are x86 disassembly and stay on the primary slice).
+    if kind == "macho" and img.cpu_type != CPU_ARM64 and CPU_ARM64 in macho_slice_cpus(args.binary):
+        arm_img = parse_macho(args.binary, CPU_ARM64)
+        arm_resolved, arm_details = derive(arm_img)
+        details.extend(arm_details)
+        arm_ui, arm_ui_details = derive_ui_overview(arm_img, arm_resolved)
+        details.extend(arm_ui_details)
+        if "FillInAppOverview" in arm_resolved and "FillInAppOverview" not in arm_ui:
+            arm_resolved.pop("FillInAppOverview")
+        arm_resolved.update(arm_ui)
+        for name, meta in arm_resolved.items():
+            if name in resolved:
+                if resolved[name].get("rva") != meta["rva"]:
+                    resolved[name]["rva_arm64"] = meta["rva"]
+            else:
+                resolved[name] = {"rva_arm64": meta["rva"], "source": meta["source"]}
+        print(f"[derive] arm64 slice: {len(arm_resolved)} function(s) merged")
     print(f"[derive] {args.binary.name} sha256={digest[:16]} kind={kind}: {len(resolved)} function(s) derived")
 
 
@@ -1462,7 +1670,16 @@ def main() -> int:
 
     out_dir = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
-    entries = "\n".join(f'{n} = {{ rva = "{m["rva"]}", source = "{m["source"]}" }}' for n, m in sorted(resolved.items()))
+    def fmt_entry(n: str, m: dict) -> str:
+        fields = []
+        if "rva" in m:
+            fields.append(f'rva = "{m["rva"]}"')
+        if "rva_arm64" in m:
+            fields.append(f'rva_arm64 = "{m["rva_arm64"]}"')
+        fields.append(f'source = "{m["source"]}"')
+        return f'{n} = {{ {", ".join(fields)} }}'
+
+    entries = "\n".join(fmt_entry(n, m) for n, m in sorted(resolved.items()))
     toml_path = out_dir / f"{digest[:16]}.toml"
     toml_path.write_text(
         TOML_TEMPLATE.format(source_name=args.binary.name, sha256=digest, kind=kind, function_entries=entries),

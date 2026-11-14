@@ -29,6 +29,7 @@ import os
 import re
 import shutil
 import subprocess
+import struct
 import sys
 from pathlib import Path
 
@@ -172,7 +173,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     detected = kind or detect_kind(binary)
     platform = platform_dir(binary, detected)
     if platform == "unsupported":
-        print(f"[harvest] {binary.name}: 32-bit ELF skipped (64-bit targets only)")
+        print(f"[harvest] {binary.name}: 32-bit binary skipped (64-bit targets only)")
         return 0
     out_dir = out_dir / platform
     print(f"[harvest] {binary.name} sha256={data_sha} kind={detected} platform={out_dir.name}")
@@ -265,6 +266,12 @@ def platform_dir(binary: Path, kind: str) -> str:
     namespace no runtime consumes.
     """
     if kind == "pe":
+        with binary.open("rb") as fh:
+            head = fh.read(4096)
+        if len(head) >= 0x40:
+            pe_off = struct.unpack_from("<I", head, 0x3C)[0]
+            if pe_off + 6 <= len(head) and struct.unpack_from("<H", head, pe_off + 4)[0] != 0x8664:
+                return "unsupported"  # i386 PE: no 64-bit runtime consumes it
         return "windows-x64"
     if kind == "macho":
         return "macos-universal"
