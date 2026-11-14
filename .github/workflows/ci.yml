@@ -52,7 +52,10 @@ jobs:
             # Fat binary: the Steam macOS client is an x86_64 process (Rosetta 2
             # on Apple Silicon), so the dylib must carry BOTH slices to load.
             # TLS/curl come from the universal macOS SDK (see CMakeLists.txt).
-            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+            # Single quotes around the arch list are load-bearing: without
+            # them the ';' splits the expanded command line and the shell
+            # executes "x86_64" as a program (exit 127).
+            cmake_args: "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES='arm64;x86_64'"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

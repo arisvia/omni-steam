@@ -326,19 +326,25 @@ jobs:
 
       - name: Derive signatures (string xrefs + vtable anchor transfer + callee fingerprints)
         run: |
-          python3 -m pip install --quiet capstone
+          # macOS runners ship Homebrew Python, which PEP 668 marks as
+          # externally managed, so a bare "pip install capstone" exits 1.
+          # A throwaway venv keeps the system interpreter untouched.
+          python3 -m venv .derive-venv
+          .derive-venv/bin/python3 -m pip install --quiet capstone
           # Mach-O vtables live behind the LC_DYLD_INFO rebase stream (or
           # chained fixups); derive_signatures resolves those before walking
           # RTTI, so the same committed anchor map replays onto macOS.
           for f in $(find steam-dist -iname '*steamclient*.dylib' | sort); do
-            python3 tools/derive_signatures.py --binary "$f" \
+            .derive-venv/bin/python3 tools/derive_signatures.py --binary "$f" \
               --map signatures/anchor-map-windows.json \
               --out signatures-out/macos-universal || true
           done
 
       - name: Validate derived anchors
         run: |
-          python3 tools/validate_signatures.py --scan-root steam-dist \
+          # Same externally-managed-Python constraint as the derive step:
+          # validate_signatures imports capstone too, so run it from the venv.
+          .derive-venv/bin/python3 tools/validate_signatures.py --scan-root steam-dist \
             --map signatures/anchor-map-windows.json
 
       - name: Upload binaries artifact (private, 7 days)
