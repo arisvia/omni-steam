@@ -13,6 +13,7 @@
 // InitializeOmniSteam finishes.
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
@@ -29,6 +30,30 @@ using ExecveFn = int (*)(const char*, char* const[], char* const[]);
 
 constexpr const char* kInsertVar = "DYLD_INSERT_LIBRARIES=";
 constexpr size_t kInsertVarLen = 22; // strlen(kInsertVar)
+
+// RTLD_NEXT cannot find libsystem_kernel from an INSERTED dylib: libSystem
+// loads BEFORE us, so the "next" images never contain it (every wrapper
+// returned ENOSYS and Steam's first spawn died - runs 44080795535 /
+// 44083850042). Grab the already-loaded kernel dylib explicitly; two-level
+// dlsym on that handle also bypasses our own interposers (no recursion).
+void* SystemKernel() {
+    static void* handle = dlopen("/usr/lib/system/libsystem_kernel.dylib", RTLD_NOLOAD | RTLD_LAZY);
+    return handle;
+}
+
+void* RealSymbol(const char* name) {
+    void* sym = nullptr;
+    if (SystemKernel() != nullptr) {
+        sym = dlsym(SystemKernel(), name);
+    }
+    if (sym == nullptr) {
+        sym = dlsym(RTLD_NEXT, name);
+    }
+    if (sym == nullptr) {
+        std::fprintf(stderr, "[omnisteam] interpose: cannot resolve %s\n", name);
+    }
+    return sym;
+}
 
 std::string OurDylibPath() {
     static std::string path = []() {
@@ -83,7 +108,7 @@ bool IsSteamHostPath(const char* path) {
 
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                    const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
-    auto real = reinterpret_cast<PosixSpawnFn>(dlsym(RTLD_NEXT, "posix_spawn"));
+    auto real = reinterpret_cast<PosixSpawnFn>(RealSymbol("posix_spawn"));
     if (real == nullptr) {
         return ENOSYS;
     }
@@ -101,7 +126,7 @@ int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_
 
 int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions_t* fileActions,
                     const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
-    auto real = reinterpret_cast<PosixSpawnFn>(dlsym(RTLD_NEXT, "posix_spawnp"));
+    auto real = reinterpret_cast<PosixSpawnFn>(RealSymbol("posix_spawnp"));
     if (real == nullptr) {
         return ENOSYS;
     }
@@ -116,7 +141,7 @@ int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions
 }
 
 int OmniExecve(const char* path, char* const argv[], char* const envp[]) {
-    auto real = reinterpret_cast<ExecveFn>(dlsym(RTLD_NEXT, "execve"));
+    auto real = reinterpret_cast<ExecveFn>(RealSymbol("execve"));
     if (real == nullptr) {
         errno = ENOSYS;
         return -1;
