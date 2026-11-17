@@ -108,6 +108,8 @@ bool IsSteamHostPath(const char* path) {
 
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                    const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
+    std::fprintf(stderr, "[omnisteam] interpose posix_spawn: %s envp=%s\n", path != nullptr ? path : "(null)",
+                 envp != nullptr ? "set" : "null");
     auto real = reinterpret_cast<PosixSpawnFn>(RealSymbol("posix_spawn"));
     if (real == nullptr) {
         return ENOSYS;
@@ -126,6 +128,8 @@ int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_
 
 int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions_t* fileActions,
                     const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
+    std::fprintf(stderr, "[omnisteam] interpose posix_spawnp: %s envp=%s\n", file != nullptr ? file : "(null)",
+                 envp != nullptr ? "set" : "null");
     auto real = reinterpret_cast<PosixSpawnFn>(RealSymbol("posix_spawnp"));
     if (real == nullptr) {
         return ENOSYS;
@@ -141,6 +145,8 @@ int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions
 }
 
 int OmniExecve(const char* path, char* const argv[], char* const envp[]) {
+    std::fprintf(stderr, "[omnisteam] interpose execve: %s envp=%s\n", path != nullptr ? path : "(null)",
+                 envp != nullptr ? "set" : "null");
     auto real = reinterpret_cast<ExecveFn>(RealSymbol("execve"));
     if (real == nullptr) {
         errno = ENOSYS;
