@@ -89,18 +89,28 @@ jobs:
           # waits for steamclient.so and writes core_status.json after InstallHooks.
           xvfb-run -a steam +login anonymous 2>&1 | tee steam-console.log &
           STEAM_PID=$!
-          for i in $(seq 1 60); do
+          for i in $(seq 1 96); do
             sleep 5
             if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then break; fi
+            if [ $((i % 12)) -eq 0 ]; then
+              echo "--- progress $((i*5))s ---"
+              ps aux | grep -i "[s]team" | head -5 || true
+              find "$HOME/.local/share/Steam" -maxdepth 3 -name 'steamclient*.so' 2>/dev/null | head -3
+            fi
           done
           if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then
             echo "::error::core_status.json never appeared (injection or host guard failed)"
+            ps aux | grep -i "[s]team" | head -10 || true
+            find "$HOME/.local/share/Steam" -maxdepth 3 -name 'steamclient*.so' 2>/dev/null | head -5
+            tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
+            cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
             kill $STEAM_PID 2>/dev/null || true
             exit 1
           fi
           # Give the watch loop a couple of ticks to settle hook states.
           sleep 10
           cp "$OMNISTEAM_CACHE_DIR/core_status.json" core_status_linux.json
+          cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
           kill $STEAM_PID 2>/dev/null || true
           pkill -x steam 2>/dev/null || true
 
@@ -113,9 +123,9 @@ jobs:
         with:
           name: smoke-linux
           path: |
+            omnisteam_core_linux.log
             core_status_linux.json
             steam-console.log
-            smoke-cache/omnisteam.log
           if-no-files-found: ignore
 
   macos-smoke:
@@ -188,11 +198,15 @@ jobs:
           done
           if [ ! -f smoke-cache/core_status.json ]; then
             echo "::error::arm64: core_status.json never appeared - DYLD insertion stripped (SIP/library validation?) or funchook mprotect failed"
+            ps aux | grep -i "[s]team" | head -10 || true
+            tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
+            cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
             kill $APP_PID 2>/dev/null || true
             exit 1
           fi
           sleep 10
           cp smoke-cache/core_status.json core_status_macos_arm64.json
+          cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
           kill $APP_PID 2>/dev/null || true
           pkill -x steam_osx 2>/dev/null || true
           python3 tools/smoke_status.py core_status_macos_arm64.json --platform macos --max-age 120
@@ -218,11 +232,15 @@ jobs:
           done
           if [ ! -f smoke-cache-rosetta/core_status.json ]; then
             echo "::error::Rosetta x86_64: core_status.json never appeared"
+            ps aux | grep -i "[s]team" | head -10 || true
+            tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
+            cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
             kill $APP_PID 2>/dev/null || true
             exit 1
           fi
           sleep 10
           cp smoke-cache-rosetta/core_status.json core_status_macos_x64.json
+          cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
           kill $APP_PID 2>/dev/null || true
           pkill -x steam_osx 2>/dev/null || true
           python3 tools/smoke_status.py core_status_macos_x64.json --platform macos --max-age 120
@@ -237,6 +255,7 @@ jobs:
             core_status_macos_x64.json
             steam-console-arm64.log
             steam-console-x64.log
+            omnisteam_core_macos.log
           if-no-files-found: ignore
 
   windows-smoke:
