@@ -98,45 +98,48 @@ std::string NormalizeFunctionName(const std::string& name) {
     if (name == "BGetCallback" || name == "GetCallback") {
         return "BGetCallback";
     }
+    // derive publishes the CUserAppInfo vtable-slot anchor under
+    // GetAppDataFromAppInfo while the runtime hook queries GetOrAddAppData.
+    // Semantic identity is gated by tools/verify_appdata_alias.py (static
+    // shape probe) plus the real-machine hook-smoke jobs before release.
+    if (name == "GetAppDataFromAppInfo" || name == "GetOrAddAppData") {
+        return "GetOrAddAppData";
+    }
     return name;
 }
 
-// Universal cross-version signature patterns for Steam client internals
+// Expected-target manifest. Entries double as the resolution wish list that
+// drives cache completeness, remote top-up, RVA-cache module attribution and
+// export-module selection. Byte patterns are a legacy fallback only: RVAs for
+// every client build come from the hash-keyed TOMLs on the data branch, so
+// Steam client updates never touch this list - maintain it only when the hook
+// surface itself changes (new/removed/renamed hooks).
 void RegisterCoreSignatures() {
-#if defined(OMNI_PLATFORM_WINDOWS)
-    // 64-bit Windows Steamclient signatures
-    RegisterPattern("CheckAppOwnership", "steamclient64.dll", "48 8B C4 89 50 10 48 89 48 08 55 53", 0);
-    RegisterPattern("ConfigStore_GetBinary", "steamclient64.dll", "40 53 55 56 57 48 83 EC 38 48 63 FA 49 8B E9", 0);
-    RegisterPattern("GetPackageInfo", "steamclient64.dll",
-                    "48 89 5C 24 18 89 54 24 10 55 56 57 48 83 EC 20 44 8B 49 20", 0);
-    RegisterPattern("MarkLicenseAsChanged", "steamclient64.dll", "48 89 5C 24 20 89 54 24 10 55 56 57 48 83 EC 20", 0);
-    RegisterPattern("ProcessPendingLicenseUpdates", "steamclient64.dll", "41 56 41 57 48 83 EC 38 83 B9 ?? ?? ?? ?? 00",
-                    0);
-    RegisterPattern("CUtlMemoryGrow", "steamclient64.dll",
-                    "48 89 5C 24 10 57 48 83 EC 30 8B FA 48 8B D9 8B 51 08 8B 49 10 8D 04 39", 0);
-    RegisterPattern("BBuildAndAsyncSendFrame", "steamclient64.dll",
-                    "48 8B C4 55 48 8D 68 A1 48 81 EC C0 00 00 00 48 89 70 18", 0);
-    RegisterPattern("RecvPkt", "steamclient64.dll", "48 8B C4 55 48 8D A8 98 F6 FF FF", 0);
-    RegisterPattern("OptedInMask", "steamclient64.dll", "89 54 24 10 55 53 56 57 41 54 41 55 48 8D AC 24 38 FF FF FF",
-                    0);
-    RegisterPattern("SpawnProcess", "steamclient64.dll",
-                    "48 89 5C 24 18 4C 89 4C 24 20 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 30 "
-                    "FF FF FF",
-                    0);
-    RegisterPattern(
-        "FillInAppOverview", "steamui.dll",
-        "48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1 48 81 EC B8 00 00 00", 0);
+    const std::string client = GetTargetModuleName();
+    const std::string ui = GetUiModuleName();
+    RegisterPattern("CheckAppOwnership", client, "", 0);
+    RegisterPattern("ConfigStore_GetBinary", client, "", 0);
+    RegisterPattern("GetPackageInfo", client, "", 0);
+    RegisterPattern("MarkLicenseAsChanged", client, "", 0);
+    RegisterPattern("ProcessPendingLicenseUpdates", client, "", 0);
+    // CUtlMemoryGrow is deliberately NOT listed: derive defers it and the
+    // Package 0 growth path has a malloc fallback. Listing it would keep the
+    // completeness predicate permanently false (remote fetch every launch).
+    RegisterPattern("BBuildAndAsyncSendFrame", client, "", 0);
+    RegisterPattern("RecvPkt", client, "", 0);
+    RegisterPattern("OptedInMask", client, "", 0);
+    RegisterPattern("SpawnProcess", client, "", 0);
     // CAppInfoCache::GetOrAddAppData - lets the license update pipeline skip
     // injected ids whose appinfo can never resolve (PICS token denials).
-    RegisterPattern("GetOrAddAppData", "steamclient64.dll",
-                    "48 83 EC 58 48 8B 05 ?? ?? ?? ?? 48 89 5C 24 68 48 89 6C 24 70", 0);
-    // CIPCServer message pump - reserved for the upcoming IPC ticket layer.
-    RegisterPattern("IPCProcessMessage", "steamclient64.dll",
-                    "48 89 5C 24 18 48 89 6C 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 30", 0);
-#elif defined(OMNI_PLATFORM_LINUX)
-    spdlog::info("PatternLoader: Linux platform uses external TOML signatures and runtime symbol tables");
-#elif defined(OMNI_PLATFORM_MACOS)
-    spdlog::info("PatternLoader: macOS platform uses external TOML signatures and runtime symbol tables");
+    RegisterPattern("GetOrAddAppData", client, "", 0);
+    RegisterPattern("IPCProcessMessage", client, "", 0);
+    RegisterPattern("FillInAppOverview", ui, "", 0);
+#if defined(OMNI_PLATFORM_WINDOWS)
+    // SOLE resolution mechanism for the send-frame hook on Windows: MSVC puts
+    // the qualified VProf literal in a pointer table, so string-xref derive
+    // cannot publish it in the TOML. Keep this one byte pattern until derive
+    // gains a pointer-table xref layer (ROADMAP §2.9).
+    RegisterPattern("BBuildAndAsyncSendFrame", client, "48 8B C4 55 48 8D 68 A1 48 81 EC C0 00 00 00 48 89 70 18", 0);
 #endif
 }
 std::string GetCacheDirectory() {
@@ -528,7 +531,11 @@ void ResolveViaSymbolTable(const std::string& moduleName, uintptr_t moduleBase) 
 // whether the symbol-table / scan / remote stages still need to run.
 bool AllRegisteredTargetsResolved() {
     for (const auto& [name, entry] : g_patterns) {
-        (void)entry;
+        // Targets whose module is not loaded (e.g. steamui on a headless
+        // Linux host) are optional, not incomplete.
+        if (ModuleBaseFor(entry.moduleName) == 0) {
+            continue;
+        }
         auto it = g_resolvedAddresses.find(name);
         if (it == g_resolvedAddresses.end() || it->second == 0)
             return false;
@@ -607,6 +614,8 @@ void Initialize(const std::string& /*unused*/) {
     for (const auto& [name, entry] : g_patterns) {
         if (g_resolvedAddresses.count(name))
             continue;
+        if (entry.pattern.empty())
+            continue; // manifest-only entry: resolution comes from TOML/exports
         uintptr_t found = OmniPlatform::ByteSearch::FindPatternInModule(entry.moduleName, entry.pattern);
         if (found != 0) {
             uintptr_t finalAddr = found + entry.offset;
@@ -618,9 +627,11 @@ void Initialize(const std::string& /*unused*/) {
         }
     }
 
-    // 5. Only when built-in patterns actually failed (Steam update broke
-    //    them) ask the remote signature database for the current hash.
-    if (g_resolvedAddresses.size() < g_patterns.size()) {
+    // 5. Ask the remote signature database only when a registered target in
+    //    a LOADED module is still unresolved (e.g. a client update broke the
+    //    local data). A size comparison would never fire on POSIX, where the
+    //    manifest used to be empty, disabling the self-healing layer there.
+    if (!AllRegisteredTargetsResolved()) {
         FetchRemoteSignatures(client.hash, client.base, clientArm64);
         if (hasUi) {
             FetchRemoteSignatures(ui.hash, ui.base, uiArm64);
@@ -669,6 +680,10 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
     }
 
     const auto& entry = itPat->second;
+    if (entry.pattern.empty()) {
+        spdlog::debug("PatternLoader: {} unresolved (manifest-only entry, no fallback pattern)", normalized);
+        return 0;
+    }
     uintptr_t found = OmniPlatform::ByteSearch::FindPatternInModule(entry.moduleName, entry.pattern);
     if (found != 0) {
         uintptr_t finalAddr = found + entry.offset;
