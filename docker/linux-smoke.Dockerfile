@@ -19,9 +19,7 @@ RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 # Steam launcher (self-updates the client on first run, same as CI harvest).
-RUN POOL="https://repo.steampowered.com/steam/pool/steam/s/steam-launcher" && \
-    DEB_URL=$(curl -fsSL -A "Mozilla/5.0" "$POOL/" | grep -oE 'steam-launcher_[0-9.]+_all\.deb' | sort -uV | tail -1) && \
-    curl -fsSL -o /tmp/steam-launcher.deb "$POOL/$DEB_URL" && \
+RUN curl -fsSL -o /tmp/steam-launcher.deb https://repo.steampowered.com/steam/archive/precise/steam_latest.deb && \
     (dpkg -i /tmp/steam-launcher.deb || apt-get -f install -y) && \
     rm /tmp/steam-launcher.deb
 

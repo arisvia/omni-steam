@@ -74,15 +74,15 @@ jobs:
 
       - name: Install Steam launcher
         run: |
-          POOL="https://repo.steampowered.com/steam/pool/steam/s/steam-launcher"
-          DEB_URL=$(curl -fsSL -A "Mozilla/5.0" "$POOL/" | grep -oE 'steam-launcher_[0-9.]+_all\.deb' | sort -uV | tail -1)
-          curl -fsSL -o steam-launcher.deb "$POOL/$DEB_URL"
+          # Canonical stable launcher deb; the pool-listing scrape 404'd when
+          # the newest entry vanished between listing and fetch.
+          curl -fsSL -o steam-launcher.deb https://repo.steampowered.com/steam/archive/precise/steam_latest.deb
           sudo dpkg -i steam-launcher.deb || sudo apt-get -f install -y
 
       - name: Launch Steam under Xvfb with LD_PRELOAD injection
         run: |
-          LIB="$PWD/build/lib/libomnisteam.so"
-          [ -f "$LIB" ] || LIB=$(find build -name 'libomnisteam.so' | head -1)
+          LIB=$(find "$PWD/build" -name 'libomnisteam.so' | head -1)
+          [ -n "$LIB" ] || { echo "::error::libomnisteam.so not built"; exit 1; }
           echo "Injecting $LIB"
           export LD_PRELOAD="$LIB"
           # steam launcher self-updates, then execs the 64-bit client; the core
@@ -174,7 +174,10 @@ jobs:
         env:
           OMNISTEAM_CACHE_DIR: ${{ github.workspace }}/smoke-cache
         run: |
-          LIB=$(find build -name 'libomnisteam.dylib' | head -1)
+          # ABSOLUTE path: steam_osx re-execs into Steam.AppBundle and dyld
+          # resolves relative insert paths against the NEW cwd (first run
+          # proved insertion survives SIP + re-exec, only the path was wrong).
+          LIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
           echo "Injecting $LIB"
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
@@ -205,7 +208,7 @@ jobs:
           fi
           mkdir -p smoke-cache-rosetta
           cp -R smoke-cache/signatures smoke-cache-rosetta/
-          LIB=$(find build -name 'libomnisteam.dylib' | head -1)
+          LIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
           arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
@@ -253,20 +256,13 @@ jobs:
           cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           cmake --build build --config Release --parallel --target omnisteam_core xinput1_4
 
-      - name: Install Steam silently
+      - name: Extract Steam bootstrap (NSIS install hangs on CI)
         run: |
-          curl -L -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
-          # The NSIS installer can hang after copying files (it waits on the
-          # Steam bootstrap it launches at the end). Run it in the background
-          # and proceed as soon as steam.exe lands; kill the leftover installer.
-          ./SteamSetup.exe /S &
-          INSTALL_PID=$!
-          for i in $(seq 1 60); do
-            [ -f "C:/Program Files (x86)/Steam/steam.exe" ] && break
-            sleep 5
-          done
-          taskkill //F //IM SteamSetup.exe //T 2>/dev/null || true
-          [ -f "C:/Program Files (x86)/Steam/steam.exe" ] || { echo "::error::Steam install failed"; exit 1; }
+          curl -fsSL -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
+          # The NSIS silent installer hangs / never lands files on hosted
+          # runners; 7z extraction yields the same bootstrap deterministically.
+          7z x SteamSetup.exe -osteam-root -y > /dev/null
+          [ -f steam-root/steam.exe ] || { echo "::error::steam.exe missing after extraction"; find steam-root -maxdepth 2 | head -30; exit 1; }
 
       - name: Fetch current signatures from data branch
         run: |
@@ -279,10 +275,10 @@ jobs:
           CORE=$(find build -name 'libomnisteam.dll' | head -1)
           PROXY=$(find build -name 'xinput1_4.dll' | head -1)
           [ -n "$CORE" ] && [ -n "$PROXY" ] || { echo "::error::core/proxy artifacts missing"; exit 1; }
-          cp "$CORE" "$PROXY" "C:/Program Files (x86)/Steam/"
+          cp "$CORE" "$PROXY" "$PWD/steam-root/"
           export OMNISTEAM_CACHE_DIR=$(cygpath -m "$PWD/smoke-cache")
           echo "cache dir: $OMNISTEAM_CACHE_DIR"
-          "C:/Program Files (x86)/Steam/steam.exe" &
+          "$PWD/steam-root/steam.exe" &
           for i in $(seq 1 60); do
             sleep 5
             if [ -f smoke-cache/core_status.json ]; then break; fi
@@ -298,8 +294,13 @@ jobs:
       - name: Static GetOrAddAppData alias probe
         run: |
           python -m pip install capstone
+          for i in $(seq 1 36); do
+            [ -f steam-root/steamclient64.dll ] && break
+            sleep 5
+          done
+          [ -f steam-root/steamclient64.dll ] || { echo "::error::steamclient64.dll never downloaded"; exit 1; }
           python tools/verify_appdata_alias.py \
-            --binary "C:/Program Files (x86)/Steam/steamclient64.dll" \
+            --binary "$PWD/steam-root/steamclient64.dll" \
             --signatures-dir smoke-cache/signatures/windows-x64
 
       - name: Smoke gate
