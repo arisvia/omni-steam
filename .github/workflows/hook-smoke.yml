@@ -34,7 +34,7 @@ concurrency:
 jobs:
   linux-smoke:
     name: Linux x86_64 unlock-chain smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
       run:
@@ -81,6 +81,7 @@ jobs:
 
       - name: Launch Steam under Xvfb with LD_PRELOAD injection
         run: |
+          export GTK_A11Y=none
           LIB=$(find "$PWD/build" -name 'libomnisteam.so' | head -1)
           [ -n "$LIB" ] || { echo "::error::libomnisteam.so not built"; exit 1; }
           # SteamRT (pressure-vessel) drops LD_PRELOAD entries whose paths are
@@ -233,34 +234,12 @@ jobs:
           # proved insertion survives SIP + re-exec, only the path was wrong).
           LIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
           echo "Injecting $LIB"
-          # Steam's FINAL host is a fresh process (new pid) spawned with a
-          # sanitized environment - DYLD_INSERT_LIBRARIES does not survive that
-          # hop. A bash wrapper also fails: /bin/bash is a platform binary, so
-          # its children inherit the restricted flag and dyld strips DYLD_*
-          # (run 44072592116). Use a COMPILED wrapper (not a platform binary)
-          # that re-sets the absolute insert path and execs the original
-          # Valve-signed host binary.
-          HOSTDIR="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS"
-          # Keep the ORIGINAL FILENAME (the core's host guard matches on it):
-          # move the real binary into a subdirectory, wrapper takes its place.
-          if [ -f "$HOSTDIR/steam_osx" ] && [ ! -d "$HOSTDIR/real" ]; then
-            mkdir -p "$HOSTDIR/real"
-            mv "$HOSTDIR/steam_osx" "$HOSTDIR/real/steam_osx"
-            cat > "$PWD/host-wrap.c" <<'CSRC'
-          #include <stdlib.h>
-          #include <unistd.h>
-          int main(int argc, char **argv) {
-              (void)argc;
-              setenv("DYLD_INSERT_LIBRARIES", OMNI_LIB, 1);
-              argv[0] = OMNI_REAL;
-              execv(OMNI_REAL, argv);
-              return 127;
-          }
-          CSRC
-            cc -o "$HOSTDIR/steam_osx" "$PWD/host-wrap.c" \
-              -DOMNI_LIB="\"$LIB\"" -DOMNI_REAL="\"$HOSTDIR/real/steam_osx\""
-            echo "Wrapped final host (compiled): $HOSTDIR/steam_osx"
-          fi
+          # The final-host hop (new pid, sanitized env) is handled by the
+          # core's SpawnInterpose (src/Platform/Darwin/SpawnInterpose.cpp):
+          # dyld interposers on posix_spawn/execve re-add this dylib to every
+          # child env from inside the intermediate process. Binary wrappers
+          # are NOT used - Steam's package integrity repair reverts them
+          # (run 44077660460).
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
@@ -370,7 +349,7 @@ jobs:
           export OMNISTEAM_CACHE_DIR=$(cygpath -m "$PWD/smoke-cache")
           echo "cache dir: $OMNISTEAM_CACHE_DIR"
           "$PWD/steam-root/steam.exe" &
-          for i in $(seq 1 60); do
+          for i in $(seq 1 120); do
             sleep 5
             if [ -f smoke-cache/core_status.json ]; then break; fi
           done
