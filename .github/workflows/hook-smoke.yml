@@ -111,16 +111,38 @@ jobs:
           fi
           BOOT_PID=$!
           # Phase 1: let the 32-bit bootstrap download the 64-bit client.
-          for i in $(seq 1 120); do
+          # setup.sh's runtime update can hang headless (zenity/srt); watch
+          # progress and fall back to running the bootstrap binary directly.
+          for i in $(seq 1 36); do
             [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
+            if [ $((i % 6)) -eq 0 ]; then
+              echo "--- bootstrap progress $((i*5))s ---"
+              ps aux | grep -E "[s]team|[z]enity|[c]url|[s]rt-" | head -8 || true
+            fi
             sleep 5
           done
+          if [ ! -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]; then
+            echo "--- steam.sh stalled; trying the 32-bit bootstrap directly ---"
+            kill $BOOT_PID 2>/dev/null || true
+            pkill -f steam.sh 2>/dev/null || true
+            pkill -f setup.sh 2>/dev/null || true
+            sleep 2
+            if [ -f "$HOME/.local/share/Steam/ubuntu12_32/steam" ]; then
+              xvfb-run -a "$HOME/.local/share/Steam/ubuntu12_32/steam" +login anonymous 2>&1 | tee -a steam-bootstrap.log &
+              BOOT_PID=$!
+              for i in $(seq 1 60); do
+                [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
+                sleep 5
+              done
+            fi
+          fi
           kill $BOOT_PID 2>/dev/null || true
           pkill -f ubuntu12_32/steam 2>/dev/null || true
           sleep 3
           if [ ! -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]; then
             echo "::error::64-bit client never downloaded"
             tail -20 steam-bootstrap.log 2>/dev/null || true
+            ls "$HOME/.local/share/Steam" 2>/dev/null || true
             exit 1
           fi
           # Phase 2: launch the 64-bit host directly with the preload. The
