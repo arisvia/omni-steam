@@ -119,7 +119,7 @@ jobs:
           # Phase 1: let the 32-bit bootstrap download the 64-bit client.
           # setup.sh's runtime update can hang headless (zenity/srt); watch
           # progress and fall back to running the bootstrap binary directly.
-          for i in $(seq 1 36); do
+          for i in $(seq 1 96); do
             [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
             if [ $((i % 6)) -eq 0 ]; then
               echo "--- bootstrap progress $((i*5))s ---"
@@ -136,7 +136,7 @@ jobs:
             if [ -f "$HOME/.local/share/Steam/ubuntu12_32/steam" ]; then
               xvfb-run -a "$HOME/.local/share/Steam/ubuntu12_32/steam" +login anonymous 2>&1 | tee -a steam-bootstrap.log &
               BOOT_PID=$!
-              for i in $(seq 1 60); do
+              for i in $(seq 1 24); do
                 [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
                 sleep 5
               done
@@ -234,7 +234,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES='arm64;x86_64' \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build --config Release --parallel --target omnisteam_core
-          otool -s __DATA __interpose build/lib/libomnisteam.dylib | head -8
+          nm build/lib/libomnisteam.dylib | grep -i interpose | head -6
 
       - name: Install Steam.app and bootstrap client files
         run: |
