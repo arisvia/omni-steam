@@ -30,9 +30,9 @@
 3. **steamui 库可见性（macOS 已端到端接线；Windows 待 64 位参考二进制）**：运行时 `PatternLoader` 改为多模块消费——steamclient 与 steamui 各自哈希、各自基址应用 TOML（本地目录、CDN 远程兜底、运行时符号表均按模块分别执行）；缓存键为两模块组合哈希，任一变更即失效；导出兜底按特征条目所属模块查询。fat Mach-O 的 TOML schema 扩展为 `rva`（x86_64）+ `rva_arm64`，运行时读取已加载 slice 的 mach_header cputype 选择字段，缺字段 fail-closed（回归测试 `TestSignatureArchSelection`）。派生端 `parse_macho` 支持按 CPU 选 slice，新增 ARM64 ADRP+ADD xref 索引；Tier 6 双链：M1 为 `CSteamUIAppController::FillInAppOverview` 限定名字面量，M2 为 `CSteamUIAppController::BuildCompleteAppOverviewChange - app` 字面量锚定的调用方内调用点指纹（刚追加进向量的 overview 消息作为第二参数传入：x86 匹配 `mov rsi, rax` + 元素槽存储，arm64 匹配 `str x1, [xN, #8]` 且 x1 未被改写）。两链一致才发布：x86_64 `0x574a40` / arm64 `0x5cbedc`，validate 交叉校验 0 失败。**Windows 仓库参考 steamui.dll 实为 i386**（早先"指针表"假设不成立——32 位绝对寻址被误读为 RIP 相对）；`parse_pe` 与 harvest 现在直接拒绝非 x64 PE。真机 64 位客户端确认附带 64 位 `steamui.dll`，其 `FillInAppOverview` 经双链发布为 `0x63b0d0`；三个 CI 平台 job 均已带 steamui 派生循环（mac 自 `0abe857`，win/lin 自 `44fdbbe`）。
 4. **ABI 逐平台验证**：`CNetPacket`（+0x10/+0x18）与 `AppOwnership`（0x24/0x28）等布局锚点源自 Windows 客户端，需在 Linux/macOS 真机客户端上实测确认。
 5. **i386 已完全移除**：Valve 已于 2026-10 将 Linux 客户端推向 64 位。CI/Release 不再构建 i386；CMake 在 32 位工具链下直接 `FATAL_ERROR`；`OMNI_ARCH_X86` 宏、ELF32 解析分支、32 位 xref 路径、`ubuntu12_32` 安装路径与 `linux-i386` 签名命名空间均已删除。harvest/derive 遇到 32 位 ELF 直接跳过。
-6. **注入自动化**：Linux Manager 尚未写 `LD_PRELOAD`（仅 `scripts/install-steamos.sh` 手动）；macOS 依赖手动 `DYLD_INSERT_LIBRARIES`；2026-10 beta 起 Linux 客户端进入 SteamRT 容器，`LD_PRELOAD` 穿透性待验证。
+6. **注入自动化（Manager 侧已落地，SteamRT 穿透待真机）**：新增 `Manager::SteamLauncher`（`apps/manager/src/SteamLauncher.cpp`）与 `POST /api/steam/launch` 端点、UI"启动 Steam（带注入）"按钮：Windows 直接拉起 steam.exe（代理 DLL 自动注入）；Linux 双 fork+setsid  detached 启动并前置 `LD_PRELOAD=<steam>/ubuntu12_64/libomnisteam.so`；macOS 直接 exec `Steam.app/Contents/MacOS/steam_osx` 并前置 `DYLD_INSERT_LIBRARIES`（`open -a` 不转发环境变量）。脚本侧 `scripts/omnisteam.sh` 补已安装路径回退、新增 `scripts/omnisteam-macos.sh`。SteamRT 容器穿透与 SIP/library-validation 对 DYLD 的剥离行为仍待真机确认。
 7. **macOS arm64 实测**：funchook 官方声明不支持 macOS arm64（`mprotect` EINVAL），universal 构建后需真机验证 x86_64（Rosetta 客户端）与 arm64 两条路径。
-8. **真机冒烟验证**：以 `core_status.json` 的逐 hook 状态为准，在真实客户端上跑一次完整解锁链路（当前无此回归手段）。
+8. **真机冒烟验证（基础设施已落地，待首次真机/CI 运行）**：`core_status.json` 已扩展为全量 12 钩子逐 hook 上报（解析失败显式记 false）+ 已解析锚点地址表（`HookStatus::BuildCoreStatusJson`，单测 `HookStatusTests`）；Manager `/api/status` 透传 `hooks`/`anchors` 全量 map，UI 药丸动态渲染（消灭 PackageInfo 假绿）。守门工具 `tools/smoke_status.py`（文件/`--url` 双模式、平台推断、已知降级项 warn 不 gate）。真机替代路径：`.github/workflows/hook-smoke.yml`（ubuntu Xvfb + LD_PRELOAD 全链路；macos-14 真 Apple Silicon 双路径 arm64 + Rosetta x86_64）与 `docker/linux-smoke.Dockerfile` 本地容器环境，均为草案待首跑。
 
 9. **内置字节特征已对当前客户端失配**：`PatternLoader::RegisterCoreSignatures` 里的
    Windows 特征（`GetPackageInfo`/`MarkLicenseAsChanged`/`ProcessPendingLicenseUpdates`/
@@ -40,6 +40,12 @@
    `steamclient64.dll`（sha `71b391fe…`）上**全部 0 命中**，只有 `RecvPkt` 等少数仍匹配。
    这些特征属于旧版本，实际可用性依赖派生层而非内置特征。保留它们作为旧版兜底，
    但平台能力不应再以"内置特征齐全"为依据。
+   **2026-11-17 全量审计 + 已拍板落地（降级不删除）**：13 条内置特征全在 Windows 分支；
+   ① `BBuildAndAsyncSendFrame` 必留——当前 Windows TOML 不含它（MSVC 限定名 VProf 字面量进指针表，string-xref 拿不到），内置特征是唯一机制（根治待 derive 指针表 xref 层）；
+   ② `g_patterns` 兼任"期望目标清单"，驱动远程 CDN 触发、缓存完整性判定、RVA 缓存模块归属、导出兜底模块选择四处非特征逻辑——已改为**三平台统一清单 + 空特征降级**（扫描前 `pattern.empty()` 短路），远程触发改用"已加载模块中存在未解析注册目标"判据，修复 POSIX 自愈层永不触发的缺陷；完整性判定跳过未加载模块（steamui 可选）；`CUtlMemoryGrow` 不入清单（挂起项，避免远程层每次启动空转）；
+   ③ `GetOrAddAppData` 命名断裂已接别名（`NormalizeFunctionName`：`GetAppDataFromAppInfo → GetOrAddAppData`），语义同一性由双重门把关：`tools/verify_appdata_alias.py` 静态形状探针（.pdata 定界 + capstone 校验 edx/r8b 参数消费 + 许可管线调用点佐证）与 hook-smoke 真机动态冒烟（Windows job 先探针后冒烟，Steam 存活 + 心跳新鲜度 gate）；
+   ④ Linux 当前 TOML 缺 `GetPackageInfo`（callee-fingerprint 层 ELF 缺口，冒烟工具 warn 保持可见）。
+   维护性：清单只在钩子面变化时维护，客户端更新零维护（RVA 全部来自 data 分支 TOML 自动重算）；唯一残留漂移项是 ① 的单条字节特征。
    另：仓库内参考 `steamui.dll` 为 i386 二进制（特征 0 命中属位宽失配）；**真机 64 位客户端确认附带 64 位 `steamui.dll`**（2026-11-14 CI 采集，`FillInAppOverview` 字面量在 x64 PE 命中 `0x63b0d0`），i386 参考仅作历史样本保留。
 11. **新客户端编码漂移（2026-11-14 CI 实测三处，均已适配）**：
     - macOS 客户端从 classic `LC_DYLD_INFO` rebase 切到 `LC_DYLD_CHAINED_FIXUPS`（`DYLD_CHAINED_PTR_64_OFFSET`，fmt 6）。旧 chained 解析器位域全错，按 Apple `fixup-chains.h` 重写：ptr64 的 `next` 在 bits 51-62（4 字节步长）、`high8`（bits 36-43）补目标 bits 56-63、`segment_offset` 相对 image base 而非段 vmaddr、page_start 逐页累加且 MULTI 项是 chain_starts[] 索引。四处任一错都会让指针索引静默为空、整条 RTTI 族失效（新 mac 客户端曾因此 transfer 0）。重写后新 mac 客户端 RTTI 族复活，trio 双链恢复。

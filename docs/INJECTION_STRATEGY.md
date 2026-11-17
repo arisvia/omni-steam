@@ -41,7 +41,7 @@
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
 ### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
-- 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪（Manager `InstallCore` 暂未自动写 `LD_PRELOAD`）；
+- 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；Manager 侧 `SteamLauncher` 自动前置 `LD_PRELOAD`（见下）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
 - Hook 层：`derive_signatures.py` 经 ELF `.eh_frame_hdr` 边界表 + `R_X86_64_RELATIVE` addend 解析后的
   RTTI/vtable 遍历，已产出 9 个函数锚点（含 `ConfigStore_GetBinary`/`RecvPkt`/`BBuildAndAsyncSendFrame`/
@@ -49,7 +49,7 @@
   仍缺 Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview`（见 ROADMAP §2）。
   仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过。
 
----
+- Manager `InstallCore` 自动下载/解压并校验 `libomnisteam.so` 落位 `ubuntu12_64/`；`Manager::SteamLauncher`（`POST /api/steam/launch`）以双 fork+setsid detached 启动 Steam 并前置 `LD_PRELOAD=<steam>/ubuntu12_64/libomnisteam.so`（保留既有 preload 链）。`scripts/omnisteam.sh` 支持 build 树与已安装路径双回退。
 
 ## 4. macOS 平台
 
@@ -62,7 +62,7 @@
 | task_for_pid / mach_vm 注入 | 极低 (受 SIP 限制) | 低 | 极低 | 坚决避免 |
 
 ### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
-- Universal 构建目标（arm64 + x86_64）已配置；Core 以 `DYLD_INSERT_LIBRARIES` 手动注入（Manager 暂无自动安装路径）。
+- Universal 构建目标（arm64 + x86_64）已配置；`Manager::SteamLauncher` 直接 exec `Steam.app/Contents/MacOS/steam_osx` 并前置 `DYLD_INSERT_LIBRARIES=<steam>/libomnisteam.dylib`（`open -a` 不转发 DYLD 环境变量，故不走 LaunchServices）；`scripts/omnisteam-macos.sh` 提供脚本等价路径。SIP/library-validation 是否剥离 DYLD 插入、steam_osx 重 exec 链行为，由 `.github/workflows/hook-smoke.yml` 的 macos-14 真机 job 首跑确认。
 - 签名库通过 Mach-O `LC_FUNCTION_STARTS` 边界表 + `LC_DYLD_INFO` rebase / chained fixups 解析后的
   RTTI/vtable 遍历，已产出 9 个函数锚点，与 Linux 同源（同一份 Windows 锚点图跨 ABI 移植）。
   完整解锁链路仍需 Package 0 扩容三件套与 steamui 锚点（见 ROADMAP §2）。
