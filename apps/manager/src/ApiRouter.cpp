@@ -9,6 +9,7 @@
 #include "ScriptManager.h"
 #include "StaticAssets.h"
 #include "SteamApi.h"
+#include "SteamLauncher.h"
 #include "WebDavClient.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include <string>
 #include <toml++/toml.hpp>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
@@ -32,6 +34,12 @@ namespace {
 bool CheckSteamProcess(uint32_t* outPid = nullptr) {
 #if defined(OMNI_PLATFORM_WINDOWS)
     auto pids = OmniPlatform::Process::FindProcessIdsByName("steam.exe");
+#elif defined(OMNI_PLATFORM_MACOS)
+    // The macOS host binary is steam_osx; the core's IsSteamHostProcess
+    // accepts the same name, so probing only "steam" reported a false offline.
+    auto pids = OmniPlatform::Process::FindProcessIdsByName("steam_osx");
+    if (pids.empty())
+        pids = OmniPlatform::Process::FindProcessIdsByName("steam");
 #else
     auto pids = OmniPlatform::Process::FindProcessIdsByName("steam");
 #endif
@@ -191,8 +199,24 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             coreStatus.checkAppOwnershipHook = false;
             coreStatus.configStoreHook = false;
             coreStatus.ipcHook = false;
+            coreStatus.hooks.clear();
+            coreStatus.anchors.clear();
         }
 
+        std::ostringstream hooksJson;
+        for (size_t i = 0; i < coreStatus.hooks.size(); ++i) {
+            if (i != 0)
+                hooksJson << ",";
+            hooksJson << "\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.hooks[i].first)
+                      << "\":" << (coreStatus.hooks[i].second ? "true" : "false");
+        }
+        std::ostringstream anchorsJson;
+        for (size_t i = 0; i < coreStatus.anchors.size(); ++i) {
+            if (i != 0)
+                anchorsJson << ",";
+            anchorsJson << "\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.anchors[i].first) << "\":\""
+                        << OmniPlatform::Encoding::EscapeJson(coreStatus.anchors[i].second) << "\"";
+        }
         std::ostringstream json;
         json << "{"
              << "\"steamRunning\":" << (isRunning ? "true" : "false") << ","
@@ -208,7 +232,9 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
              << "\"targetModule\":\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.targetModule) << "\","
              << "\"checkAppOwnershipHook\":" << (coreStatus.checkAppOwnershipHook ? "true" : "false") << ","
              << "\"configStoreHook\":" << (coreStatus.configStoreHook ? "true" : "false") << ","
-             << "\"ipcHook\":" << (coreStatus.ipcHook ? "true" : "false") << "}"
+             << "\"ipcHook\":" << (coreStatus.ipcHook ? "true" : "false") << ","
+             << "\"hooks\":{" << hooksJson.str() << "},"
+             << "\"anchors\":{" << anchorsJson.str() << "}}"
              << "}";
         return MakeHttpResponse(200, "application/json", json.str());
     }
@@ -265,6 +291,15 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
     if (request.rfind("POST /api/core/uninstall", 0) == 0) {
         bool ok = CoreInstaller::UninstallCore();
         return MakeHttpResponse(200, "application/json", ok ? "{\"success\":true}" : "{\"success\":false}");
+    }
+
+    // 4b. /api/steam/launch - start Steam with platform injection active
+    if (request.rfind("POST /api/steam/launch", 0) == 0) {
+        auto res = SteamLauncher::Launch();
+        std::ostringstream json;
+        json << "{\"success\":" << (res.success ? "true" : "false") << ",\"message\":\""
+             << OmniPlatform::Encoding::EscapeJson(res.message) << "\"}";
+        return MakeHttpResponse(200, "application/json", json.str());
     }
 
     // 5. /api/denuvo/upload - Denuvo Tickets

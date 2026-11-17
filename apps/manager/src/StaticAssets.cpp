@@ -465,10 +465,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                     <span id="coreStatusTitle">Core Engine</span>
                 </div>
                 <div class="hook-tag-row">
-                    <span id="hookAppOwn" class="hook-pill">CheckAppOwnership</span>
-                    <span id="hookPackage" class="hook-pill">PackageInfo</span>
-                    <span id="hookConfig" class="hook-pill">ConfigStore</span>
-                    <span id="hookIpc" class="hook-pill">IPC</span>
+                    <span id="hookPills" style="display: contents;"></span>
                 </div>
             </div>
             <div class="core-controls">
@@ -478,6 +475,7 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 </select>
                 <button class="btn-primary" id="btnInstallCore" onclick="installCore()"><span data-i18n="btnInstall">🚀 一键安装/更新 Core</span></button>
                 <button class="btn-secondary" onclick="uninstallCore()"><span data-i18n="btnUninstall">🗑️ 卸载</span></button>
+                <button class="btn-secondary" id="btnLaunchSteam" onclick="launchSteam()" style="display:none;">▶ 启动 Steam（带注入）</button>
             </div>
         </div>
 
@@ -734,6 +732,27 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
             }
         }
 
+        function renderHookPills(core) {
+            const row = document.getElementById('hookPills');
+            if (!row) return;
+            row.innerHTML = '';
+            const entries = [];
+            if (core && core.hooks && Object.keys(core.hooks).length > 0) {
+                for (const [name, active] of Object.entries(core.hooks)) entries.push([name, !!active]);
+            } else if (core) {
+                // Older core builds only publish the three legacy booleans.
+                entries.push(['CheckAppOwnership', !!core.checkAppOwnershipHook]);
+                entries.push(['ConfigStore', !!core.configStoreHook]);
+                entries.push(['IPC', !!core.ipcHook]);
+            }
+            for (const [name, active] of entries) {
+                const pill = document.createElement('span');
+                pill.className = active ? 'hook-pill active' : 'hook-pill';
+                pill.textContent = name;
+                row.appendChild(pill);
+            }
+        }
+
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/status');
@@ -754,33 +773,37 @@ const char* kRawIndexHtml = R"rawhtml(<!DOCTYPE html>
                 // Core Status
                 const cDot = document.getElementById('coreStatusDot');
                 const cTitle = document.getElementById('coreStatusTitle');
-                const hAppOwn = document.getElementById('hookAppOwn');
-                const hPackage = document.getElementById('hookPackage');
-                const hConfig = document.getElementById('hookConfig');
-                const hIpc = document.getElementById('hookIpc');
                 if (data.steamRunning && data.core && data.core.active) {
                     cDot.className = 'dot online';
                     cTitle.textContent = `${t('coreReady')} (v${data.core.installedVersion || '1.0.0'}, ${data.core.targetModule || 'steamclient'})`;
-                    hAppOwn.className = data.core.checkAppOwnershipHook ? 'hook-pill active' : 'hook-pill';
-                    hPackage.className = 'hook-pill active';
-                    hConfig.className = data.core.configStoreHook ? 'hook-pill active' : 'hook-pill';
-                    hIpc.className = data.core.ipcHook ? 'hook-pill active' : 'hook-pill';
+                    renderHookPills(data.core);
                 } else if (data.core && data.core.installed) {
                     cDot.className = 'dot warning';
                     cTitle.textContent = t('coreStandby');
-                    hAppOwn.className = 'hook-pill';
-                    hPackage.className = 'hook-pill';
-                    hConfig.className = 'hook-pill';
-                    hIpc.className = 'hook-pill';
+                    renderHookPills(null);
                 } else {
                     cDot.className = 'dot';
                     cTitle.textContent = t('coreUninstalled');
-                    hAppOwn.className = 'hook-pill';
-                    hPackage.className = 'hook-pill';
-                    hConfig.className = 'hook-pill';
-                    hIpc.className = 'hook-pill';
+                    renderHookPills(null);
                 }
+                const btnLaunch = document.getElementById('btnLaunchSteam');
+                if (btnLaunch) btnLaunch.style.display = (!data.steamRunning && data.core && data.core.installed) ? '' : 'none';
             } catch(e) {}
+        }
+
+        async function launchSteam() {
+            const btn = document.getElementById('btnLaunchSteam');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/steam/launch', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || (data.success ? 'Steam launch requested' : 'Launch failed'));
+            } catch(e) {
+                alert('Launch request failed: ' + e);
+            } finally {
+                btn.disabled = false;
+                fetchStatus();
+            }
         }
 
         async function installCore() {

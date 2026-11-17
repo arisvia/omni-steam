@@ -399,6 +399,7 @@ void Install() {
                      reinterpret_cast<void*>(fnCheck));
     } else {
         spdlog::warn("Hooks_Package: CheckAppOwnership signature not resolved");
+        HookManager::SetHookActive("CheckAppOwnership", false);
     }
 
     uintptr_t fnGetPkg = PatternLoader::GetFunctionAddress("GetPackageInfo");
@@ -408,6 +409,7 @@ void Install() {
                      reinterpret_cast<void*>(fnGetPkg));
     } else {
         spdlog::warn("Hooks_Package: GetPackageInfo signature not resolved");
+        HookManager::SetHookActive("GetPackageInfo", false);
     }
 
     uintptr_t fnMark = PatternLoader::GetFunctionAddress("MarkLicenseAsChanged");

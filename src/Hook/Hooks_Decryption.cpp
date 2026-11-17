@@ -111,6 +111,7 @@ void Install() {
                      reinterpret_cast<void*>(fnAddress));
     } else {
         spdlog::warn("Hooks_Decryption: ConfigStore_GetBinary signature not resolved");
+        HookManager::SetHookActive("ConfigStoreGetBinary", false);
     }
 }
 

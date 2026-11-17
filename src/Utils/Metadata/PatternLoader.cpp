@@ -13,6 +13,7 @@
 #include <string>
 #include <toml++/toml.hpp>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "OmniPlatform/OmniEndpoints.h"
@@ -680,6 +681,18 @@ uintptr_t GetFunctionAddress(const std::string& functionName) {
 
     spdlog::warn("PatternLoader: Failed to find pattern for {} in {}", normalized, entry.moduleName);
     return 0;
+}
+
+std::vector<std::pair<std::string, uintptr_t>> GetResolvedAddresses() {
+    std::lock_guard<std::mutex> lock(g_patternMutex);
+    std::vector<std::pair<std::string, uintptr_t>> resolved;
+    resolved.reserve(g_resolvedAddresses.size());
+    for (const auto& [name, addr] : g_resolvedAddresses) {
+        if (addr != 0)
+            resolved.emplace_back(name, addr);
+    }
+    std::sort(resolved.begin(), resolved.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    return resolved;
 }
 
 } // namespace PatternLoader

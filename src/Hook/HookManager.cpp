@@ -1,9 +1,12 @@
 #include "HookManager.h"
 
+#include <algorithm>
 #include <mutex>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
 
@@ -55,6 +58,13 @@ bool IsHookActive(const char* name) {
     std::lock_guard<std::mutex> lock(g_statusMutex);
     auto it = g_hookStatus.find(name);
     return it != g_hookStatus.end() && it->second;
+}
+
+std::vector<std::pair<std::string, bool>> GetHookStates() {
+    std::lock_guard<std::mutex> lock(g_statusMutex);
+    std::vector<std::pair<std::string, bool>> states(g_hookStatus.begin(), g_hookStatus.end());
+    std::sort(states.begin(), states.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    return states;
 }
 
 void InstallHooks() {

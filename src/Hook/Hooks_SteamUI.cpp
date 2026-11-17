@@ -43,6 +43,7 @@ void Install() {
                      reinterpret_cast<void*>(fnAddress));
     } else {
         spdlog::warn("Hooks_SteamUI: FillInAppOverview signature not resolved (may be on non-UI process)");
+        HookManager::SetHookActive("FillInAppOverview", false);
     }
 }
 

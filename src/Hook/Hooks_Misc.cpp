@@ -214,6 +214,7 @@ void Install() {
         spdlog::info("Hooks_Misc: Successfully installed SpawnProcess hook at {:p}", reinterpret_cast<void*>(fnSpawn));
     } else {
         spdlog::warn("Hooks_Misc: SpawnProcess signature not resolved");
+        HookManager::SetHookActive("SpawnProcess", false);
     }
 
     uintptr_t fnOptedIn = PatternLoader::GetFunctionAddress("OptedInMask");
@@ -222,6 +223,7 @@ void Install() {
         spdlog::info("Hooks_Misc: Successfully installed OptedInMask hook at {:p}", reinterpret_cast<void*>(fnOptedIn));
     } else {
         spdlog::warn("Hooks_Misc: OptedInMask signature not resolved");
+        HookManager::SetHookActive("OptedInMask", false);
     }
 
     uintptr_t fnAppData = PatternLoader::GetFunctionAddress("GetOrAddAppData");
@@ -231,6 +233,7 @@ void Install() {
                      reinterpret_cast<void*>(fnAppData));
     } else {
         spdlog::warn("Hooks_Misc: GetOrAddAppData signature not resolved");
+        HookManager::SetHookActive("GetOrAddAppDataHook", false);
     }
 }
 

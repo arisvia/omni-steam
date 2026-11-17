@@ -343,6 +343,7 @@ set(OMNISTEAM_SOURCES
     src/Utils/Security/AntiCheatGuard.cpp
     src/Utils/Process/ProcessInjector.cpp
     src/Hook/HookManager.cpp
+    src/Hook/HookStatus.cpp
     src/Hook/Hooks_CallBack.cpp
     src/Hook/Hooks_IPC.cpp
     src/Hook/Hooks_Decryption.cpp
@@ -405,6 +406,7 @@ set(MANAGER_SOURCES
     apps/manager/src/ConfigManager.cpp
     apps/manager/src/DepotKeyStore.cpp
     apps/manager/src/CoreInstaller.cpp
+    apps/manager/src/SteamLauncher.cpp
     apps/manager/src/DenuvoImporter.cpp
     apps/manager/src/Doctor.cpp
     apps/manager/src/DaemonService.cpp
@@ -474,6 +476,11 @@ if(BUILD_TESTS)
     # 8. Stats/achievements protobuf field manipulation
     add_executable(test_stats_proto tests/test_stats_proto.cpp)
     add_test(NAME StatsProtoTests COMMAND test_stats_proto)
+
+    # 9. Hook registry snapshot & core_status.json serialization (smoke baseline)
+    add_executable(test_hook_status tests/test_hook_status.cpp src/Hook/HookManager.cpp src/Hook/HookStatus.cpp)
+    target_link_libraries(test_hook_status PRIVATE OmniPlatform)
+    add_test(NAME HookStatusTests COMMAND test_hook_status)
 endif()
 
 # ---------------------------------------------------------------------------

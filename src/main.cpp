@@ -5,7 +5,6 @@
 #include <fstream>
 #include <set>
 #include <spdlog/spdlog.h>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +19,7 @@
 #include "Utils/Security/AntiCheatGuard.h"
 
 #include "Hook/HookManager.h"
+#include "Hook/HookStatus.h"
 
 namespace Hooks_Package {
 void SyncInjectedLicenses();
@@ -91,25 +91,10 @@ void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t 
         const auto now =
             std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                 .count();
-        std::ostringstream json;
-        json << "{\n"
-             << "  \"active\": true,\n"
-             << "  \"pid\": " << OmniPlatform::Process::GetCurrentProcessId() << ",\n"
-             << "  \"version\": \"" << OmniPlatform::Encoding::EscapeJson(OMNISTEAM_VERSION) << "\",\n"
-             << "  \"commit\": \"" << OmniPlatform::Encoding::EscapeJson(OMNISTEAM_GIT_COMMIT) << "\",\n"
-             << "  \"targetModule\": \"" << OmniPlatform::Encoding::EscapeJson(targetModule) << "\",\n"
-             << "  \"hooks\": {\n"
-             << "    \"CheckAppOwnership\": " << (HookManager::IsHookActive("CheckAppOwnership") ? "true" : "false")
-             << ",\n"
-             << "    \"ConfigStore_GetBinary\": "
-             << (HookManager::IsHookActive("ConfigStoreGetBinary") ? "true" : "false") << ",\n"
-             << "    \"IPCProcessMessage\": " << (HookManager::IsHookActive("IPCProcessMessage") ? "true" : "false")
-             << "\n"
-             << "  },\n"
-             << "  \"luaFilesCount\": " << luaCount << ",\n"
-             << "  \"timestamp\": " << now << "\n"
-             << "}\n";
-        ReplaceFile(statusPath, json.str());
+        const std::string json = HookStatus::BuildCoreStatusJson(
+            OmniPlatform::Process::GetCurrentProcessId(), OMNISTEAM_VERSION, OMNISTEAM_GIT_COMMIT, targetModule,
+            luaCount, static_cast<int64_t>(now), HookManager::GetHookStates(), PatternLoader::GetResolvedAddresses());
+        ReplaceFile(statusPath, json);
     } catch (const std::exception& ex) {
         spdlog::debug("Failed to update core status: {}", ex.what());
     } catch (...) {

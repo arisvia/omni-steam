@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Manager {
@@ -18,6 +19,11 @@ struct CoreStatusInfo {
     bool checkAppOwnershipHook = false;
     bool configStoreHook = false;
     bool ipcHook = false;
+    // Full per-hook registry snapshot published by the core (name, attached).
+    // The three legacy booleans above stay in sync for older UI consumers.
+    std::vector<std::pair<std::string, bool>> hooks;
+    // Resolved-only anchors (name, hex address) used by smoke regression.
+    std::vector<std::pair<std::string, std::string>> anchors;
     uint64_t lastHeartbeat = 0;
 };
 

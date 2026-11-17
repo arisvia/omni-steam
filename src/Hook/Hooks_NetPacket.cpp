@@ -1194,6 +1194,7 @@ void Install() {
                      reinterpret_cast<void*>(fnSend));
     } else {
         spdlog::warn("Hooks_NetPacket: BBuildAndAsyncSendFrame signature not resolved");
+        HookManager::SetHookActive("BBuildAndAsyncSendFrame", false);
     }
 
     uintptr_t fnRecv = PatternLoader::GetFunctionAddress("RecvPkt");
@@ -1202,6 +1203,7 @@ void Install() {
         spdlog::info("Hooks_NetPacket: Successfully installed RecvPkt hook at {:p}", reinterpret_cast<void*>(fnRecv));
     } else {
         spdlog::warn("Hooks_NetPacket: RecvPkt signature not resolved");
+        HookManager::SetHookActive("RecvPkt", false);
     }
 }
 

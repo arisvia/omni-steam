@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace PatternLoader {
 
@@ -13,6 +15,9 @@ struct PatternEntry {
 
 void Initialize(const std::string& patternDir = "");
 uintptr_t GetFunctionAddress(const std::string& functionName);
+// Cache-only snapshot of resolved function addresses (no lazy scanning),
+// sorted by canonical name; used by core_status.json anchor reporting.
+std::vector<std::pair<std::string, uintptr_t>> GetResolvedAddresses();
 bool RegisterPattern(const std::string& functionName, const std::string& moduleName, const std::string& pattern,
                      int32_t offset = 0);
 // Parses a signature document (TOML text) and applies the entries whose

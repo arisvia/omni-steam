@@ -78,6 +78,7 @@ void Install() {
                      reinterpret_cast<void*>(fnIPC));
     } else {
         spdlog::warn("Hooks_IPC: IPCProcessMessage signature not resolved");
+        HookManager::SetHookActive("IPCProcessMessage", false);
     }
 }
 

@@ -112,6 +112,7 @@ void Install() {
                      reinterpret_cast<void*>(fnGet));
     } else {
         spdlog::warn("Hooks_CallBack: Steam_BGetCallback symbol not resolved (hooks dormant)");
+        HookManager::SetHookActive("Steam_BGetCallback", false);
     }
 
     uintptr_t fnFree = PatternLoader::GetFunctionAddress("Steam_FreeLastCallback");
@@ -119,6 +120,8 @@ void Install() {
         ATTACH_HOOK(fnFree, Steam_FreeLastCallback);
         spdlog::info("Hooks_CallBack: Successfully installed Steam_FreeLastCallback hook at {:p}",
                      reinterpret_cast<void*>(fnFree));
+    } else {
+        HookManager::SetHookActive("Steam_FreeLastCallback", false);
     }
 }
 

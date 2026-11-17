@@ -9,6 +9,7 @@
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "OmniPlatform/OmniBuildInfo.h"
@@ -56,6 +57,37 @@ bool ExtractJsonBool(const std::string& json, const std::string& key) {
         return m[1].str() == "true";
     }
     return false;
+}
+
+// Enumerates every "key": true|false pair inside a named JSON object; the
+// single-key regex helpers above cannot discover dynamic hook names.
+std::vector<std::pair<std::string, bool>> ExtractJsonBoolMap(const std::string& json, const std::string& objectKey) {
+    std::vector<std::pair<std::string, bool>> out;
+    std::regex objRe("\"" + objectKey + "\"\\s*:\\s*\\{([^}]*)\\}");
+    std::smatch om;
+    if (!std::regex_search(json, om, objRe) || om.size() < 2)
+        return out;
+    const std::string body = om[1].str();
+    std::regex kvRe("\"([^\"]+)\"\\s*:\\s*(true|false)");
+    for (std::sregex_iterator it(body.begin(), body.end(), kvRe), end; it != end; ++it) {
+        out.emplace_back((*it)[1].str(), (*it)[2].str() == "true");
+    }
+    return out;
+}
+
+std::vector<std::pair<std::string, std::string>> ExtractJsonStringMap(const std::string& json,
+                                                                      const std::string& objectKey) {
+    std::vector<std::pair<std::string, std::string>> out;
+    std::regex objRe("\"" + objectKey + "\"\\s*:\\s*\\{([^}]*)\\}");
+    std::smatch om;
+    if (!std::regex_search(json, om, objRe) || om.size() < 2)
+        return out;
+    const std::string body = om[1].str();
+    std::regex kvRe("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"");
+    for (std::sregex_iterator it(body.begin(), body.end(), kvRe), end; it != end; ++it) {
+        out.emplace_back((*it)[1].str(), (*it)[2].str());
+    }
+    return out;
 }
 
 // Copies harvested signature TOMLs (tools/harvest_signatures.py output) from
@@ -132,6 +164,8 @@ CoreStatusInfo CoreInstaller::GetStatus() {
             info.checkAppOwnershipHook = ExtractJsonBool(json, "CheckAppOwnership");
             info.configStoreHook = ExtractJsonBool(json, "ConfigStore_GetBinary");
             info.ipcHook = ExtractJsonBool(json, "IPCProcessMessage");
+            info.hooks = ExtractJsonBoolMap(json, "hooks");
+            info.anchors = ExtractJsonStringMap(json, "anchors");
         }
     }
 
@@ -142,6 +176,8 @@ CoreStatusInfo CoreInstaller::GetStatus() {
         info.checkAppOwnershipHook = false;
         info.configStoreHook = false;
         info.ipcHook = false;
+        info.hooks.clear();
+        info.anchors.clear();
         std::error_code ec;
         fs::remove(statusJsonPath, ec);
     }
