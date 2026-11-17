@@ -104,11 +104,29 @@ jobs:
           BOOT=$(dpkg -L steam-launcher | grep -E 'bootstrap.*\.tar' | head -1)
           if [ -n "$BOOT" ] && [ -f "$BOOT" ]; then
             tar -xf "$BOOT" -C "$HOME/.local/share/Steam"
-            yes | LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-console.log &
+            yes | xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-bootstrap.log &
           else
-            # No bundled bootstrap: run the launcher with prompts auto-answered.
-            yes | LD_PRELOAD="$LIB" xvfb-run -a steam +login anonymous 2>&1 | tee steam-console.log &
+            yes | xvfb-run -a steam +login anonymous 2>&1 | tee steam-bootstrap.log &
           fi
+          BOOT_PID=$!
+          # Phase 1: let the 32-bit bootstrap download the 64-bit client.
+          for i in $(seq 1 96); do
+            [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
+            sleep 5
+          done
+          kill $BOOT_PID 2>/dev/null || true
+          pkill -f ubuntu12_32/steam 2>/dev/null || true
+          sleep 3
+          if [ ! -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]; then
+            echo "::error::64-bit client never downloaded"
+            tail -20 steam-bootstrap.log 2>/dev/null || true
+            exit 1
+          fi
+          # Phase 2: launch the 64-bit host directly with the preload. The
+          # steamrt64 wrapper's pressure-vessel exec drops LD_PRELOAD even for
+          # container-visible paths (run 44075068149); STEAM_RUNTIME=0 asks the
+          # client to use host libraries instead of containerizing.
+          STEAM_RUNTIME=0 LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee steam-console.log &
           STEAM_PID=$!
           for i in $(seq 1 96); do
             sleep 5
@@ -125,6 +143,8 @@ jobs:
             find "$HOME/.local/share/Steam" -maxdepth 3 -name 'steamclient*.so' 2>/dev/null | head -5
             tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
+            tail -30 "$HOME/.local/share/Steam/logs/console-linux.txt" 2>/dev/null || true
+            cp "$HOME/.local/share/Steam/logs/console-linux.txt" steam-container-console.log 2>/dev/null || true
             kill $STEAM_PID 2>/dev/null || true
             exit 1
           fi
@@ -132,6 +152,7 @@ jobs:
           sleep 10
           cp "$OMNISTEAM_CACHE_DIR/core_status.json" core_status_linux.json
           cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
+          cp "$HOME/.local/share/Steam/logs/console-linux.txt" steam-container-console.log 2>/dev/null || true
           kill $STEAM_PID 2>/dev/null || true
           pkill -x steam 2>/dev/null || true
 
@@ -147,6 +168,8 @@ jobs:
             omnisteam_core_linux.log
             core_status_linux.json
             steam-console.log
+            steam-bootstrap.log
+            steam-container-console.log
           if-no-files-found: ignore
 
   macos-smoke:
@@ -218,8 +241,11 @@ jobs:
           # that re-sets the absolute insert path and execs the original
           # Valve-signed host binary.
           HOSTDIR="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS"
-          if [ -f "$HOSTDIR/steam_osx" ] && [ ! -f "$HOSTDIR/steam_osx.real" ]; then
-            mv "$HOSTDIR/steam_osx" "$HOSTDIR/steam_osx.real"
+          # Keep the ORIGINAL FILENAME (the core's host guard matches on it):
+          # move the real binary into a subdirectory, wrapper takes its place.
+          if [ -f "$HOSTDIR/steam_osx" ] && [ ! -d "$HOSTDIR/real" ]; then
+            mkdir -p "$HOSTDIR/real"
+            mv "$HOSTDIR/steam_osx" "$HOSTDIR/real/steam_osx"
             cat > "$PWD/host-wrap.c" <<'CSRC'
           #include <stdlib.h>
           #include <unistd.h>
@@ -232,7 +258,7 @@ jobs:
           }
           CSRC
             cc -o "$HOSTDIR/steam_osx" "$PWD/host-wrap.c" \
-              -DOMNI_LIB="\"$LIB\"" -DOMNI_REAL="\"$HOSTDIR/steam_osx.real\""
+              -DOMNI_LIB="\"$LIB\"" -DOMNI_REAL="\"$HOSTDIR/real/steam_osx\""
             echo "Wrapped final host (compiled): $HOSTDIR/steam_osx"
           fi
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
