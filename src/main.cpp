@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -135,7 +136,13 @@ static bool IsSteamHostProcess() {
 }
 
 static void InitializeOmniSteam() {
+    // Pre-log stderr breadcrumb: spdlog sinks only exist after the host guard
+    // passes, so CI needs this to tell "library never loaded" apart from
+    // "guard rejected the process" on injected platforms.
+    std::fprintf(stderr, "[omnisteam] constructor pid=%u exe=%s\n", OmniPlatform::Process::GetCurrentProcessId(),
+                 OmniPlatform::Process::GetExecutablePath().c_str());
     if (!IsSteamHostProcess()) {
+        std::fprintf(stderr, "[omnisteam] host guard rejected (not a steam host)\n");
         return; // Never hook into steamwebhelper.exe or helper processes
     }
 
