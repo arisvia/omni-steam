@@ -236,6 +236,10 @@ if(WIN32)
     add_compile_definitions(OMNI_PLATFORM_WINDOWS)
     set(PLATFORM_LIBS winhttp bcrypt ws2_32 psapi)
 elseif(APPLE)
+    # Missing until 2026-11-17: without this macro the core built on macOS had
+    # NO constructor (main.cpp guards) and every OMNI_PLATFORM_MACOS branch
+    # fell through to Linux behavior - the dylib loaded but stayed inert.
+    add_compile_definitions(OMNI_PLATFORM_MACOS)
     # SHA-256 uses CommonCrypto (libSystem, universal); HTTP uses the SDK's
     # universal libcurl stub. No OpenSSL is linked on macOS, so fat
     # arm64+x86_64 builds never see Homebrew's single-arch libcrypto
