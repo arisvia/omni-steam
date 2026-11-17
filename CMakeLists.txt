@@ -357,6 +357,12 @@ set(OMNISTEAM_SOURCES
     src/Hook/Hooks_Package.cpp
     src/Hook/Hooks_SteamUI.cpp
 )
+if(APPLE)
+    # Compiled directly into the core (not via the OmniPlatform static lib):
+    # the __DATA,__interpose section must land in the final dylib, and static
+    # archives drop unreferenced object files.
+    list(APPEND OMNISTEAM_SOURCES src/Platform/Darwin/SpawnInterpose.cpp)
+endif()
 add_library(omnisteam_core SHARED ${OMNISTEAM_SOURCES})
 omni_apply_strict_warnings(omnisteam_core)
 set_target_properties(omnisteam_core PROPERTIES
