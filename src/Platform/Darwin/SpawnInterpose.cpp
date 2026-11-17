@@ -67,6 +67,20 @@ InjectedEnv BuildInjectedEnv(char* const envp[], const std::string& dylib) {
     return out;
 }
 
+// Only re-inject into Steam HOST binaries. Steam's helpers (Steam Helper,
+// CEF renderers) carry hardened-runtime / library-validation signatures:
+// dyld aborts them when an unsigned dylib is inserted, killing the client
+// (run 44080795535: indiscriminate injection stopped the launch chain).
+bool IsSteamHostPath(const char* path) {
+    if (path == nullptr) {
+        return false;
+    }
+    const char* base = std::strrchr(path, '/');
+    base = (base != nullptr) ? base + 1 : path;
+    return std::strcmp(base, "steam_osx") == 0 || std::strcmp(base, "steam") == 0 ||
+           std::strcmp(base, "steam.exe") == 0;
+}
+
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                    const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
     auto real = reinterpret_cast<PosixSpawnFn>(dlsym(RTLD_NEXT, "posix_spawn"));
@@ -74,7 +88,7 @@ int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_
         return ENOSYS;
     }
     const std::string dylib = OurDylibPath();
-    if (dylib.empty() || envp == nullptr) {
+    if (dylib.empty() || envp == nullptr || !IsSteamHostPath(path)) {
         // NULL envp inherits the parent's environ, which already carries the
         // insert variable in injected processes.
         return real(pid, path, fileActions, attrp, argv, envp);
@@ -92,7 +106,7 @@ int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions
         return ENOSYS;
     }
     const std::string dylib = OurDylibPath();
-    if (dylib.empty() || envp == nullptr) {
+    if (dylib.empty() || envp == nullptr || !IsSteamHostPath(file)) {
         return real(pid, file, fileActions, attrp, argv, envp);
     }
     InjectedEnv env = BuildInjectedEnv(envp, dylib);
@@ -108,7 +122,7 @@ int OmniExecve(const char* path, char* const argv[], char* const envp[]) {
         return -1;
     }
     const std::string dylib = OurDylibPath();
-    if (dylib.empty() || envp == nullptr) {
+    if (dylib.empty() || envp == nullptr || !IsSteamHostPath(path)) {
         return real(path, argv, envp);
     }
     InjectedEnv env = BuildInjectedEnv(envp, dylib);
