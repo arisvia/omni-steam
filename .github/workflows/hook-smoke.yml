@@ -1,0 +1,309 @@
+name: Hook Smoke (real-machine unlock chain)
+
+# ROADMAP P0.1/P0.2 substitute for local real machines:
+# - Linux: genuine x86_64 kernel on the ubuntu runner; Steam runs under Xvfb
+#   with LD_PRELOAD injection, then tools/smoke_status.py gates core_status.json.
+# - macOS: macos-14 runners are REAL Apple Silicon hardware. Verifies both the
+#   native arm64 slice and the Rosetta 2 x86_64 path (funchook mprotect EINVAL
+#   question, ROADMAP §2.8).
+# - Windows: proxy-DLL injection into the real client; additionally runs the
+#   static GetOrAddAppData alias shape probe (tools/verify_appdata_alias.py)
+#   against steamclient64.dll before the dynamic gate.
+# Draft status: first runs may expose runner-specific Steam bootstrap issues;
+# artifacts (core_status.json + client logs) are uploaded for triage.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 05:00 UTC, after the 03:00 signature harvest refreshes `data`.
+    - cron: "0 5 * * 1"
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/Hook/**'
+      - 'src/Utils/Metadata/**'
+      - 'src/main.cpp'
+      - 'tools/smoke_status.py'
+      - 'tools/verify_appdata_alias.py'
+      - '.github/workflows/hook-smoke.yml'
+
+concurrency:
+  group: hook-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-smoke:
+    name: Linux x86_64 unlock-chain smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      OMNISTEAM_CACHE_DIR: ${{ github.workspace }}/smoke-cache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install build + Steam runtime dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libcurl4-openssl-dev ccache xvfb \
+            lib32gcc-s1 lib32stdc++6 libc6:i386 libgl1:i386 libx11-6:i386 \
+            libxext6:i386 libxrandr2:i386 libxinerama1:i386 libxi6:i386 \
+            libxcursor1:i386 libxss1:i386 libdbus-1-3:i386 libgconf-2-4:i386 \
+            libfreetype6:i386 libfontconfig1:i386 libnm0:i386 || true
+
+      - name: Fetch current signatures from data branch
+        run: |
+          git fetch origin data
+          mkdir -p "$OMNISTEAM_CACHE_DIR"
+          git archive origin/data signatures | tar -x -C "$OMNISTEAM_CACHE_DIR"
+
+      - name: Build core
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build --config Release --parallel 2 --target omnisteam_core
+
+      - name: Install Steam launcher
+        run: |
+          POOL="https://repo.steampowered.com/steam/pool/steam/s/steam-launcher"
+          DEB_URL=$(curl -fsSL -A "Mozilla/5.0" "$POOL/" | grep -oE 'steam-launcher_[0-9.]+_all\.deb' | sort -uV | tail -1)
+          curl -fsSL -o steam-launcher.deb "$POOL/$DEB_URL"
+          sudo dpkg -i steam-launcher.deb || sudo apt-get -f install -y
+
+      - name: Launch Steam under Xvfb with LD_PRELOAD injection
+        run: |
+          LIB="$PWD/build/lib/libomnisteam.so"
+          [ -f "$LIB" ] || LIB=$(find build -name 'libomnisteam.so' | head -1)
+          echo "Injecting $LIB"
+          export LD_PRELOAD="$LIB"
+          # steam launcher self-updates, then execs the 64-bit client; the core
+          # waits for steamclient.so and writes core_status.json after InstallHooks.
+          xvfb-run -a steam +login anonymous 2>&1 | tee steam-console.log &
+          STEAM_PID=$!
+          for i in $(seq 1 60); do
+            sleep 5
+            if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then break; fi
+          done
+          if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then
+            echo "::error::core_status.json never appeared (injection or host guard failed)"
+            kill $STEAM_PID 2>/dev/null || true
+            exit 1
+          fi
+          # Give the watch loop a couple of ticks to settle hook states.
+          sleep 10
+          cp "$OMNISTEAM_CACHE_DIR/core_status.json" core_status_linux.json
+          kill $STEAM_PID 2>/dev/null || true
+          pkill -x steam 2>/dev/null || true
+
+      - name: Smoke gate
+        run: python3 tools/smoke_status.py core_status_linux.json --platform linux --max-age 120
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-linux
+          path: |
+            core_status_linux.json
+            steam-console.log
+            smoke-cache/omnisteam.log
+          if-no-files-found: ignore
+
+  macos-smoke:
+    name: macOS Apple Silicon unlock-chain smoke (arm64 + Rosetta)
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install curl ccache
+
+      - name: Fetch current signatures from data branch
+        run: |
+          git fetch origin data
+          mkdir -p smoke-cache
+          git archive origin/data signatures | tar -x -C smoke-cache
+
+      - name: Build universal core
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES='arm64;x86_64' \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build --config Release --parallel --target omnisteam_core
+
+      - name: Install Steam.app and bootstrap client files
+        run: |
+          curl -L -o steam.dmg https://steamcdn-a.akamaihd.net/client/installer/steam.dmg
+          hdiutil attach steam.dmg -nobrowse -quiet
+          VOL=$(ls -d /Volumes/Steam* | head -1)
+          cp -R "$VOL/Steam.app" "$HOME/Applications/Steam.app" 2>/dev/null || {
+            mkdir -p "$HOME/Applications"
+            cp -R "$VOL/Steam.app" "$HOME/Applications/Steam.app"
+          }
+          hdiutil detach "$VOL" -quiet || true
+          # First launch downloads the real client (steamclient.dylib etc.).
+          "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" & APP_PID=$!
+          for i in $(seq 1 24); do
+            sleep 10
+            if find "$HOME/Library/Application Support/Steam" -name 'steamclient*.dylib' 2>/dev/null | grep -q .; then
+              break
+            fi
+          done
+          kill $APP_PID 2>/dev/null || true
+          sleep 3
+          find "$HOME/Library/Application Support/Steam" -name 'steamclient*.dylib' | head -3
+
+      - name: Native arm64 injection smoke
+        env:
+          OMNISTEAM_CACHE_DIR: ${{ github.workspace }}/smoke-cache
+        run: |
+          LIB=$(find build -name 'libomnisteam.dylib' | head -1)
+          echo "Injecting $LIB"
+          DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
+            "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
+          APP_PID=$!
+          for i in $(seq 1 36); do
+            sleep 5
+            if [ -f smoke-cache/core_status.json ]; then break; fi
+          done
+          if [ ! -f smoke-cache/core_status.json ]; then
+            echo "::error::arm64: core_status.json never appeared - DYLD insertion stripped (SIP/library validation?) or funchook mprotect failed"
+            kill $APP_PID 2>/dev/null || true
+            exit 1
+          fi
+          sleep 10
+          cp smoke-cache/core_status.json core_status_macos_arm64.json
+          kill $APP_PID 2>/dev/null || true
+          pkill -x steam_osx 2>/dev/null || true
+          python3 tools/smoke_status.py core_status_macos_arm64.json --platform macos --max-age 120
+
+      - name: Rosetta 2 x86_64 injection smoke
+        env:
+          OMNISTEAM_CACHE_DIR: ${{ github.workspace }}/smoke-cache-rosetta
+        run: |
+          softwareupdate --install-rosetta --agree-to-license || true
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "::warning::Rosetta 2 unavailable on this runner; skipping x86_64 probe"
+            exit 0
+          fi
+          mkdir -p smoke-cache-rosetta
+          cp -R smoke-cache/signatures smoke-cache-rosetta/
+          LIB=$(find build -name 'libomnisteam.dylib' | head -1)
+          arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
+            "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-x64.log &
+          APP_PID=$!
+          for i in $(seq 1 36); do
+            sleep 5
+            if [ -f smoke-cache-rosetta/core_status.json ]; then break; fi
+          done
+          if [ ! -f smoke-cache-rosetta/core_status.json ]; then
+            echo "::error::Rosetta x86_64: core_status.json never appeared"
+            kill $APP_PID 2>/dev/null || true
+            exit 1
+          fi
+          sleep 10
+          cp smoke-cache-rosetta/core_status.json core_status_macos_x64.json
+          kill $APP_PID 2>/dev/null || true
+          pkill -x steam_osx 2>/dev/null || true
+          python3 tools/smoke_status.py core_status_macos_x64.json --platform macos --max-age 120
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-macos
+          path: |
+            core_status_macos_arm64.json
+            core_status_macos_x64.json
+            steam-console-arm64.log
+            steam-console-x64.log
+          if-no-files-found: ignore
+
+  windows-smoke:
+    name: Windows x64 unlock-chain smoke + alias probe
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Build core + proxy DLL
+        run: |
+          cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build --config Release --parallel --target omnisteam_core xinput1_4
+
+      - name: Install Steam silently
+        run: |
+          curl -L -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
+          ./SteamSetup.exe /S
+          for i in $(seq 1 24); do
+            [ -f "C:/Program Files (x86)/Steam/steam.exe" ] && break
+            sleep 5
+          done
+          [ -f "C:/Program Files (x86)/Steam/steam.exe" ] || { echo "::error::Steam install failed"; exit 1; }
+
+      - name: Fetch current signatures from data branch
+        run: |
+          git fetch origin data
+          mkdir -p smoke-cache
+          git archive origin/data signatures | tar -x -C smoke-cache
+
+      - name: Deploy proxy and launch Steam
+        run: |
+          CORE=$(find build -name 'libomnisteam.dll' | head -1)
+          PROXY=$(find build -name 'xinput1_4.dll' | head -1)
+          [ -n "$CORE" ] && [ -n "$PROXY" ] || { echo "::error::core/proxy artifacts missing"; exit 1; }
+          cp "$CORE" "$PROXY" "C:/Program Files (x86)/Steam/"
+          export OMNISTEAM_CACHE_DIR=$(cygpath -m "$PWD/smoke-cache")
+          echo "cache dir: $OMNISTEAM_CACHE_DIR"
+          "C:/Program Files (x86)/Steam/steam.exe" &
+          for i in $(seq 1 60); do
+            sleep 5
+            if [ -f smoke-cache/core_status.json ]; then break; fi
+          done
+          if [ ! -f smoke-cache/core_status.json ]; then
+            echo "::error::core_status.json never appeared (proxy load or host guard failed)"
+            exit 1
+          fi
+          sleep 10
+          tasklist | grep -i steam.exe || { echo "::error::Steam died after hooking (alias crash?)"; exit 1; }
+          cp smoke-cache/core_status.json core_status_windows.json
+
+      - name: Static GetOrAddAppData alias probe
+        run: |
+          python -m pip install capstone
+          python tools/verify_appdata_alias.py \
+            --binary "C:/Program Files (x86)/Steam/steamclient64.dll" \
+            --signatures-dir smoke-cache/signatures/windows-x64
+
+      - name: Smoke gate
+        run: python tools/smoke_status.py core_status_windows.json --platform windows --max-age 120
+
+      - name: Shutdown Steam
+        if: always()
+        run: taskkill //F //IM steam.exe //T 2>/dev/null || true
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-windows
+          path: |
+            core_status_windows.json
+            smoke-cache/omnisteam.log
+          if-no-files-found: ignore
