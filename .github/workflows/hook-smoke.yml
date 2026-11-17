@@ -90,8 +90,17 @@ jobs:
           # and run steam.sh directly. LD_PRELOAD stays scoped to the Steam
           # pipeline so CI diagnostic commands don't load the core.
           mkdir -p "$HOME/.local/share/Steam"
-          tar -xzf /usr/lib/steam/bootstrap.tar.gz -C "$HOME/.local/share/Steam"
-          yes | LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-console.log &
+          # Bootstrap location differs between launcher deb vintages; discover
+          # it from the package manifest instead of hardcoding a path.
+          dpkg -L steam-launcher | grep -E '\.(sh|tar|gz|xz)$' | head -10
+          BOOT=$(dpkg -L steam-launcher | grep -E 'bootstrap.*\.tar' | head -1)
+          if [ -n "$BOOT" ] && [ -f "$BOOT" ]; then
+            tar -xf "$BOOT" -C "$HOME/.local/share/Steam"
+            yes | LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-console.log &
+          else
+            # No bundled bootstrap: run the launcher with prompts auto-answered.
+            yes | LD_PRELOAD="$LIB" xvfb-run -a steam +login anonymous 2>&1 | tee steam-console.log &
+          fi
           STEAM_PID=$!
           for i in $(seq 1 96); do
             sleep 5
@@ -193,6 +202,23 @@ jobs:
           # proved insertion survives SIP + re-exec, only the path was wrong).
           LIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
           echo "Injecting $LIB"
+          # Steam's FINAL host is a fresh process (new pid) spawned with a
+          # sanitized environment - DYLD_INSERT_LIBRARIES does not survive that
+          # hop (run 44070253396: core initialized in intermediate pid 11294,
+          # real host pid 11803 never loaded the dylib). Wrap the AppBundle host
+          # binary with a script that re-sets the insert path and execs the
+          # original; bash passes the env through to the Valve-signed binary.
+          HOSTDIR="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS"
+          if [ -f "$HOSTDIR/steam_osx" ] && [ ! -f "$HOSTDIR/steam_osx.real" ]; then
+            mv "$HOSTDIR/steam_osx" "$HOSTDIR/steam_osx.real"
+            cat > "$HOSTDIR/steam_osx" <<WRAP
+          #!/bin/bash
+          export DYLD_INSERT_LIBRARIES="$LIB\${DYLD_INSERT_LIBRARIES:+:\$DYLD_INSERT_LIBRARIES}"
+          exec "$HOSTDIR/steam_osx.real" "\$@"
+          WRAP
+            chmod +x "$HOSTDIR/steam_osx"
+            echo "Wrapped final host: $HOSTDIR/steam_osx"
+          fi
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
