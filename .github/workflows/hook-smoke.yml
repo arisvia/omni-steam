@@ -111,7 +111,7 @@ jobs:
           fi
           BOOT_PID=$!
           # Phase 1: let the 32-bit bootstrap download the 64-bit client.
-          for i in $(seq 1 96); do
+          for i in $(seq 1 120); do
             [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
             sleep 5
           done
@@ -146,6 +146,9 @@ jobs:
             cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
             tail -30 "$HOME/.local/share/Steam/logs/console-linux.txt" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/console-linux.txt" steam-container-console.log 2>/dev/null || true
+            ls -la "$HOME/.local/share/Steam/logs/" 2>/dev/null | head -15 || true
+            tail -25 "$HOME/.local/share/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
+            cp "$HOME/.local/share/Steam/logs/bootstrap_log.txt" steam-bootstrap-log.txt 2>/dev/null || true
             kill $STEAM_PID 2>/dev/null || true
             exit 1
           fi
@@ -171,6 +174,7 @@ jobs:
             steam-console.log
             steam-bootstrap.log
             steam-container-console.log
+            steam-bootstrap-log.txt
           if-no-files-found: ignore
 
   macos-smoke:
@@ -251,6 +255,8 @@ jobs:
             echo "::error::arm64: core_status.json never appeared - DYLD insertion stripped (SIP/library validation?) or funchook mprotect failed"
             ps aux | grep -i "[s]team" | head -10 || true
             tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
+            tail -25 "$HOME/Library/Application Support/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
+            cp "$HOME/Library/Application Support/Steam/logs/bootstrap_log.txt" steam-bootstrap-log.txt 2>/dev/null || true
             cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
             kill $APP_PID 2>/dev/null || true
             exit 1
@@ -307,6 +313,7 @@ jobs:
             steam-console-arm64.log
             steam-console-x64.log
             omnisteam_core_macos.log
+            steam-bootstrap-log.txt
           if-no-files-found: ignore
 
   windows-smoke:
