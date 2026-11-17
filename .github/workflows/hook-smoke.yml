@@ -84,10 +84,14 @@ jobs:
           LIB=$(find "$PWD/build" -name 'libomnisteam.so' | head -1)
           [ -n "$LIB" ] || { echo "::error::libomnisteam.so not built"; exit 1; }
           echo "Injecting $LIB"
-          export LD_PRELOAD="$LIB"
-          # steam launcher self-updates, then execs the 64-bit client; the core
-          # waits for steamclient.so and writes core_status.json after InstallHooks.
-          xvfb-run -a steam +login anonymous 2>&1 | tee steam-console.log &
+          # The /usr/bin/steam launcher blocks forever in steamdeps on headless
+          # runners (interactive dependency prompt; 0 CPU for 8 minutes in run
+          # 44067569389). Extract the bootstrap the launcher would have copied
+          # and run steam.sh directly. LD_PRELOAD stays scoped to the Steam
+          # pipeline so CI diagnostic commands don't load the core.
+          mkdir -p "$HOME/.local/share/Steam"
+          tar -xzf /usr/lib/steam/bootstrap.tar.gz -C "$HOME/.local/share/Steam"
+          yes | LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-console.log &
           STEAM_PID=$!
           for i in $(seq 1 96); do
             sleep 5
