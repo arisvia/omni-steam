@@ -83,6 +83,14 @@ jobs:
         run: |
           LIB=$(find "$PWD/build" -name 'libomnisteam.so' | head -1)
           [ -n "$LIB" ] || { echo "::error::libomnisteam.so not built"; exit 1; }
+          # SteamRT (pressure-vessel) drops LD_PRELOAD entries whose paths are
+          # invisible inside the container; the workspace is not shared but
+          # ~/.local/share/Steam is. Deploy to the production location so the
+          # preload survives the container exec (run 44072592116: core init in
+          # the steamrt64/steam wrapper, silence after the container hop).
+          mkdir -p "$HOME/.local/share/Steam/ubuntu12_64"
+          cp "$LIB" "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so"
+          LIB="$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so"
           echo "Injecting $LIB"
           # The /usr/bin/steam launcher blocks forever in steamdeps on headless
           # runners (interactive dependency prompt; 0 CPU for 8 minutes in run
@@ -204,20 +212,28 @@ jobs:
           echo "Injecting $LIB"
           # Steam's FINAL host is a fresh process (new pid) spawned with a
           # sanitized environment - DYLD_INSERT_LIBRARIES does not survive that
-          # hop (run 44070253396: core initialized in intermediate pid 11294,
-          # real host pid 11803 never loaded the dylib). Wrap the AppBundle host
-          # binary with a script that re-sets the insert path and execs the
-          # original; bash passes the env through to the Valve-signed binary.
+          # hop. A bash wrapper also fails: /bin/bash is a platform binary, so
+          # its children inherit the restricted flag and dyld strips DYLD_*
+          # (run 44072592116). Use a COMPILED wrapper (not a platform binary)
+          # that re-sets the absolute insert path and execs the original
+          # Valve-signed host binary.
           HOSTDIR="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS"
           if [ -f "$HOSTDIR/steam_osx" ] && [ ! -f "$HOSTDIR/steam_osx.real" ]; then
             mv "$HOSTDIR/steam_osx" "$HOSTDIR/steam_osx.real"
-            cat > "$HOSTDIR/steam_osx" <<WRAP
-          #!/bin/bash
-          export DYLD_INSERT_LIBRARIES="$LIB\${DYLD_INSERT_LIBRARIES:+:\$DYLD_INSERT_LIBRARIES}"
-          exec "$HOSTDIR/steam_osx.real" "\$@"
-          WRAP
-            chmod +x "$HOSTDIR/steam_osx"
-            echo "Wrapped final host: $HOSTDIR/steam_osx"
+            cat > "$PWD/host-wrap.c" <<'CSRC'
+          #include <stdlib.h>
+          #include <unistd.h>
+          int main(int argc, char **argv) {
+              (void)argc;
+              setenv("DYLD_INSERT_LIBRARIES", OMNI_LIB, 1);
+              argv[0] = OMNI_REAL;
+              execv(OMNI_REAL, argv);
+              return 127;
+          }
+          CSRC
+            cc -o "$HOSTDIR/steam_osx" "$PWD/host-wrap.c" \
+              -DOMNI_LIB="\"$LIB\"" -DOMNI_REAL="\"$HOSTDIR/steam_osx.real\""
+            echo "Wrapped final host (compiled): $HOSTDIR/steam_osx"
           fi
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
