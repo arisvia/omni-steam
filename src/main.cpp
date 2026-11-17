@@ -163,8 +163,9 @@ static void InitializeOmniSteam() {
         const std::string targetModule = "steamclient.so";
 #endif
 
-        int waitAttempts = 0;
         constexpr int kMaxWaitAttempts = 600;
+        spdlog::info("Waiting for target module {} to load (max {}s)...", targetModule, kMaxWaitAttempts / 10);
+        int waitAttempts = 0;
         while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < kMaxWaitAttempts) {
             OmniPlatform::Thread::Sleep(100);
             waitAttempts++;
