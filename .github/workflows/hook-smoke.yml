@@ -50,10 +50,14 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libcurl4-openssl-dev ccache xvfb \
-            lib32gcc-s1 lib32stdc++6 libc6:i386 libgl1:i386 libx11-6:i386 \
-            libxext6:i386 libxrandr2:i386 libxinerama1:i386 libxi6:i386 \
-            libxcursor1:i386 libxss1:i386 libdbus-1-3:i386 libgconf-2-4:i386 \
+          # Build deps are HARD requirements: a silent apt failure here once
+          # left CURL missing and broke CMake configure downstream.
+          sudo apt-get install -y libssl-dev libcurl4-openssl-dev ccache xvfb xauth
+          # Steam runtime libs are best-effort (package names drift across
+          # Ubuntu releases; libgconf-2-4 no longer exists on noble).
+          sudo apt-get install -y lib32gcc-s1 lib32stdc++6 libc6:i386 libgl1:i386 \
+            libx11-6:i386 libxext6:i386 libxrandr2:i386 libxinerama1:i386 libxi6:i386 \
+            libxcursor1:i386 libxss1:i386 libdbus-1-3:i386 \
             libfreetype6:i386 libfontconfig1:i386 libnm0:i386 || true
 
       - name: Fetch current signatures from data branch
@@ -116,8 +120,10 @@ jobs:
 
   macos-smoke:
     name: macOS Apple Silicon unlock-chain smoke (arm64 + Rosetta)
-    runs-on: macos-14
-    timeout-minutes: 45
+    runs-on: macos-latest
+    # timeout-minutes includes runner QUEUE time; macos arm64 queues can be
+    # long (first run never started inside a 45m budget).
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -233,7 +239,7 @@ jobs:
   windows-smoke:
     name: Windows x64 unlock-chain smoke + alias probe
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     defaults:
       run:
         shell: bash
@@ -250,11 +256,16 @@ jobs:
       - name: Install Steam silently
         run: |
           curl -L -o SteamSetup.exe https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe
-          ./SteamSetup.exe /S
-          for i in $(seq 1 24); do
+          # The NSIS installer can hang after copying files (it waits on the
+          # Steam bootstrap it launches at the end). Run it in the background
+          # and proceed as soon as steam.exe lands; kill the leftover installer.
+          ./SteamSetup.exe /S &
+          INSTALL_PID=$!
+          for i in $(seq 1 60); do
             [ -f "C:/Program Files (x86)/Steam/steam.exe" ] && break
             sleep 5
           done
+          taskkill //F //IM SteamSetup.exe //T 2>/dev/null || true
           [ -f "C:/Program Files (x86)/Steam/steam.exe" ] || { echo "::error::Steam install failed"; exit 1; }
 
       - name: Fetch current signatures from data branch
