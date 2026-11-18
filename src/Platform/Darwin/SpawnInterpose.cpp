@@ -8,6 +8,8 @@
 //   spawn/exec APIs inside the intermediate process (where the dylib IS
 //   loaded) and re-add our absolute dylib path to every Steam-host child's
 //   environment. The host guard in main.cpp keeps non-Steam children inert.
+//   The updater's last hop may go through /bin/sh -> open -> LaunchServices
+//   (launchd builds a fresh env); CI covers that with launchctl setenv.
 //
 // Real-function resolution: bind DIRECTLY to the libsystem_kernel syscall
 // stubs __posix_spawn / __execve. dlsym is unusable here - RTLD_NEXT cannot
@@ -32,127 +34,146 @@
 #include <vector>
 
 extern "C" {
-// libsystem_kernel syscall stubs (stable exports, bypass our interposers).
-int __posix_spawn(pid_t*, const char*, const posix_spawn_file_actions_t*, const posix_spawnattr_t*, char* const[],
-                  char* const[]);
-int __execve(const char*, char* const[], char* const[]);
+int __posix_spawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* file_actions,
+                  const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]);
+int __execve(const char* path, char* const argv[], char* const envp[]);
 }
 
 namespace {
 
-constexpr const char* kInsertVar = "DYLD_INSERT_LIBRARIES=";
-constexpr size_t kInsertVarLen = 22; // strlen(kInsertVar)
-
 std::string OurDylibPath() {
-    static std::string path = []() {
-        Dl_info info{};
-        if (dladdr(reinterpret_cast<void*>(&OurDylibPath), &info) != 0 && info.dli_fname != nullptr) {
-            return std::string(info.dli_fname);
-        }
-        return std::string();
-    }();
-    return path;
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<const void*>(&OurDylibPath), &info) != 0 && info.dli_fname != nullptr) {
+        return std::string(info.dli_fname);
+    }
+    return {};
 }
 
-// Only re-inject into Steam HOST binaries. Steam's helpers (Steam Helper,
-// CEF renderers) carry hardened-runtime / library-validation signatures:
-// dyld aborts them when an unsigned dylib is inserted, killing the client.
 bool IsSteamHostPath(const char* path) {
     if (path == nullptr) {
         return false;
     }
     const char* base = std::strrchr(path, '/');
     base = (base != nullptr) ? base + 1 : path;
-    return std::strcmp(base, "steam_osx") == 0 || std::strcmp(base, "steam") == 0 ||
-           std::strcmp(base, "steam.exe") == 0;
+    // Only the Steam host itself. Helpers (Steam Helper, CEF) carry
+    // library-validation hardening and abort on unsigned inserts.
+    return std::strcmp(base, "steam_osx") == 0 || std::strcmp(base, "steam") == 0 || std::strcmp(base, "steam.exe") == 0;
+}
+
+// First few argv entries for the breadcrumb: reveals what Steam's launch
+// shell actually runs (open/LaunchServices vs direct exec).
+std::string ArgsBrief(char* const argv[]) {
+    std::string out;
+    for (int i = 0; argv != nullptr && argv[i] != nullptr && i < 5; ++i) {
+        out += ' ';
+        out += argv[i];
+        if (out.size() > 160) {
+            out += "...";
+            break;
+        }
+    }
+    return out;
 }
 
 struct InjectedEnv {
-    std::vector<char*> env; // borrowed entries + one owned + nullptr
     char* owned = nullptr;
+    std::vector<char*> env{};
 };
 
+// envp == NULL: the child inherits OUR environ, which already carries
+// DYLD_INSERT_LIBRARIES - pass through untouched. Otherwise copy the
+// caller's environment, replacing any existing insert entry.
 InjectedEnv BuildInjectedEnv(char* const envp[], const std::string& dylib) {
-    InjectedEnv out;
-    std::string existing;
-    for (char* const* e = envp; *e != nullptr; ++e) {
-        if (std::strncmp(*e, kInsertVar, kInsertVarLen) == 0) {
-            existing = *e + kInsertVarLen;
-        } else {
-            out.env.push_back(*e);
+    InjectedEnv result;
+    if (envp == nullptr) {
+        return result;
+    }
+    static const char kKey[] = "DYLD_INSERT_LIBRARIES=";
+    constexpr std::size_t kKeyLen = sizeof(kKey) - 1;
+    result.owned = static_cast<char*>(std::malloc(kKeyLen + dylib.size() + 1));
+    if (result.owned == nullptr) {
+        return result;
+    }
+    std::memcpy(result.owned, kKey, kKeyLen);
+    std::memcpy(result.owned + kKeyLen, dylib.c_str(), dylib.size() + 1);
+    for (std::size_t i = 0; envp[i] != nullptr; ++i) {
+        if (std::strncmp(envp[i], kKey, kKeyLen) != 0) {
+            result.env.push_back(envp[i]);
         }
     }
-    std::string value = dylib;
-    if (!existing.empty() && existing.find(dylib) == std::string::npos) {
-        value += ":";
-        value += existing;
-    }
-    out.owned = strdup((std::string(kInsertVar) + value).c_str());
-    out.env.push_back(out.owned);
-    out.env.push_back(nullptr);
-    return out;
+    result.env.push_back(result.owned);
+    result.env.push_back(nullptr);
+    return result;
 }
 
 int SpawnInjected(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                   const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
+    if (!IsSteamHostPath(path)) {
+        return __posix_spawn(pid, path, fileActions, attrp, argv, envp);
+    }
     const std::string dylib = OurDylibPath();
-    if (dylib.empty() || envp == nullptr || !IsSteamHostPath(path)) {
-        // NULL envp inherits the parent's environ, which already carries the
-        // insert variable in injected processes.
+    if (dylib.empty()) {
         return __posix_spawn(pid, path, fileActions, attrp, argv, envp);
     }
     InjectedEnv env = BuildInjectedEnv(envp, dylib);
-    int rc = __posix_spawn(pid, path, fileActions, attrp, argv, env.env.data());
+    char* const* useEnv = (env.env.empty() && env.owned == nullptr) ? envp : env.env.data();
+    int rc = __posix_spawn(pid, path, fileActions, attrp, argv, useEnv);
     std::free(env.owned);
     return rc;
 }
 
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                    const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
-    std::fprintf(stderr, "[omnisteam] interpose posix_spawn: %s envp=%s\n", path != nullptr ? path : "(null)",
-                 envp != nullptr ? "set" : "null");
+    std::fprintf(stderr, "[omnisteam] interpose posix_spawn: %s%s envp=%s\n", path != nullptr ? path : "(null)",
+                 ArgsBrief(argv).c_str(), envp != nullptr ? "set" : "null");
     return SpawnInjected(pid, path, fileActions, attrp, argv, envp);
 }
 
 int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions_t* fileActions,
                     const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
-    std::fprintf(stderr, "[omnisteam] interpose posix_spawnp: %s envp=%s\n", file != nullptr ? file : "(null)",
+    std::fprintf(stderr, "[omnisteam] interpose posix_spawnp: %s%s envp=%s\n", file, ArgsBrief(argv).c_str(),
                  envp != nullptr ? "set" : "null");
     if (file == nullptr) {
+        errno = EINVAL;
         return EINVAL;
     }
     if (std::strchr(file, '/') != nullptr) {
         return SpawnInjected(pid, file, fileActions, attrp, argv, envp);
     }
-    // PATH search, mirroring posix_spawnp semantics.
-    const char* pathEnv = std::getenv("PATH");
-    if (pathEnv == nullptr) {
-        pathEnv = "/usr/bin:/bin";
+    // PATH search, then spawn through the absolute-path interposer above.
+    const char* paths = std::getenv("PATH");
+    if (paths == nullptr) {
+        paths = "/usr/bin:/bin:/usr/sbin:/sbin";
     }
-    std::string paths(pathEnv);
-    size_t start = 0;
-    while (start <= paths.size()) {
-        size_t end = paths.find(':', start);
-        if (end == std::string::npos) {
-            end = paths.size();
-        }
-        std::string dir = paths.substr(start, end - start);
+    std::size_t start = 0;
+    while (start <= std::strlen(paths)) {
+        std::size_t end = std::strchr(paths + start, ':') != nullptr
+                              ? static_cast<std::size_t>(std::strchr(paths + start, ':') - paths)
+                              : std::strlen(paths);
+        std::string dir(paths + start, end - start);
         if (!dir.empty()) {
             std::string candidate = dir + "/" + file;
             if (access(candidate.c_str(), X_OK) == 0) {
                 return SpawnInjected(pid, candidate.c_str(), fileActions, attrp, argv, envp);
             }
         }
+        if (end == std::strlen(paths)) {
+            break;
+        }
         start = end + 1;
     }
+    errno = ENOENT;
     return ENOENT;
 }
 
 int OmniExecve(const char* path, char* const argv[], char* const envp[]) {
-    std::fprintf(stderr, "[omnisteam] interpose execve: %s envp=%s\n", path != nullptr ? path : "(null)",
-                 envp != nullptr ? "set" : "null");
+    std::fprintf(stderr, "[omnisteam] interpose execve: %s%s envp=%s\n", path != nullptr ? path : "(null)",
+                 ArgsBrief(argv).c_str(), envp != nullptr ? "set" : "null");
+    if (!IsSteamHostPath(path)) {
+        return __execve(path, argv, envp);
+    }
     const std::string dylib = OurDylibPath();
-    if (dylib.empty() || envp == nullptr || !IsSteamHostPath(path)) {
+    if (dylib.empty()) {
         return __execve(path, argv, envp);
     }
     InjectedEnv env = BuildInjectedEnv(envp, dylib);
