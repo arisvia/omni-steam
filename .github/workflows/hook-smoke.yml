@@ -121,13 +121,14 @@ jobs:
           # Ubuntu 24.04 libs). Seed the runtime lib dirs with the host's
           # OpenSSL 3 as platform dirs appear (run 44221690593 forensics).
           (
-            for i in $(seq 1 90); do
-              for D in "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu; do
+            for i in $(seq 1 600); do
+              for D in "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu \
+                       "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/var/tmp-*/usr/lib/x86_64-linux-gnu; do
                 if [ -d "$D" ]; then
                   cp -n /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/libssl.so.3 "$D/" 2>/dev/null || true
                 fi
               done
-              sleep 5
+              sleep 1
             done
           ) &
             yes | xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-run.log &
@@ -156,11 +157,16 @@ jobs:
             pkill -f srt-client-container 2>/dev/null || true
             pkill -x steam 2>/dev/null || true
             sleep 3
-            RTLIB=$(find "$HOME/.local/share/Steam" -name 'libcrypto.so.3' 2>/dev/null | head -1)
-            EXTRA=""
-            [ -n "$RTLIB" ] && EXTRA="$(dirname "$RTLIB")"
-            if [ -f "$HOME/.local/share/Steam/steamrt64/steam" ]; then
-              xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_LIBRARY_PATH="$EXTRA" LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
+            RTBASE="$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"
+            PLAT=$(ls -d "$RTBASE"/steamrt*_platform_* 2>/dev/null | sort | tail -1)
+            if [ -f "$HOME/.local/share/Steam/steamrt64/steam" ] && [ -n "$PLAT" ]; then
+              # Run under the runtime's own ld.so with its library paths:
+              # effectively inside SteamRT without the pressure-vessel container
+              # (which snapshots libs into var/tmp-* before our seeding lands).
+              RTLP="$PLAT/files/lib/x86_64-linux-gnu:$PLAT/files/usr/lib/x86_64-linux-gnu:$PLAT/files/lib:$PLAT/files/usr/lib"
+              LDSO="$PLAT/files/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+              [ -f "$LDSO" ] || LDSO="$PLAT/files/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+              xvfb-run -a env STEAM_RUNTIME=1 PRESSURE_VESSEL_RUNTIME="$(basename "$PLAT")" LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" LD_DEBUG=libs "$LDSO" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
             else
               xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 STEAM_RUNTIME=0 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
             fi
@@ -178,7 +184,7 @@ jobs:
             echo "--- runtime filesystem forensics ---"
             find "$HOME/.local/share/Steam" -name 'libcrypto.so*' 2>/dev/null
             ldd "$HOME/.local/share/Steam/steamrt64/steam" 2>&1 | head -15 || true
-            strings "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu/libc.so.6 2>/dev/null | grep -E '^GLIBC_2\.[0-9]+$' | sort -V | tail -3
+            strings "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu/libc.so.6 2>/dev/null | grep -E '^GLIBC_2\.[0-9.]+$' | sort -V | tail -3
             ls "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/" 2>/dev/null | head -12
             tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
@@ -268,9 +274,10 @@ jobs:
           ILIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
           OMNISTEAM_FORCE_DIRECT_SPAWN=1 DYLD_INSERT_LIBRARIES="$ILIB" \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" & APP_PID=$!
-          for i in $(seq 1 36); do
-            sleep 10
-            if find "$HOME/Library/Application Support/Steam/Steam.AppBundle" -path '*package/*.installed' 2>/dev/null | grep -q .; then
+          for i in $(seq 1 60); do
+            sleep 5
+            if grep -q "Update complete, launching Steam" "$HOME/Library/Application Support/Steam/logs/bootstrap_log.txt" 2>/dev/null; then
+              sleep 15
               break
             fi
           done
