@@ -132,6 +132,13 @@ int SpawnInjected(pid_t* pid, const char* path, const posix_spawn_file_actions_t
 // launchd. Product default (flag unset): pass through untouched.
 int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions, const posix_spawnattr_t* attrp,
                        char* const argv[], char* const envp[]) {
+    if (argv != nullptr && argv[0] != nullptr &&
+        (std::strcmp(argv[0], "/bin/sh") == 0 || std::strcmp(argv[0], "sh") == 0)) {
+        const char* dbgFlag = std::getenv("OMNISTEAM_FORCE_DIRECT_SPAWN");
+        std::fprintf(stderr, "[omnisteam] rewrite diag: flag=%s argv1=%s cmd=%.110s\n",
+                     dbgFlag != nullptr ? dbgFlag : "(null)", argv[1] != nullptr ? argv[1] : "(null)",
+                     argv[2] != nullptr ? argv[2] : "(null)");
+    }
     const char* flag = std::getenv("OMNISTEAM_FORCE_DIRECT_SPAWN");
     if (flag == nullptr || std::strcmp(flag, "1") != 0) {
         return -1;
@@ -158,6 +165,7 @@ int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions
     }
     const std::string bin = cmd.substr(start, end - start) + "/Contents/MacOS/steam_osx";
     if (access(bin.c_str(), X_OK) != 0) {
+        std::fprintf(stderr, "[omnisteam] rewrite diag: access failed for %s (errno=%d)\n", bin.c_str(), errno);
         return -1;
     }
     const std::string dylib = OurDylibPath();
@@ -194,6 +202,10 @@ int OmniPosixSpawnP(pid_t* pid, const char* file, const posix_spawn_file_actions
                     const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
     std::fprintf(stderr, "[omnisteam] interpose posix_spawnp: %s%s envp=%s\n", file, ArgsBrief(argv).c_str(),
                  envp != nullptr ? "set" : "null");
+    const int directP = TryDirectOpenSpawn(pid, fileActions, attrp, argv, envp);
+    if (directP >= 0) {
+        return directP;
+    }
     if (file == nullptr) {
         errno = EINVAL;
         return EINVAL;
