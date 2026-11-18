@@ -160,7 +160,15 @@ int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions
     if (access(bin.c_str(), X_OK) != 0) {
         return -1;
     }
-    std::string newCmd = "sleep 1; exec '" + bin + "'";
+    const std::string dylib = OurDylibPath();
+    // SIP purges DYLD_* from /bin/sh's environment at load time, so an
+    // exec'd child inherits a cleaned env (run 44221690593: rewrite fired,
+    // zero constructors after). Re-export right before exec.
+    std::string newCmd = "sleep 1; ";
+    if (!dylib.empty()) {
+        newCmd += "export DYLD_INSERT_LIBRARIES='" + dylib + "'; ";
+    }
+    newCmd += "exec '" + bin + "'";
     const std::size_t argsPos = cmd.find("--args", end);
     if (argsPos != std::string::npos) {
         newCmd += cmd.substr(argsPos + 6);
@@ -168,12 +176,7 @@ int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions
     std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten to direct exec: %s\n", newCmd.c_str());
     char* newArgv[] = {const_cast<char*>("/bin/sh"), const_cast<char*>("-c"), const_cast<char*>(newCmd.c_str()),
                        nullptr};
-    const std::string dylib = OurDylibPath();
-    InjectedEnv env = BuildInjectedEnv(envp, dylib);
-    char* const* useEnv = (env.owned == nullptr) ? envp : env.env.data();
-    int rc = __posix_spawn(pid, "/bin/sh", fileActions, attrp, newArgv, useEnv);
-    std::free(env.owned);
-    return rc;
+    return __posix_spawn(pid, "/bin/sh", fileActions, attrp, newArgv, envp);
 }
 
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
