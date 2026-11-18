@@ -163,15 +163,17 @@ int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions
     const std::string dylib = OurDylibPath();
     const std::size_t argsPos = cmd.find("--args", end);
     const std::string rest = (argsPos != std::string::npos) ? cmd.substr(argsPos + 6) : "";
-    const std::string app = cmd.substr(start, end - start);
-    // Primary: relaunch through LaunchServices in the GUI user domain so the
-    // host runs as the real client. Direct exec stays in updater mode and
-    // loops (verify -> reinstall -> open -n, run 44238571956); launchd picks
-    // up DYLD_INSERT_LIBRARIES from `launchctl setenv` which CI sets.
-    // Fallback: direct exec with DYLD re-exported (SIP purges it from sh).
-    std::string newCmd = "sleep 1; sudo launchctl asuser " + std::to_string(getuid()) + " open -n '" + app + "'" + rest;
-    newCmd += " || { export DYLD_INSERT_LIBRARIES='" + dylib + "'; exec '" + bin + "'" + rest + "; }";
-    std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten (asuser + exec fallback): %s\n", newCmd.c_str());
+    // LaunchServices is dead on headless runners (plain AND asuser open
+    // return 0 without starting anything, run 44244532304), so always run
+    // the binary directly. SIP purges DYLD_* from sh's env at load time:
+    // re-export right before launch. Strip quarantine (package
+    // re-extraction re-applies it) and log the exit code - ASP SIGKILLs
+    // are otherwise completely silent.
+    std::string newCmd = "sleep 1; xattr -dr com.apple.quarantine '" + bin + "' 2>/dev/null; ";
+    newCmd += "xattr -l '" + bin + "' >>/tmp/omni-spawn-fallback.log 2>&1; ";
+    newCmd += "export DYLD_INSERT_LIBRARIES='" + dylib + "'; ";
+    newCmd += "'" + bin + "'" + rest + "; echo \"spawn fallback exit: $?\" >>/tmp/omni-spawn-fallback.log";
+    std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten to direct launch: %s\n", newCmd.c_str());
     char* newArgv[] = {const_cast<char*>("/bin/sh"), const_cast<char*>("-c"), const_cast<char*>(newCmd.c_str()),
                        nullptr};
     return __posix_spawn(pid, "/bin/sh", fileActions, attrp, newArgv, envp);
