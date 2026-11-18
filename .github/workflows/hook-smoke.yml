@@ -35,7 +35,7 @@ jobs:
   linux-smoke:
     name: Linux x86_64 unlock-chain smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -130,14 +130,14 @@ jobs:
               done
               sleep 1
             done
-          ) &
+          ) >/dev/null 2>&1 &
             yes | xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-run.log &
           else
             yes | xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_PRELOAD="$LIB" steam +login anonymous 2>&1 | tee steam-run.log &
           fi
           STEAM_PID=$!
           # Download (~90s) + install (~30s) + host start + hook attach.
-          for i in $(seq 1 120); do
+          for i in $(seq 1 84); do
             sleep 5
             if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then break; fi
             if [ $((i % 12)) -eq 0 ]; then
@@ -194,6 +194,8 @@ jobs:
             tail -25 "$HOME/.local/share/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/bootstrap_log.txt" steam-bootstrap-log.txt 2>/dev/null || true
             kill $STEAM_PID 2>/dev/null || true
+            pkill -x steam 2>/dev/null || true
+            pkill -f steamrt64/steam 2>/dev/null || true
             exit 1
           fi
           # Give the watch loop a couple of ticks to settle hook states.
@@ -323,8 +325,15 @@ jobs:
           # CI escape hatch: rewrite the updater's `open -n` spawn into a direct
           # exec (env-preserving) inside SpawnInterpose; product default is off.
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
-          DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
-            "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
+          # The bootstrapper self-update re-downloads Steam.app with a fresh
+          # quarantine xattr; ASP then SIGKILLs the exec silently (run
+          # 44228069192: zero output from the smoke launch). Strip again and
+          # wrap the launch so a kill surfaces as an exit code.
+          xattr -dr com.apple.quarantine "$HOME/Applications/Steam.app" 2>/dev/null || true
+          xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
+          xattr -l "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>/dev/null | head -3 || true
+          ( DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
+              "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx"; echo "steam_osx exit code: $?" ) 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
@@ -372,8 +381,9 @@ jobs:
           sleep 2
           launchctl setenv DYLD_INSERT_LIBRARIES "$LIB"
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
-          arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
-            "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-x64.log &
+          xattr -dr com.apple.quarantine "$HOME/Applications/Steam.app" 2>/dev/null || true
+          ( arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
+              "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx"; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
