@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstring>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <string>
@@ -12,7 +13,25 @@ DynamicLibrary::ModuleHandle DynamicLibrary::Load(const std::string& path) {
 }
 
 DynamicLibrary::ModuleHandle DynamicLibrary::GetLoadedModule(const std::string& name) {
-    return dlopen(name.c_str(), RTLD_NOLOAD | RTLD_NOW);
+    // dlopen(RTLD_NOLOAD) on dyld matches by RESOLVED PATH, not basename.
+    // Steam loads steamclient.dylib by absolute path outside the library
+    // search paths, so a bare-name NOLOAD query returns NULL even when the
+    // image is present (run 44258868872: dyld logged the load, core timed
+    // out). Enumerate dyld images, match the basename, then NOLOAD the full
+    // path to obtain a real handle.
+    const uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const char* image = _dyld_get_image_name(i);
+        if (image == nullptr) {
+            continue;
+        }
+        const char* base = std::strrchr(image, '/');
+        base = (base != nullptr) ? base + 1 : image;
+        if (name == base) {
+            return dlopen(image, RTLD_NOLOAD | RTLD_NOW);
+        }
+    }
+    return nullptr;
 }
 
 void* DynamicLibrary::GetFunction(ModuleHandle handle, const std::string& name) {
