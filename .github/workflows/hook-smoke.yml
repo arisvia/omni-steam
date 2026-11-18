@@ -372,7 +372,12 @@ jobs:
           ls -la "$HOME/Applications/Steam.app/Contents/MacOS/" 2>/dev/null | head -6 || true
           pkill -9 -x ipcserver 2>/dev/null || true
           xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
-          ( DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 "$HOST"; echo "steam_osx exit code: $?" ) 2>&1 | tee steam-console-arm64.log &
+          # RE finding (Ghidra decompile of steam_osx): -inhibitbootstrap makes
+          # the flag parser set inhibit+skipverify+skiprepair, bypassing the
+          # updater phase that loops on headless runners. steam.cfg with
+          # BootStrapperInhibitAll is the config-file equivalent (belt+braces).
+          printf 'BootStrapperInhibitAll enable\nBootStrapperInhibitUpdateOnLaunch enable\n' > "$(dirname "$HOST")/steam.cfg"
+          ( DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 "$HOST" -inhibitbootstrap -skipinitialbootstrap; echo "steam_osx exit code: $?" ) 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
@@ -424,7 +429,7 @@ jobs:
           xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
           pkill -9 -x ipcserver 2>/dev/null || true
           ( arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
-              "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx"; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
+              "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx" -inhibitbootstrap -skipinitialbootstrap; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
