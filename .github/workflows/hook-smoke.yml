@@ -99,6 +99,9 @@ jobs:
           cp "$LIB" "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so"
           LIB="$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so"
           echo "Injecting $LIB"
+          have_host() {
+            [ -f "$HOME/.local/share/Steam/steamrt64/steam" ] || [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]
+          }
           # The /usr/bin/steam launcher blocks forever in steamdeps on headless
           # runners (interactive dependency prompt; 0 CPU for 8 minutes in run
           # 44067569389). Extract the bootstrap the launcher would have copied
@@ -120,14 +123,14 @@ jobs:
           # setup.sh's runtime update can hang headless (zenity/srt); watch
           # progress and fall back to running the bootstrap binary directly.
           for i in $(seq 1 96); do
-            [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
+            have_host && break
             if [ $((i % 6)) -eq 0 ]; then
               echo "--- bootstrap progress $((i*5))s ---"
               ps aux | grep -E "[s]team|[z]enity|[c]url|[s]rt-" | head -8 || true
             fi
             sleep 5
           done
-          if [ ! -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]; then
+          if ! have_host; then
             echo "--- steam.sh stalled; trying the 32-bit bootstrap directly ---"
             kill $BOOT_PID 2>/dev/null || true
             pkill -f steam.sh 2>/dev/null || true
@@ -137,25 +140,35 @@ jobs:
               xvfb-run -a "$HOME/.local/share/Steam/ubuntu12_32/steam" +login anonymous 2>&1 | tee -a steam-bootstrap.log &
               BOOT_PID=$!
               for i in $(seq 1 24); do
-                [ -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ] && break
+                have_host && break
                 sleep 5
               done
             fi
           fi
-          kill $BOOT_PID 2>/dev/null || true
-          pkill -f ubuntu12_32/steam 2>/dev/null || true
-          sleep 3
-          if [ ! -f "$HOME/.local/share/Steam/ubuntu12_64/steam" ]; then
+          if ! have_host; then
             echo "::error::64-bit client never downloaded"
-            tail -20 steam-bootstrap.log 2>/dev/null || true
-            ls "$HOME/.local/share/Steam" 2>/dev/null || true
+            tail -30 steam-bootstrap.log 2>/dev/null || true
+            kill $BOOT_PID 2>/dev/null || true
             exit 1
           fi
-          # Phase 2: launch the 64-bit host directly with the preload. The
-          # steamrt64 wrapper's pressure-vessel exec drops LD_PRELOAD even for
-          # container-visible paths (run 44075068149); STEAM_RUNTIME=0 asks the
-          # client to use host libraries instead of containerizing.
-          STEAM_RUNTIME=0 LD_PRELOAD="$LIB" xvfb-run -a "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee steam-console.log &
+          # Phase 2: relaunch the 64-bit host with injection. Modern clients
+          # live in steamrt64/ (pressure-vessel container); with userns enabled
+          # the container starts properly and may keep container-visible
+          # LD_PRELOAD entries. Older layouts: ubuntu12_64 + STEAM_RUNTIME=0.
+          # Kill EVERY phase-1 process first: a leftover host holds the
+          # single-instance lock and the injected launch just hands off to it.
+          kill $BOOT_PID 2>/dev/null || true
+          pkill -f steam.sh 2>/dev/null || true
+          pkill -f ubuntu12_32/steam 2>/dev/null || true
+          pkill -f pressure-vessel 2>/dev/null || true
+          pkill -f srt-client-container 2>/dev/null || true
+          pkill -x steam 2>/dev/null || true
+          sleep 3
+          if [ -f "$HOME/.local/share/Steam/steamrt64/steam" ]; then
+            xvfb-run -a env LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee steam-run.log &
+          else
+            xvfb-run -a env STEAM_RUNTIME=0 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee steam-run.log &
+          fi
           STEAM_PID=$!
           for i in $(seq 1 96); do
             sleep 5
@@ -255,7 +268,13 @@ jobs:
             fi
           done
           kill $APP_PID 2>/dev/null || true
-          sleep 3
+          # The bootstrap re-execs and spawns children under new pids; kill
+          # the whole tree or a leftover host holds the single-instance lock
+          # and the injected smoke launch silently hands off to it.
+          pkill -x steam_osx 2>/dev/null || true
+          for i in $(seq 1 15); do pgrep -x steam_osx >/dev/null 2>&1 || break; sleep 2; done
+          pkill -9 -x steam_osx 2>/dev/null || true
+          sleep 2
           find "$HOME/Library/Application Support/Steam" -name 'steamclient*.dylib' | head -3
 
       - name: Native arm64 injection smoke
@@ -273,17 +292,23 @@ jobs:
           # child env from inside the intermediate process. Binary wrappers
           # are NOT used - Steam's package integrity repair reverts them
           # (run 44077660460).
+          pkill -9 -x steam_osx 2>/dev/null || true
+          sleep 2
           DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
             if [ -f smoke-cache/core_status.json ]; then break; fi
+            if [ $((i % 12)) -eq 0 ]; then
+              echo "--- arm64 progress $((i*5))s ---"
+              ps aux | grep -i "[s]team" | head -6 || true
+            fi
           done
           if [ ! -f smoke-cache/core_status.json ]; then
             echo "::error::arm64: core_status.json never appeared - DYLD insertion stripped (SIP/library validation?) or funchook mprotect failed"
             ls -t "$HOME/Library/Logs/DiagnosticReports/" 2>/dev/null | head -5 || true
-            CRASH=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"steam_osx* 2>/dev/null | head -1)
+            CRASH=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"steam_osx* 2>/dev/null | head -1 || true)
             if [ -n "$CRASH" ]; then head -60 "$CRASH"; cp "$CRASH" steam-crash-report.ips; fi
             ps aux | grep -i "[s]team" | head -10 || true
             tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
@@ -312,6 +337,8 @@ jobs:
           mkdir -p smoke-cache-rosetta
           cp -R smoke-cache/signatures smoke-cache-rosetta/
           LIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
+          pkill -9 -x steam_osx 2>/dev/null || true
+          sleep 2
           arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
             "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
@@ -322,7 +349,7 @@ jobs:
           if [ ! -f smoke-cache-rosetta/core_status.json ]; then
             echo "::error::Rosetta x86_64: core_status.json never appeared"
             ps aux | grep -i "[s]team" | head -10 || true
-            tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
+            CRASH=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"steam_osx* 2>/dev/null | head -1 || true)
             cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
             kill $APP_PID 2>/dev/null || true
             exit 1
