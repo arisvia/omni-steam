@@ -122,10 +122,68 @@ int SpawnInjected(pid_t* pid, const char* path, const posix_spawn_file_actions_t
     return rc;
 }
 
+// CI-only escape hatch (OMNISTEAM_FORCE_DIRECT_SPAWN=1): headless runners
+// have no working LaunchServices session, so the updater's final hop
+//   /bin/sh -c "sleep 1; open -n '<App>' --args ..."
+// never produces a process (runs 44214438393 / 44218326387: zero steam_osx
+// after 'Update complete, launching Steam'). Rewrite that one command into
+//   /bin/sh -c "sleep 1; exec '<App>/Contents/MacOS/steam_osx' ..."
+// exec preserves the environment, so DYLD_INSERT_LIBRARIES survives without
+// launchd. Product default (flag unset): pass through untouched.
+int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions, const posix_spawnattr_t* attrp,
+                       char* const argv[], char* const envp[]) {
+    const char* flag = std::getenv("OMNISTEAM_FORCE_DIRECT_SPAWN");
+    if (flag == nullptr || std::strcmp(flag, "1") != 0) {
+        return -1;
+    }
+    if (argv == nullptr || argv[0] == nullptr || argv[1] == nullptr || argv[2] == nullptr) {
+        return -1;
+    }
+    if (std::strcmp(argv[0], "/bin/sh") != 0 && std::strcmp(argv[0], "sh") != 0) {
+        return -1;
+    }
+    if (std::strcmp(argv[1], "-c") != 0) {
+        return -1;
+    }
+    const std::string cmd(argv[2]);
+    const std::string needle = "open -n '";
+    const std::size_t pos = cmd.find(needle);
+    if (pos == std::string::npos) {
+        return -1;
+    }
+    const std::size_t start = pos + needle.size();
+    const std::size_t end = cmd.find('\'', start);
+    if (end == std::string::npos) {
+        return -1;
+    }
+    const std::string bin = cmd.substr(start, end - start) + "/Contents/MacOS/steam_osx";
+    if (access(bin.c_str(), X_OK) != 0) {
+        return -1;
+    }
+    std::string newCmd = "sleep 1; exec '" + bin + "'";
+    const std::size_t argsPos = cmd.find("--args", end);
+    if (argsPos != std::string::npos) {
+        newCmd += cmd.substr(argsPos + 6);
+    }
+    std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten to direct exec: %s\n", newCmd.c_str());
+    char* newArgv[] = {const_cast<char*>("/bin/sh"), const_cast<char*>("-c"), const_cast<char*>(newCmd.c_str()),
+                       nullptr};
+    const std::string dylib = OurDylibPath();
+    InjectedEnv env = BuildInjectedEnv(envp, dylib);
+    char* const* useEnv = (env.owned == nullptr) ? envp : env.env.data();
+    int rc = __posix_spawn(pid, "/bin/sh", fileActions, attrp, newArgv, useEnv);
+    std::free(env.owned);
+    return rc;
+}
+
 int OmniPosixSpawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* fileActions,
                    const posix_spawnattr_t* attrp, char* const argv[], char* const envp[]) {
     std::fprintf(stderr, "[omnisteam] interpose posix_spawn: %s%s envp=%s\n", path != nullptr ? path : "(null)",
                  ArgsBrief(argv).c_str(), envp != nullptr ? "set" : "null");
+    const int direct = TryDirectOpenSpawn(pid, fileActions, attrp, argv, envp);
+    if (direct >= 0) {
+        return direct;
+    }
     return SpawnInjected(pid, path, fileActions, attrp, argv, envp);
 }
 
