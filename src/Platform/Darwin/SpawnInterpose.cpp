@@ -161,19 +161,17 @@ int TryDirectOpenSpawn(pid_t* pid, const posix_spawn_file_actions_t* fileActions
         return -1;
     }
     const std::string dylib = OurDylibPath();
-    // SIP purges DYLD_* from /bin/sh's environment at load time, so an
-    // exec'd child inherits a cleaned env (run 44221690593: rewrite fired,
-    // zero constructors after). Re-export right before exec.
-    std::string newCmd = "sleep 1; ";
-    if (!dylib.empty()) {
-        newCmd += "export DYLD_INSERT_LIBRARIES='" + dylib + "'; ";
-    }
-    newCmd += "exec '" + bin + "'";
     const std::size_t argsPos = cmd.find("--args", end);
-    if (argsPos != std::string::npos) {
-        newCmd += cmd.substr(argsPos + 6);
-    }
-    std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten to direct exec: %s\n", newCmd.c_str());
+    const std::string rest = (argsPos != std::string::npos) ? cmd.substr(argsPos + 6) : "";
+    const std::string app = cmd.substr(start, end - start);
+    // Primary: relaunch through LaunchServices in the GUI user domain so the
+    // host runs as the real client. Direct exec stays in updater mode and
+    // loops (verify -> reinstall -> open -n, run 44238571956); launchd picks
+    // up DYLD_INSERT_LIBRARIES from `launchctl setenv` which CI sets.
+    // Fallback: direct exec with DYLD re-exported (SIP purges it from sh).
+    std::string newCmd = "sleep 1; sudo launchctl asuser " + std::to_string(getuid()) + " open -n '" + app + "'" + rest;
+    newCmd += " || { export DYLD_INSERT_LIBRARIES='" + dylib + "'; exec '" + bin + "'" + rest + "; }";
+    std::fprintf(stderr, "[omnisteam] interpose: open -n rewritten (asuser + exec fallback): %s\n", newCmd.c_str());
     char* newArgv[] = {const_cast<char*>("/bin/sh"), const_cast<char*>("-c"), const_cast<char*>(newCmd.c_str()),
                        nullptr};
     return __posix_spawn(pid, "/bin/sh", fileActions, attrp, newArgv, envp);

@@ -380,6 +380,14 @@ target_link_libraries(omnisteam_core PRIVATE
     ${PLATFORM_LIBS}
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # SteamRT steamrt3c is Debian 11 (glibc 2.31) based; a host-built core
+    # references newer glibc/libstdc++ symbols and ld.so silently skips the
+    # preload inside the container. Static C++ runtime plus a bullseye
+    # toolchain build keeps the .so loadable under the runtime's glibc.
+    target_link_options(omnisteam_core PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 if(ENABLE_LOGGING)
     target_compile_definitions(omnisteam_core PRIVATE OMNI_LOGGING_ENABLED)
     target_compile_definitions(OmniPlatform PRIVATE OMNI_LOGGING_ENABLED)
