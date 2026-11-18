@@ -39,6 +39,9 @@ DynamicLibrary::ModuleHandle DynamicLibrary::GetLoadedModule(const std::string& 
     }
     return nullptr;
 }
+std::string DynamicLibrary::GetLoadedModulePath(const std::string& name) {
+    return GetModulePath(GetLoadedModule(name));
+}
 void* DynamicLibrary::GetFunction(ModuleHandle handle, const std::string& name) {
     return handle ? reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str())) : nullptr;
 }

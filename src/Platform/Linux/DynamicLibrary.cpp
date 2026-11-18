@@ -18,6 +18,10 @@ DynamicLibrary::ModuleHandle DynamicLibrary::GetLoadedModule(const std::string& 
     return dlopen(name.c_str(), RTLD_NOLOAD | RTLD_NOW);
 }
 
+std::string DynamicLibrary::GetLoadedModulePath(const std::string& name) {
+    return GetModulePath(GetLoadedModule(name));
+}
+
 void* DynamicLibrary::GetFunction(ModuleHandle handle, const std::string& name) {
     return handle ? dlsym(handle, name.c_str()) : nullptr;
 }

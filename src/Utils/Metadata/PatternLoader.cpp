@@ -63,7 +63,7 @@ LoadedModule ResolveModule(const std::string& name) {
     m.name = name;
     auto hModule = OmniPlatform::DynamicLibrary::GetLoadedModule(name);
     m.base = OmniPlatform::BinaryParser::GetModuleBase(name);
-    std::string modulePath = hModule ? OmniPlatform::DynamicLibrary::GetModulePath(hModule) : "";
+    std::string modulePath = OmniPlatform::DynamicLibrary::GetLoadedModulePath(name);
     m.hash = !modulePath.empty() ? OmniPlatform::Hash::Sha256File(modulePath) : "";
     spdlog::debug("PatternLoader: ResolveModule {} path='{}' hash={}", name, modulePath,
                   m.hash.empty() ? "(empty)" : m.hash.substr(0, 12));

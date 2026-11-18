@@ -39,6 +39,7 @@ public:
     static bool Free(ModuleHandle handle);
     static std::string GetCurrentDirectoryPath();
     static std::string GetModulePath(ModuleHandle handle);
+    static std::string GetLoadedModulePath(const std::string& name);
     static uint32_t GetLastErrorCode();
 };
 

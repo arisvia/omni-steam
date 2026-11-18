@@ -34,6 +34,25 @@ DynamicLibrary::ModuleHandle DynamicLibrary::GetLoadedModule(const std::string& 
     return nullptr;
 }
 
+std::string DynamicLibrary::GetLoadedModulePath(const std::string& name) {
+    // Recover the on-disk path directly from the dyld image list by basename.
+    // dyld4 dlopen handles are opaque (not dladdr-able, not equal to the image
+    // header), so handle-based GetModulePath cannot be trusted for hashing.
+    const uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const char* image = _dyld_get_image_name(i);
+        if (image == nullptr) {
+            continue;
+        }
+        const char* base = std::strrchr(image, '/');
+        base = (base != nullptr) ? base + 1 : image;
+        if (name == base) {
+            return std::string(image);
+        }
+    }
+    return "";
+}
+
 void* DynamicLibrary::GetFunction(ModuleHandle handle, const std::string& name) {
     return handle ? dlsym(handle, name.c_str()) : nullptr;
 }
