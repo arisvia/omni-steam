@@ -116,6 +116,20 @@ jobs:
           BOOT=$(dpkg -L steam-launcher | grep -E 'bootstrap.*\.tar' | head -1)
           if [ -n "$BOOT" ] && [ -f "$BOOT" ]; then
             tar -xf "$BOOT" -C "$HOME/.local/share/Steam"
+          # The steamrt3c runtime ships OpenSSL 1.1 but the steamrt64 client
+          # links libcrypto.so.3; the outer exec only works by accident (host
+          # Ubuntu 24.04 libs). Seed the runtime lib dirs with the host's
+          # OpenSSL 3 as platform dirs appear (run 44221690593 forensics).
+          (
+            for i in $(seq 1 90); do
+              for D in "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu; do
+                if [ -d "$D" ]; then
+                  cp -n /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/libssl.so.3 "$D/" 2>/dev/null || true
+                fi
+              done
+              sleep 5
+            done
+          ) &
             yes | xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steam.sh" +login anonymous 2>&1 | tee steam-run.log &
           else
             yes | xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 LD_PRELOAD="$LIB" steam +login anonymous 2>&1 | tee steam-run.log &
@@ -162,10 +176,10 @@ jobs:
             tail -30 steam-run.log 2>/dev/null || true
             find "$HOME/.local/share/Steam" -maxdepth 3 -name 'steamclient*.so' 2>/dev/null | head -5
             echo "--- runtime filesystem forensics ---"
-            find "$HOME/.local/share/Steam" -name 'libcrypto.so*' 2>/dev/null | head -5
-            ls "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/" 2>/dev/null | head -10
-            du -sh "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/"* 2>/dev/null | head -10
-            find "$HOME/.local/share/Steam/steamrt64/pv-runtime" -maxdepth 3 \( -name '*.tar*' -o -name '*.squashfs' \) 2>/dev/null | head -5
+            find "$HOME/.local/share/Steam" -name 'libcrypto.so*' 2>/dev/null
+            ldd "$HOME/.local/share/Steam/steamrt64/steam" 2>&1 | head -15 || true
+            strings "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu/libc.so.6 2>/dev/null | grep -E '^GLIBC_2\.[0-9]+$' | sort -V | tail -3
+            ls "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/" 2>/dev/null | head -12
             tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
             tail -30 "$HOME/.local/share/Steam/logs/console-linux.txt" 2>/dev/null || true
@@ -248,7 +262,12 @@ jobs:
           # `open` after installing updates; an unregistered app never starts.
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HOME/Applications/Steam.app" || true
           # First launch downloads the real client (steamclient.dylib etc.).
-          "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" & APP_PID=$!
+          # Inject here too: LaunchServices is broken on headless runners, so
+          # the updater's open -n hop needs the interposer rewrite to finish
+          # the install cleanly (otherwise every smoke launch redoes the update).
+          ILIB="$PWD/$(find build -name 'libomnisteam.dylib' | head -1)"
+          OMNISTEAM_FORCE_DIRECT_SPAWN=1 DYLD_INSERT_LIBRARIES="$ILIB" \
+            "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" & APP_PID=$!
           for i in $(seq 1 36); do
             sleep 10
             if find "$HOME/Library/Application Support/Steam/Steam.AppBundle" -path '*package/*.installed' 2>/dev/null | grep -q .; then
