@@ -163,10 +163,14 @@ jobs:
               # Run under the runtime's own ld.so with its library paths:
               # effectively inside SteamRT without the pressure-vessel container
               # (which snapshots libs into var/tmp-* before our seeding lands).
-              RTLP="$PLAT/files/lib/x86_64-linux-gnu:$PLAT/files/usr/lib/x86_64-linux-gnu:$PLAT/files/lib:$PLAT/files/usr/lib"
-              LDSO="$PLAT/files/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
-              [ -f "$LDSO" ] || LDSO="$PLAT/files/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
-              xvfb-run -a env STEAM_RUNTIME=1 PRESSURE_VESSEL_RUNTIME="$(basename "$PLAT")" LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" LD_DEBUG=libs "$LDSO" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
+              RTLP="$PLAT/files/lib/x86_64-linux-gnu:$PLAT/files/usr/lib/x86_64-linux-gnu:$PLAT/files/lib64:$PLAT/files/usr/lib64:$PLAT/files/lib:$PLAT/files/usr/lib"
+              LDSO=$(find "$PLAT/files" -name 'ld-linux-x86-64.so.2' 2>/dev/null | head -1)
+              if [ -n "$LDSO" ]; then
+                xvfb-run -a env STEAM_RUNTIME=1 PRESSURE_VESSEL_RUNTIME="$(basename "$PLAT")" LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" LD_DEBUG=libs "$LDSO" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
+              else
+                echo "::warning::runtime ld.so not found; launching host with host ld.so"
+                xvfb-run -a env LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
+              fi
             else
               xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 STEAM_RUNTIME=0 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
             fi
@@ -325,15 +329,15 @@ jobs:
           # CI escape hatch: rewrite the updater's `open -n` spawn into a direct
           # exec (env-preserving) inside SpawnInterpose; product default is off.
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
-          # The bootstrapper self-update re-downloads Steam.app with a fresh
-          # quarantine xattr; ASP then SIGKILLs the exec silently (run
-          # 44228069192: zero output from the smoke launch). Strip again and
-          # wrap the launch so a kill surfaces as an exit code.
-          xattr -dr com.apple.quarantine "$HOME/Applications/Steam.app" 2>/dev/null || true
+          # The bootstrapper self-update leaves Steam.app invalid (binary
+          # missing, spctl: 'invalid API object reference', run 44233479624).
+          # Launch the AppBundle host directly - steamclient.dylib sits next
+          # to it; no bootstrap chain / LaunchServices needed for the smoke.
+          HOST="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx"
+          ls -la "$HOME/Applications/Steam.app/Contents/MacOS/" 2>/dev/null | head -6 || true
+          pkill -9 -x ipcserver 2>/dev/null || true
           xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
-          xattr -l "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx" 2>/dev/null | head -3 || true
-          ( DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 \
-              "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx"; echo "steam_osx exit code: $?" ) 2>&1 | tee steam-console-arm64.log &
+          ( DYLD_INSERT_LIBRARIES="$LIB" DYLD_PRINT_LIBRARIES=1 "$HOST"; echo "steam_osx exit code: $?" ) 2>&1 | tee steam-console-arm64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
@@ -381,9 +385,10 @@ jobs:
           sleep 2
           launchctl setenv DYLD_INSERT_LIBRARIES "$LIB"
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
-          xattr -dr com.apple.quarantine "$HOME/Applications/Steam.app" 2>/dev/null || true
+          xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
+          pkill -9 -x ipcserver 2>/dev/null || true
           ( arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
-              "$HOME/Applications/Steam.app/Contents/MacOS/steam_osx"; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
+              "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx"; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
           for i in $(seq 1 36); do
             sleep 5
