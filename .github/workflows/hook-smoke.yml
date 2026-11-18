@@ -72,11 +72,20 @@ jobs:
           mkdir -p "$OMNISTEAM_CACHE_DIR"
           git archive origin/data signatures | tar -x -C "$OMNISTEAM_CACHE_DIR"
 
-      - name: Build core
+      - name: Build core (bullseye toolchain for SteamRT glibc compat)
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build build --config Release --parallel 2 --target omnisteam_core
+          # SteamRT steamrt3c is Debian 11 (glibc 2.31); a core built on the
+          # 24.04 host references GLIBC_2.34+ symbols and ld.so silently skips
+          # the preload inside the container. Build in bullseye; pip cmake
+          # because bullseye's own cmake (3.18) is below our minimum (3.20).
+          docker run --rm -v "$PWD:/src" -w /src debian:bullseye bash -c '
+            set -e
+            apt-get update
+            apt-get install -y --no-install-recommends g++ ninja-build python3-pip ca-certificates git
+            pip3 install cmake
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+            cmake --build build --target omnisteam_core --parallel
+          '
 
       - name: Install Steam launcher
         run: |
@@ -188,6 +197,10 @@ jobs:
             echo "--- runtime filesystem forensics ---"
             find "$HOME/.local/share/Steam" -name 'libcrypto.so*' 2>/dev/null
             ldd "$HOME/.local/share/Steam/steamrt64/steam" 2>&1 | head -15 || true
+            LDSO=$(find "$HOME/.local/share/Steam/steamrt64/pv-runtime" -name 'ld-linux-x86-64.so.2' 2>/dev/null | head -1)
+            if [ -n "$LDSO" ]; then "$LDSO" --list "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so" 2>&1 | head -12; fi
+            LIBC=$(find "$HOME/.local/share/Steam/steamrt64/pv-runtime" -path '*files*' -name 'libc.so.6' 2>/dev/null | head -1)
+            if [ -n "$LIBC" ]; then strings "$LIBC" | grep -E '^GLIBC_2\.[0-9.]+$' | sort -V | tail -2; fi
             strings "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_*/files/lib/x86_64-linux-gnu/libc.so.6 2>/dev/null | grep -E '^GLIBC_2\.[0-9.]+$' | sort -V | tail -3
             ls "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/" 2>/dev/null | head -12
             tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
@@ -320,11 +333,19 @@ jobs:
           # reach it). launchctl setenv makes launchd itself add the dylib to
           # every session-launched process; the host guard keeps others inert.
           launchctl setenv DYLD_INSERT_LIBRARIES "$LIB"
-          # Headless LaunchServices probe: does `open` produce a process at all?
-          spctl --assess --type execute "$HOME/Applications/Steam.app" 2>&1 | head -2 || true
+          # Headless LaunchServices probes: plain open vs asuser (GUI domain).
+          sudo spctl --master-disable 2>/dev/null || true
           open -a TextEdit 2>open-test.err || true
           sleep 3
           if pgrep -x TextEdit >/dev/null 2>&1; then echo "LaunchServices: OK"; else echo "LaunchServices: BROKEN"; cat open-test.err; fi
+          pkill -x TextEdit 2>/dev/null || true
+          sudo launchctl asuser "$(id -u)" open -a TextEdit 2>open-asuser.err || true
+          sleep 3
+          if pgrep -x TextEdit >/dev/null 2>&1; then echo "LaunchServices asuser: OK"; else echo "LaunchServices asuser: BROKEN"; cat open-asuser.err; fi
+          pkill -x TextEdit 2>/dev/null || true
+          # Package re-extraction re-applies quarantine xattrs; keep stripping
+          # them during the smoke window so the exec fallback is not ASP-killed.
+          ( for i in $(seq 1 240); do xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" "$HOME/Applications/Steam.app" 2>/dev/null; sleep 1; done ) >/dev/null 2>&1 &
           pkill -x TextEdit 2>/dev/null || true
           # CI escape hatch: rewrite the updater's `open -n` spawn into a direct
           # exec (env-preserving) inside SpawnInterpose; product default is off.
