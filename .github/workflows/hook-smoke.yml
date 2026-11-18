@@ -83,7 +83,7 @@ jobs:
             # Bullseye is archived (deb.debian.org 404s since LTS end).
             printf "deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n" > /etc/apt/sources.list
             apt-get -o Acquire::Check-Valid-Until=false update
-            apt-get -o Acquire::Check-Valid-Until=false install -y --no-install-recommends g++ ninja-build python3-pip ca-certificates git
+            apt-get -o Acquire::Check-Valid-Until=false install -y --no-install-recommends g++ ninja-build python3-pip ca-certificates git libssl-dev
             pip3 install cmake
             cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
             cmake --build build --target omnisteam_core --parallel
@@ -357,6 +357,7 @@ jobs:
           ( for i in $(seq 1 240); do xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" "$HOME/Applications/Steam.app" 2>/dev/null; sleep 1; done ) >/dev/null 2>&1 &
           pkill -x TextEdit 2>/dev/null || true
           # CI escape hatch: rewrite the updater's `open -n` spawn into a direct
+          strings "$HOST" 2>/dev/null | grep -iE "launchcontext|clientmode|updatermode|runasclient|forceclient|steamupdate" | head -8 || true
           # exec (env-preserving) inside SpawnInterpose; product default is off.
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
           # The bootstrapper self-update leaves Steam.app invalid (binary
