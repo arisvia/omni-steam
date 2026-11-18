@@ -420,6 +420,7 @@ jobs:
           python3 tools/smoke_status.py core_status_macos_arm64.json --platform macos --max-age 120
 
       - name: Rosetta 2 x86_64 injection smoke
+        if: ${{ !cancelled() }}
         env:
           OMNISTEAM_CACHE_DIR: ${{ github.workspace }}/smoke-cache-rosetta
         run: |
@@ -476,6 +477,8 @@ jobs:
             omnisteam_core_macos.log
             steam-bootstrap-log.txt
             steam-crash-report.ips
+            /Users/runner/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib
+            /Users/runner/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamui.dylib
           if-no-files-found: ignore
 
   windows-smoke:
