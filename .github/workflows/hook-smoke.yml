@@ -80,8 +80,10 @@ jobs:
           # because bullseye's own cmake (3.18) is below our minimum (3.20).
           docker run --rm -v "$PWD:/src" -w /src debian:bullseye bash -c '
             set -e
-            apt-get update
-            apt-get install -y --no-install-recommends g++ ninja-build python3-pip ca-certificates git
+            # Bullseye is archived (deb.debian.org 404s since LTS end).
+            printf "deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n" > /etc/apt/sources.list
+            apt-get -o Acquire::Check-Valid-Until=false update
+            apt-get -o Acquire::Check-Valid-Until=false install -y --no-install-recommends g++ ninja-build python3-pip ca-certificates git
             pip3 install cmake
             cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
             cmake --build build --target omnisteam_core --parallel
@@ -300,6 +302,13 @@ jobs:
               break
             fi
           done
+          # The client never runs (LaunchServices dead), so it never writes
+          # the .installed manifest and every later launch reinstalls the
+          # package in updater mode. Seed it from the package manifest.
+          PKG="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/package"
+          for M in "$PKG"/steam_client_*_osx; do
+            [ -f "$M" ] && cp "$M" "$M.installed" 2>/dev/null || true
+          done
           kill $APP_PID 2>/dev/null || true
           # The bootstrap re-execs and spawns children under new pids; kill
           # the whole tree or a leftover host holds the single-instance lock
@@ -374,6 +383,7 @@ jobs:
             CRASH=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"steam_osx* 2>/dev/null | head -1 || true)
             if [ -n "$CRASH" ]; then head -60 "$CRASH"; cp "$CRASH" steam-crash-report.ips; fi
             ps aux | grep -i "[s]team" | head -10 || true
+            tail -10 /tmp/omni-spawn-fallback.log 2>/dev/null || true
             tail -40 "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" 2>/dev/null || true
             tail -25 "$HOME/Library/Application Support/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
             cp "$HOME/Library/Application Support/Steam/logs/bootstrap_log.txt" steam-bootstrap-log.txt 2>/dev/null || true
@@ -418,6 +428,7 @@ jobs:
           if [ ! -f smoke-cache-rosetta/core_status.json ]; then
             echo "::error::Rosetta x86_64: core_status.json never appeared"
             ps aux | grep -i "[s]team" | head -10 || true
+            tail -10 /tmp/omni-spawn-fallback.log 2>/dev/null || true
             CRASH=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"steam_osx* 2>/dev/null | head -1 || true)
             cp "$HOME/Library/Application Support/Steam/logs/omnisteam_core.log" omnisteam_core_macos.log 2>/dev/null || true
             kill $APP_PID 2>/dev/null || true
