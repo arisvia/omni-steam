@@ -50,6 +50,16 @@ std::string DynamicLibrary::GetCurrentDirectoryPath() {
 std::string DynamicLibrary::GetModulePath(ModuleHandle handle) {
     if (!handle)
         return "";
+    // dyld4 dlopen handles are not reliably dladdr-able. The handle is the
+    // image's mach_header; match it against the dyld image list to recover
+    // the on-disk path (needed to hash steamclient.dylib for signature keys).
+    const uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        if (reinterpret_cast<const void*>(_dyld_get_image_header(i)) == handle) {
+            const char* image = _dyld_get_image_name(i);
+            return image != nullptr ? std::string(image) : "";
+        }
+    }
     Dl_info info;
     if (dladdr(handle, &info) && info.dli_fname) {
         return std::string(info.dli_fname);
