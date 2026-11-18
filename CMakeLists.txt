@@ -249,6 +249,11 @@ elseif(APPLE)
     set(PLATFORM_LIBS CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 else()
     add_compile_definitions(OMNI_PLATFORM_LINUX)
+    # Static OpenSSL: the bullseye toolchain builds against 1.1 while the
+    # CI host (24.04) only ships 3.x; a dynamic libcrypto.so.1.1 dependency
+    # makes the preload kill even /usr/bin/env on the host (run 44251540185).
+    # Static linking keeps the .so self-contained on host AND in SteamRT.
+    set(OPENSSL_USE_STATIC_LIBS TRUE)
     find_package(OpenSSL REQUIRED)
     find_package(CURL REQUIRED)
     find_package(Threads REQUIRED)
