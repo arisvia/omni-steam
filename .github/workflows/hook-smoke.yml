@@ -370,7 +370,10 @@ jobs:
           # to it; no bootstrap chain / LaunchServices needed for the smoke.
           HOST="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx"
           ls -la "$HOME/Applications/Steam.app/Contents/MacOS/" 2>/dev/null | head -6 || true
-          pkill -9 -x ipcserver 2>/dev/null || true
+          # ipcserver is required for SteamAPI_Init; launchd cannot start it on
+          # headless runners, so ensure it runs directly instead of killing it.
+          IPC="$(dirname "$HOST")/ipcserver"
+          pgrep -x ipcserver >/dev/null 2>&1 || { [ -x "$IPC" ] && "$IPC" >/dev/null 2>&1 & }
           xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
           # RE finding (Ghidra decompile of steam_osx): -inhibitbootstrap makes
           # the flag parser set inhibit+skipverify+skiprepair, bypassing the
@@ -427,7 +430,8 @@ jobs:
           launchctl setenv DYLD_INSERT_LIBRARIES "$LIB"
           export OMNISTEAM_FORCE_DIRECT_SPAWN=1
           xattr -dr com.apple.quarantine "$HOME/Library/Application Support/Steam" 2>/dev/null || true
-          pkill -9 -x ipcserver 2>/dev/null || true
+          IPC="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/ipcserver"
+          pgrep -x ipcserver >/dev/null 2>&1 || { [ -x "$IPC" ] && "$IPC" >/dev/null 2>&1 & }
           ( arch -x86_64 /usr/bin/env DYLD_INSERT_LIBRARIES="$LIB" \
               "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steam_osx" -inhibitbootstrap -skipinitialbootstrap; echo "steam_osx x64 exit code: $?" ) 2>&1 | tee steam-console-x64.log &
           APP_PID=$!
