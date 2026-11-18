@@ -193,6 +193,12 @@ jobs:
           if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then
             echo "::error::core_status.json never appeared (injection or host guard failed)"
             ps aux | grep -i "[s]team" | head -10 || true
+            echo "--- per-process preload presence (maps + environ) ---"
+            for P in $(pgrep -f "steamrt64/steam|ubuntu12_64/steam" 2>/dev/null | head -4); do
+              echo "== PID $P cmd: $(tr '\0' ' ' < /proc/$P/cmdline 2>/dev/null | cut -c1-80)"
+              echo "   omnisteam mapped: $(grep -c omnisteam /proc/$P/maps 2>/dev/null)"
+              tr '\0' '\n' < /proc/$P/environ 2>/dev/null | grep -E "^LD_PRELOAD=|^STEAM_RUNTIME=|^PRESSURE_VESSEL" | sed 's/^/   /'
+            done
             tail -30 steam-run.log 2>/dev/null || true
             find "$HOME/.local/share/Steam" -maxdepth 3 -name 'steamclient*.so' 2>/dev/null | head -5
             echo "--- runtime filesystem forensics ---"
