@@ -179,7 +179,7 @@ jobs:
                 xvfb-run -a env STEAM_RUNTIME=1 PRESSURE_VESSEL_RUNTIME="$(basename "$PLAT")" LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" LD_DEBUG=libs "$LDSO" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
               else
                 echo "::warning::runtime ld.so not found; launching host with host ld.so"
-                xvfb-run -a env LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
+                xvfb-run -a env LD_LIBRARY_PATH="$RTLP" LD_PRELOAD="$LIB" LD_DEBUG=libs "$HOME/.local/share/Steam/steamrt64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
               fi
             else
               xvfb-run -a env PRESSURE_VESSEL_VERBOSE=1 STEAM_RUNTIME=0 LD_PRELOAD="$LIB" "$HOME/.local/share/Steam/ubuntu12_64/steam" +login anonymous 2>&1 | tee -a steam-run.log &
@@ -198,6 +198,9 @@ jobs:
             echo "--- runtime filesystem forensics ---"
             find "$HOME/.local/share/Steam" -name 'libcrypto.so*' 2>/dev/null
             ldd "$HOME/.local/share/Steam/steamrt64/steam" 2>&1 | head -15 || true
+            echo "--- core .so glibc requirement ---"
+            readelf --version-info "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -4
+            readelf -d "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so" 2>/dev/null | grep NEEDED
             LDSO=$(find "$HOME/.local/share/Steam/steamrt64/pv-runtime" -name 'ld-linux-x86-64.so.2' 2>/dev/null | head -1)
             if [ -n "$LDSO" ]; then "$LDSO" --list "$HOME/.local/share/Steam/ubuntu12_64/libomnisteam.so" 2>&1 | head -12; fi
             LIBC=$(find "$HOME/.local/share/Steam/steamrt64/pv-runtime" -path '*files*' -name 'libc.so.6' 2>/dev/null | head -1)
@@ -209,6 +212,8 @@ jobs:
             tail -30 "$HOME/.local/share/Steam/logs/console-linux.txt" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/console-linux.txt" steam-container-console.log 2>/dev/null || true
             ls -la "$HOME/.local/share/Steam/logs/" 2>/dev/null | head -15 || true
+            find "$HOME/.local/share/Steam" "$HOME/.steam" -path '*logs*' -name '*.txt' 2>/dev/null | head -12
+            for L in $(find "$HOME/.local/share/Steam" "$HOME/.steam" -path '*logs*' -name 'console*.txt' 2>/dev/null | head -3); do echo "== $L =="; tail -25 "$L"; cp "$L" steam-container-console.log 2>/dev/null || true; done
             tail -25 "$HOME/.local/share/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/bootstrap_log.txt" steam-bootstrap-log.txt 2>/dev/null || true
             kill $STEAM_PID 2>/dev/null || true
