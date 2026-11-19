@@ -167,10 +167,10 @@ jobs:
                 echo "  PID $P mapped=${M:-NA} preload=${E:-NA}"
                 sudo nsenter -t "$P" -m -- ls -la "$LIB" 2>/dev/null | sed 's/^/    mount-ns: /' || true
               done
-              RTPLAT=$(ls -d "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_* 2>/dev/null | sort | tail -1)
+              RTPLAT=$( { ls -d "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt"/steamrt*_platform_* 2>/dev/null || true; } | sort | tail -1)
               if [ -n "$RTPLAT" ]; then
-                RTLIBC=$(find "$RTPLAT/files/lib" -name 'libc.so.6' 2>/dev/null | head -1)
-                [ -n "$RTLIBC" ] && echo "  runtime libc provides: $(strings "$RTLIBC" | grep -oE '^GLIBC_2\.[0-9.]+$' | sort -V | tail -1)"
+                RTLIBC=$(find "$RTPLAT/files/lib" -name 'libc.so.6' 2>/dev/null | head -1 || true)
+                if [ -n "$RTLIBC" ]; then echo "  runtime libc provides: $(strings "$RTLIBC" | grep -oE '^GLIBC_2\.[0-9.]+$' | sort -V | tail -1 || true)"; fi
               fi
             fi
           done
