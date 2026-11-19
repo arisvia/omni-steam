@@ -134,10 +134,26 @@ jobs:
           ( yes | timeout 900 env GTK_A11Y=none xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous \
               >steamrt-bootstrap.log 2>&1 || true ) &
           BGPID=$!
+          RT="$HOME/.local/share/Steam/steamrt64/steamclient.so"
           for i in $(seq 1 90); do
             sleep 10
-            if [ -f "$HOME/.local/share/Steam/steamrt64/steamclient.so" ]; then break; fi
+            if [ -f "$RT" ]; then break; fi
           done
+          # Appearing is not arriving: the file is first unpacked from the deb's
+          # bundled bootstrap tarball (a lagging build), then replaced by the
+          # client's own self-update. Harvesting the early copy is exactly how we
+          # ended up publishing a hash no real host loads, so require the digest
+          # to stop changing before collecting.
+          PREV=""
+          for i in $(seq 1 8); do
+            sleep 45
+            CUR=$(sha256sum "$RT" 2>/dev/null | cut -c1-16)
+            if [ -n "$CUR" ] && [ "$CUR" = "$PREV" ]; then break; fi
+            PREV="$CUR"
+          done
+          echo "steamrt64/steamclient.so sha256=${PREV:-<none>} size=$(stat -c %s "$RT" 2>/dev/null || echo 0)"
+          echo "ubuntu12_64/steamclient.so sha256=$(sha256sum "$HOME/.local/share/Steam/ubuntu12_64/steamclient.so" 2>/dev/null | cut -c1-16) size=$(stat -c %s "$HOME/.local/share/Steam/ubuntu12_64/steamclient.so" 2>/dev/null || echo 0)"
+          echo "steamcmd cmd/linux64 sha256=$(sha256sum steam-dist/cmd/linux64/steamclient.so 2>/dev/null | cut -c1-16)"
           kill "$BGPID" 2>/dev/null || true
           pkill -f "steamrt64/steam" 2>/dev/null || true
           pkill -f steamwebhelper 2>/dev/null || true
