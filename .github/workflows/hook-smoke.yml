@@ -151,9 +151,14 @@ jobs:
           fi
           STEAM_PID=$!
           # Download (~90s) + install (~30s) + host start + hook attach.
+          # pressure-vessel rebuilds a clean environment across its exec hop
+          # and forwards only --ld-preload, so the containerised host writes
+          # the status to the DEFAULT cache dir, not to OMNISTEAM_CACHE_DIR.
+          # $HOME is bind-mounted at the same path, so the host sees it.
+          STATUS_DEFAULT="$HOME/.cache/omnisteam/core_status.json"
           for i in $(seq 1 84); do
             sleep 5
-            if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then break; fi
+            if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] || [ -f "$STATUS_DEFAULT" ]; then break; fi
             if [ $((i % 12)) -eq 0 ]; then
               echo "--- progress $((i*5))s ---"
               ps aux | grep -E "[s]team|[p]ressure-vessel|[s]rt-" | head -8 || true
@@ -174,7 +179,7 @@ jobs:
               fi
             fi
           done
-          if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] && have_host; then
+          if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] && [ ! -f "$STATUS_DEFAULT" ] && have_host; then
             # Fallback: pressure-vessel may strip the preload at the container
             # hop. Relaunch the host directly with the runtime library path
             # steam.sh would have set (libcrypto.so.3 lives in pv-runtime).
@@ -206,8 +211,13 @@ jobs:
             STEAM_PID=$!
             for i in $(seq 1 48); do
               sleep 5
-              if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then break; fi
+              if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] || [ -f "$STATUS_DEFAULT" ]; then break; fi
             done
+          fi
+          if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] && [ -f "$STATUS_DEFAULT" ]; then
+            mkdir -p "$OMNISTEAM_CACHE_DIR"
+            cp "$STATUS_DEFAULT" "$OMNISTEAM_CACHE_DIR/core_status.json"
+            echo "core_status.json came from the default cache dir (env sanitized by pressure-vessel)"
           fi
           if [ ! -f "$OMNISTEAM_CACHE_DIR/core_status.json" ]; then
             echo "::error::core_status.json never appeared (injection or host guard failed)"
@@ -234,6 +244,9 @@ jobs:
             ls "$HOME/.local/share/Steam/steamrt64/pv-runtime/steam-runtime-steamrt/" 2>/dev/null | head -12 || true
             tail -40 "$HOME/.local/share/Steam/logs/omnisteam_core.log" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/omnisteam_core.log" omnisteam_core_linux.log 2>/dev/null || true
+            echo "--- default cache dir (where an env-sanitized host writes) ---"
+            ls -la "$HOME/.cache/omnisteam" 2>/dev/null || true
+            tail -40 "$HOME/.steam/steam/logs/omnisteam_core.log" 2>/dev/null || true
             tail -30 "$HOME/.local/share/Steam/logs/console-linux.txt" 2>/dev/null || true
             cp "$HOME/.local/share/Steam/logs/console-linux.txt" steam-container-console.log 2>/dev/null || true
             ls -la "$HOME/.local/share/Steam/logs/" 2>/dev/null | head -15 || true
