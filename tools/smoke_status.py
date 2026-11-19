@@ -125,7 +125,8 @@ def check_document(doc, platform, ui_expectation, max_age):
         if hooks.get("FillInAppOverview") is True:
             ok("FillInAppOverview attached (optional on this platform)")
         else:
-            warn("FillInAppOverview not attached (optional: steamui module may be absent)")
+            warn("FillInAppOverview not attached (optional: this host did not load steamui, "
+                 "or its published RVA did not resolve)")
 
     for name in expected:
         if name in known:
@@ -217,8 +218,10 @@ def main():
     elif args.no_ui:
         ui_expectation = "optional"
     else:
-        # steamui lives in the host process on Windows/macOS; on Linux the
-        # desktop-only steamui.so may be absent (and no TOML is published yet).
+        # steamui lives in the host process on Windows/macOS. The Linux
+        # SteamRT container does ship a 64-bit steamui.so and its TOML now
+        # carries FillInAppOverview, but the classic/steamcmd path never
+        # loads that module, so a missing attach stays a warning there.
         ui_expectation = "optional" if platform == "linux" else "required"
 
     max_age = args.max_age if args.max_age > 0 else None
