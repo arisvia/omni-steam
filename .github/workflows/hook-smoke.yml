@@ -54,6 +54,12 @@ jobs:
           sudo apt-get install -y libssl-dev libcurl4-openssl-dev ccache xvfb xauth
           # Steam runtime libs are best-effort (package names drift across
           # Ubuntu releases; libgconf-2-4 no longer exists on noble).
+          # The :i386 packages are NOT an OmniSteam compatibility layer and must
+          # stay: the deb's launcher bootstraps through the 32-bit
+          # ubuntu12_32/steam binary before the 64-bit steamrt64 host takes over
+          # (measured in run 44478823644, where PID 11482 was that very process).
+          # OmniSteam itself never reads or publishes anything 32-bit - the
+          # signature pipeline enumerates 64-bit trees only.
           sudo apt-get install -y lib32gcc-s1 lib32stdc++6 libc6:i386 libgl1:i386 \
             libx11-6:i386 libxext6:i386 libxrandr2:i386 libxinerama1:i386 libxi6:i386 \
             libxcursor1:i386 libxss1:i386 libdbus-1-3:i386 \
@@ -189,6 +195,10 @@ jobs:
             echo "--- no core_status; trying direct host launch with runtime libs ---"
             kill $STEAM_PID 2>/dev/null || true
             pkill -f steam.sh 2>/dev/null || true
+            # Valve's 32-bit bootstrap launcher, still part of the modern
+            # client's start-up chain; it must die here or it re-spawns the
+            # host and races the direct relaunch below. Nothing in OmniSteam
+            # reads that binary - this is process hygiene only.
             pkill -f ubuntu12_32/steam 2>/dev/null || true
             pkill -f pressure-vessel 2>/dev/null || true
             pkill -f srt-client-container 2>/dev/null || true

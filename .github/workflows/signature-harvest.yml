@@ -71,31 +71,20 @@ jobs:
           # steamcmd self-updates its own client copies on first run - the ONLY way
           # to obtain the CURRENT steamclient.so without a graphical session (the
           # bootstrap tarball shipped in the deb lags behind runtime self-update).
-          # Run it unconditionally, then harvest the updated copies from $HOME;
-          # the hash-dedup collector below keeps one copy per unique content.
+          # Run it unconditionally; the updated copies then appear under
+          # $HOME/.local/share/Steam/{ubuntu12_64,steamrt64} and are picked up
+          # there by path in "Collect 64-bit client binaries".
           mkdir -p cmd && cd cmd
           curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
           ./steamcmd.sh +quit || true
           cd ../..
-          n=0
-          declare -A SEEN
-          while IFS= read -r f; do
-            h=$(sha256sum "$f" | cut -d' ' -f1)
-            if [ -z "${SEEN[$h]:-}" ]; then
-              SEEN[$h]=1
-              n=$((n+1))
-              mkdir -p "steam-dist/uniq$n"
-              cp "$f" "steam-dist/uniq$n/$(basename "$f")"
-            fi
-          done < <(find steam-dist "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
-          COUNT=$n
-          echo "Unique steamclient.so copies: $COUNT"
-          find steam-dist -name 'steamclient*.so' -printf '%p\n'
-          [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.so obtained"; exit 1; }
-          # Best effort: the desktop client ships steamui.so (steamcmd does
-          # not). Upload whatever the deb/bootstrap extraction gave us.
-          find . "$HOME" -name 'steamui*.so' -type f -exec cp {} steam-dist/ \; 2>/dev/null || true
-          find steam-dist -name 'steamui*.so' -printf '%p\n'
+          # No tree-wide sweep for steamclient.so / steamui.so here: the inputs
+          # are enumerated by their 64-bit location in "Collect 64-bit client
+          # binaries" below. The deb's bootstrap tarball and steamcmd's
+          # self-update leave both bitnesses on disk under identical file
+          # names, so a sweep would have to classify and drop them afterwards -
+          # which is exactly the detect-then-skip pattern this pipeline no
+          # longer has.
 
       - name: Bootstrap the SteamRT client copies
         run: |
@@ -162,26 +151,30 @@ jobs:
             echo "::warning::steamrt64/steamclient.so never appeared on this runner; SteamRT signatures stay unpublished"
           fi
           find "$HOME/.local/share/Steam" -path '*steamrt*' -name '*.so' -printf '%p %s\n' 2>/dev/null || true
-          # Keep the two steamui.so builds apart by hashing the names, exactly
-          # as the 64-bit selector does for steamclient.
-          for f in $(find "$HOME" -name 'steamui*.so' -type f 2>/dev/null); do
-            cp -n "$f" "steam-dist/$(sha256sum "$f" | cut -c1-16)-$(basename "$f")" || true
-          done
-          find steam-dist -iname '*steamui*.so' -printf '%p\n'
 
-      - name: Select 64-bit client binaries
+      - name: Collect 64-bit client binaries
         run: |
-          # The client ships BOTH a 32-bit (cmd/linux32) and a 64-bit
-          # (cmd/linux64) steamclient.so under identical file names. OmniSteam
-          # targets 64-bit platforms only, so drop the i386 copies instead of
-          # publishing RVAs into a namespace no runtime consumes.
+          # Valve ships the same file names in 32-bit and 64-bit trees
+          # (cmd/linux32 + cmd/linux64, ubuntu12_32 + ubuntu12_64), so the
+          # inputs are chosen by LOCATION, never by sniffing a class byte and
+          # dropping what does not fit. Everything downstream treats a 32-bit
+          # image as a hard error, which is only safe because nothing here can
+          # hand one over.
           mkdir -p steam-dist-cls/linux-x64
-          while IFS= read -r f; do
-            cls=$(python3 -c 'import sys; print(open(sys.argv[1],"rb").read()[4])' "$f")
-            [ "$cls" = "2" ] || continue
-            cp "$f" "steam-dist-cls/linux-x64/$(sha256sum "$f" | cut -c1-16)-steamclient.so"
-          done < <(find steam-dist "$HOME" -name 'steamclient*.so' -type f 2>/dev/null)
-          find steam-dist-cls -type f
+          n=0
+          for f in \
+              steam-dist/cmd/linux64/steamclient.so \
+              "$HOME/.local/share/Steam/ubuntu12_64/steamclient.so" \
+              "$HOME/.local/share/Steam/steamrt64/steamclient.so" \
+              "$HOME/.local/share/Steam/ubuntu12_64/steamui.so" \
+              "$HOME/.local/share/Steam/steamrt64/steamui.so"; do
+            [ -f "$f" ] || continue
+            n=$((n + 1))
+            cp -n "$f" "steam-dist-cls/linux-x64/$(sha256sum "$f" | cut -c1-16)-$(basename "$f")"
+          done
+          echo "64-bit libraries enumerated: $n"
+          find steam-dist-cls -type f | sort
+          [ "$n" -gt 0 ] || { echo "::error::no 64-bit steamclient.so obtained"; exit 1; }
 
       - name: Harvest signatures
         run: |
@@ -200,16 +193,17 @@ jobs:
           #    the Itanium vtables, resolved through R_X86_64_RELATIVE addends;
           #  - callee fingerprints anchor CheckAppOwnership by string, then
           #    select the callee matching the utlrbtree lookup shape.
-          for f in $(find steam-dist-cls/linux-x64 -type f | sort); do
+          for f in $(find steam-dist-cls/linux-x64 -name '*steamclient.so' | sort); do
             python3 tools/derive_signatures.py --binary "$f" \
               --map signatures/anchor-map-windows.json \
-              --out signatures-out/linux-x64 || true
+              --out signatures-out/linux-x64
           done
-          # steamui.so ships with the desktop client only; derive it when
-          # present (separate module hash, no anchor map needed).
-          for f in $(find steam-dist -iname '*steamui*.so' | sort); do
+          # steamui.so is a separate module with its own hash and needs no
+          # anchor map; it exists only when the desktop client booted. A
+          # failure here is a real failure - no "|| true" to hide a bad image.
+          for f in $(find steam-dist-cls/linux-x64 -name '*steamui.so' | sort); do
             python3 tools/derive_signatures.py --binary "$f" \
-              --out signatures-out/linux-x64 || true
+              --out signatures-out/linux-x64
           done
 
       - name: Validate derived anchors
@@ -224,17 +218,14 @@ jobs:
         if: always()  # keep forensic evidence even when the validate gate fails
         with:
           name: steam-binaries-linux
-          # steamui.so ships with the desktop client, not steamcmd; upload it
-          # when present so the non-Windows FillInAppOverview reference set
-          # can grow without a separate download job.
+          # Both modules live in the hash-prefixed 64-bit set, which is the
+          # only place the settled SteamRT build exists (steam-dist predates
+          # the client bootstrap) - without it a hook that only misbehaves in
+          # the container cannot be re-checked offline.
           path: |
             steam-dist/**/*steamclient*.so*
-            steam-dist/**/*steamui*.so*
-            # the selector's hash-prefixed 64-bit set, which is the only place
-            # the settled SteamRT build exists (steam-dist predates the client
-            # bootstrap) - without it a hook that only misbehaves in the
-            # container cannot be re-checked offline.
             steam-dist-cls/**/*steamclient*.so*
+            steam-dist-cls/**/*steamui*.so*
           retention-days: 7
           if-no-files-found: warn
 

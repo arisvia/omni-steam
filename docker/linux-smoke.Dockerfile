@@ -9,6 +9,9 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# The :i386 packages exist because Valve's own launcher bootstraps through the
+# 32-bit ubuntu12_32/steam binary before handing over to the 64-bit steamrt64
+# host. OmniSteam is 64-bit only and never reads a 32-bit client image.
 RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y \
     build-essential cmake ninja-build git python3 curl ca-certificates \
     libssl-dev libcurl4-openssl-dev pkg-config xvfb xauth \
