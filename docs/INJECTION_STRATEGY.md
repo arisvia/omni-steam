@@ -53,7 +53,7 @@
 - **SteamRT（pressure-vessel）穿透要点**（2026-11-19 run 44444922527 实测）：
   ① `LD_PRELOAD` 必须指向容器内可见路径——`ubuntu12_64/libomnisteam.so`（bootstrap 复制而来）可用，`/tmp` 副本不可见；pv 只把 preload 转成 `--ld-preload`，**其余环境变量一律清洗**，故 `OMNISTEAM_CACHE_DIR` 到不了内层宿主，状态文件落在默认 `$HOME/.cache/omnisteam/`（`$HOME` 以同路径 bind 进容器，宿主外可读）。
   ② 进程链：`steamrt64/steam`（wrapper）→ `srt-client-container` → `srt-bwrap` → pv-adverb → 容器内 `steamrt64/steam`（真宿主）。每一跳都继承 preload；32 位子进程的 `wrong ELF class: ELFCLASS64` 是预期忽略，不是故障。
-  ③ 冷启动容器里真宿主数分钟后才 `dlopen` `steamclient.so`（此前一直在跑 bootstrap 自检），核心等待上限由 `OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` 调节（默认 60s，CI 冒烟设 600s）。
+  ③ 冷启动容器里真宿主数分钟后才 `dlopen` `steamclient.so`（此前一直在跑 bootstrap 自检），核心的等待上限默认已放大到 600s（`OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` 可调，但容器内收不到该覆盖，必须靠默认值）。
 
 ## 4. macOS 平台
 
@@ -89,6 +89,6 @@
 | 变量 | 平台 | 默认 | 作用 |
 | :--- | :--- | :--- | :--- |
 | `OMNISTEAM_CACHE_DIR` | 全部 | Win `%LOCALAPPDATA%\OmniSteam\cache`；macOS `$HOME/Library/Caches/OmniSteam`；Linux `$XDG_CACHE_HOME/omnisteam`，无则 `$HOME/.cache/omnisteam` | Lua/密钥库/`core_status.json` 落位目录。**注意**：SteamRT pressure-vessel 会清洗环境变量，容器内真宿主只能用默认值（`$HOME` 同路径 bind 挂载，外挂可读），因此外部工具必须两处都认（见 §3）。 |
-| `OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` | 全部 | `60` | 等宿主装载 `steamclient`（.dll/.so/.dylib）的上限，超时则放弃挂钩（不崩宿主）。冷启动容器需数分钟，CI 冒烟设 `600`；取值范围 1–3600，越界回退默认。 |
+| `OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` | 全部 | `600` | 等宿主装载 `steamclient`（.dll/.so/.dylib）的上限，超时则放弃挂钩（不崩宿主）。默认值按冷启动 SteamRT 容器实测放大（宿主跑完自身 bootstrap 需数分钟）；容器内**只能靠默认值**——pv 会清洗环境，这里的覆盖到不了真宿主。取值 1–3600，越界回退默认。 |
 | `OMNISTEAM_INTERPOSE_DEBUG` | macOS | 关 | `=1` 时逐条打印被拦截的 `posix_spawn`/`posix_spawnp`/`execve`。默认关闭：Steam 每个子进程都会触发，一次启动上万行会淹没真正的证据。 |
 | `OMNISTEAM_FORCE_DIRECT_SPAWN` | macOS | 关 | `=1` 时把更新器最后一跳 `sh -c "sleep 1; open -n '<App>'"` 改写成直接 exec 宿主二进制（headless runner 没有可用的 LaunchServices 会话）。产品默认不动 Steam 的启动方式。 |

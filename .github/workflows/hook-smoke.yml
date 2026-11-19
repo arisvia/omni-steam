@@ -156,9 +156,9 @@ jobs:
           # the status to the DEFAULT cache dir, not to OMNISTEAM_CACHE_DIR.
           # $HOME is bind-mounted at the same path, so the host sees it.
           STATUS_DEFAULT="$HOME/.cache/omnisteam/core_status.json"
-          # SteamRT containers spend minutes in bootstrap before steamclient.so
-          # maps; the core default (60s) targets interactive launches.
-          export OMNISTEAM_TARGET_MODULE_WAIT_SECONDS=600
+          # No deadline override here on purpose: pressure-vessel scrubs the
+          # environment, so the containerised host would never see it. The core's
+          # own default (600s) is what carries the cold-start container.
           for i in $(seq 1 84); do
             sleep 5
             if [ -f "$OMNISTEAM_CACHE_DIR/core_status.json" ] || [ -f "$STATUS_DEFAULT" ]; then break; fi

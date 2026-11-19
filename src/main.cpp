@@ -165,29 +165,39 @@ static void InitializeOmniSteam() {
         const std::string targetModule = "steamclient.so";
 #endif
 
-        // Cold-start environments (SteamRT under pressure-vessel, CI runners)
-        // spend minutes in their bootstrap dance before steamclient.so is
-        // mapped, so the deadline is operator-tunable; the default keeps the
-        // interactive behaviour unchanged.
-        int maxWaitAttempts = 600;
+        // Wait for the host to map the steamclient module. The deadline must
+        // work WITHOUT configuration: SteamRT under pressure-vessel scrubs the
+        // environment on the way into the container, so an env override only
+        // reaches processes outside it - the default itself has to outlast a
+        // cold CI bootstrap (measured: the host was still running Steam's own
+        // update check 2 minutes after our old 60s deadline fired).
+        // Poll at 100ms for the first 10s (interactive launches map the module
+        // immediately), then once a second: the loaded-module probe parses
+        // /proc/self/maps, and ten minutes of 100ms polling is pure churn in a
+        // host that is never going to load it.
+        int deadlineMs = 600000;
         if (const char* envWait = std::getenv("OMNISTEAM_TARGET_MODULE_WAIT_SECONDS")) {
             const int seconds = std::atoi(envWait);
             if (seconds > 0 && seconds <= 3600) {
-                maxWaitAttempts = seconds * 10;
+                deadlineMs = seconds * 1000;
             }
         }
-        spdlog::info("Waiting for target module {} to load (max {}s)...", targetModule, maxWaitAttempts / 10);
-        int waitAttempts = 0;
-        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < maxWaitAttempts) {
-            OmniPlatform::Thread::Sleep(100);
-            waitAttempts++;
+        spdlog::info("Waiting for target module {} to load (max {}s)...", targetModule, deadlineMs / 1000);
+        int waitedMs = 0;
+        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule)) {
+            if (waitedMs >= deadlineMs) {
+                break;
+            }
+            const int stepMs = (waitedMs < 10000) ? 100 : 1000;
+            OmniPlatform::Thread::Sleep(stepMs);
+            waitedMs += stepMs;
         }
         if (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule)) {
-            spdlog::error("Target module {} did not load within {}s; aborting hook initialization", targetModule,
-                          maxWaitAttempts / 10);
+            spdlog::error("Target module {} did not load within {}ms; aborting hook initialization", targetModule,
+                          waitedMs);
             return;
         }
-        spdlog::info("Target module {} ready (waited {}ms)", targetModule, waitAttempts * 100);
+        spdlog::info("Target module {} ready (waited {}ms)", targetModule, waitedMs);
 
         // 2. Load Configuration, Security Guard, DLC Metadata Cache, and Pattern Signatures
         Config::Load(OmniPlatform::Paths::GetConfigPath());
