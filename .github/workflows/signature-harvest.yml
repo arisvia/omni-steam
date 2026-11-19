@@ -319,7 +319,10 @@ jobs:
         shell: pwsh
         run: |
           pip install pefile
-          python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/windows-x64
+          # harvest_signatures appends the canonical platform dir itself, so the
+          # root is passed here (passing windows-x64 produced a nested
+          # windows-x64/windows-x64 directory that only the report files landed in).
+          python tools/harvest_signatures.py --scan-root steam-dist --out signatures-out
 
       - name: Sync upstream pattern database
         shell: pwsh
@@ -433,7 +436,7 @@ jobs:
           [ "$COUNT" -gt 0 ] || { echo "::error::no steamclient.dylib obtained"; exit 1; }
 
       - name: Harvest signatures
-        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out/macos-universal
+        run: python3 tools/harvest_signatures.py --scan-root steam-dist --out signatures-out
 
       - name: Derive signatures (string xrefs + vtable anchor transfer + callee fingerprints)
         run: |

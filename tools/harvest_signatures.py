@@ -12,6 +12,16 @@ mangled/demangled substring, and emits:
                                   full candidate dump for manual review of
                                   ambiguous or unresolved functions
 
+SCOPE (read before trusting a green run): this tier needs symbols. Valve strips
+every internal symbol from the official Linux and macOS clients, and the Windows
+export table carries only the C-level SteamClient()/SteamAPI_* entry points -
+none of the hooked functions. Against an official client every platform
+therefore resolves 0 targets and publishes NOTHING, which is the expected
+outcome: the RVAs in signatures/<platform>/<sha16>.toml on the data branch come
+from tools/derive_signatures.py. A "0/10 resolved" line is not evidence of work
+done. A "0 steam libraries found" line is a different thing - the inputs were
+never opened - and now fails the job.
+
 Usage:
   python tools/harvest_signatures.py --binary <path> --out <dir> [--kind elf|macho|pe]
 
@@ -168,7 +178,8 @@ def collect_symbols_pe(binary: Path) -> tuple[dict[str, int], list[str]]:
     return symbols, notes
 
 
-def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
+def harvest(binary: Path, out_dir: Path, kind: str | None) -> tuple[int, int]:
+    """Harvest one binary; returns (exit status, number of resolved targets)."""
     data_sha = sha256_file(binary)
     detected = kind or detect_kind(binary)
     platform = platform_dir(detected)
@@ -183,7 +194,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
         raw, notes = collect_symbols_pe(binary)
     else:
         print("[harvest] unknown binary format", file=sys.stderr)
-        return 1
+        return 1, 0
 
     print(f"[harvest] {len(raw)} candidate symbols collected")
     if notes:
@@ -214,7 +225,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     # the COMMON outcome there. Writing an empty TOML would only add repo
     # noise, so emit the report alone and skip the signature file.
     if not resolved:
-        print(f"[harvest] {binary.name}: 0/{len(TARGETS)} resolved; skipping TOML (report written)")
+        print(f"[harvest] {binary.name}: 0/{len(TARGETS)} resolved (symbol table has no hook target); skipping TOML, report written")
         report_path = out_dir / f"report-{short}.json"
         report_path.write_text(
             json.dumps(
@@ -224,7 +235,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
             ),
             encoding="utf-8",
         )
-        return 0
+        return 0, 0
 
     function_entries = "\n".join(
         f'{name} = {{ rva = "{meta["rva"]}", source = "{meta["source"]}" }}' for name, meta in sorted(resolved.items())
@@ -250,7 +261,7 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     for name in TARGETS:
         if name not in resolved:
             print(f"[harvest]   UNRESOLVED: {name}")
-    return 0
+    return 0, len(resolved)
 
 
 def platform_dir(kind: str) -> str:
@@ -296,13 +307,29 @@ def detect_kind(binary: Path) -> str:
 
 
 def find_steam_libraries(root: Path) -> list[Path]:
-    patterns = ["steamclient.so", "steamclient64.dll", "steamclient.dylib", "steamui.dll", "steamui.dylib", "steamui.so"]
+    # Suffix match, not exact file name: the CI collect step renames every
+    # input to `<sha16>-<name>` so two builds of the same module can coexist in
+    # one directory (signature-harvest.yml). Exact matching returned an empty
+    # list for the whole Linux job, so harvest scanned nothing, exited 0, and
+    # looked like a working 0-symbol pass over a stripped client.
+    suffixes = (
+        "steamclient.so",
+        "steamclient64.dll",
+        "steamclient.dylib",
+        "steamui.dll",
+        "steamui.dylib",
+        "steamui.so",
+    )
     found: list[Path] = []
+    scanned = 0
     for dirpath, _dirnames, filenames in os.walk(root):
         for filename in filenames:
-            if filename.lower() in patterns:
+            scanned += 1
+            if filename.lower().endswith(suffixes):
                 found.append(Path(dirpath) / filename)
-    return found
+    if not found:
+        print(f"[harvest] NOTE: {scanned} file(s) under {root}, none named like a steam library", file=sys.stderr)
+    return sorted(found)
 
 
 def main() -> int:
@@ -317,14 +344,29 @@ def main() -> int:
     if args.scan_root:
         targets = find_steam_libraries(args.scan_root)
         print(f"[harvest] scan root {args.scan_root}: {len(targets)} steam libraries found")
+        if not targets:
+            # Loud on purpose: an empty target list makes the whole run a no-op
+            # that still exits 0, which is indistinguishable from "official
+            # client has no symbols" in the log. Discovery regression, not a
+            # stripped binary.
+            print(f"[harvest] ERROR: no steamclient/steamui library under {args.scan_root}", file=sys.stderr)
+            return 1
     elif args.binary:
         targets = [args.binary]
     else:
         parser.error("either --binary or --scan-root is required")
 
     status = 0
+    resolved_total = 0
     for binary in targets:
-        status |= harvest(binary, args.out, args.kind)
+        rc, resolved = harvest(binary, args.out, args.kind)
+        status |= rc
+        resolved_total += resolved
+    summary = f"[harvest] symbol tier: {resolved_total} target(s) across {len(targets)} librar"
+    summary += "y" if len(targets) == 1 else "ies"
+    if not resolved_total:
+        summary += "; official clients are stripped, so tools/derive_signatures.py is the publishing path"
+    print(summary)
     return status
 
 
