@@ -167,7 +167,7 @@ jobs:
           for f in $(find "$HOME" -name 'steamui*.so' -type f 2>/dev/null); do
             cp -n "$f" "steam-dist/$(sha256sum "$f" | cut -c1-16)-$(basename "$f")" || true
           done
-          find steam-dist -iname 'steamui*.so' -printf '%p\n'
+          find steam-dist -iname '*steamui*.so' -printf '%p\n'
 
       - name: Select 64-bit client binaries
         run: |
@@ -207,7 +207,7 @@ jobs:
           done
           # steamui.so ships with the desktop client only; derive it when
           # present (separate module hash, no anchor map needed).
-          for f in $(find steam-dist -iname 'steamui*.so' | sort); do
+          for f in $(find steam-dist -iname '*steamui*.so' | sort); do
             python3 tools/derive_signatures.py --binary "$f" \
               --out signatures-out/linux-x64 || true
           done
@@ -228,13 +228,13 @@ jobs:
           # when present so the non-Windows FillInAppOverview reference set
           # can grow without a separate download job.
           path: |
-            steam-dist/**/steamclient*.so*
-            steam-dist/**/steamui*.so*
+            steam-dist/**/*steamclient*.so*
+            steam-dist/**/*steamui*.so*
             # the selector's hash-prefixed 64-bit set, which is the only place
             # the settled SteamRT build exists (steam-dist predates the client
             # bootstrap) - without it a hook that only misbehaves in the
             # container cannot be re-checked offline.
-            steam-dist-cls/**/steamclient*.so*
+            steam-dist-cls/**/*steamclient*.so*
           retention-days: 7
           if-no-files-found: warn
 
