@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "OmniPlatform/OmniPlatform.h"
+#include "OmniPlatform/SteamTypes.h"
 
 #include "Utils/Config/Config.h"
 #include "Utils/Config/LuaConfig.h"
@@ -20,6 +21,7 @@
 #include "Utils/Security/AntiCheatGuard.h"
 
 #include "Hook/HookMacros.h"
+#include "Hook/HookStatus.h"
 #include "Hook/Hooks_CallBack.h"
 
 namespace {
@@ -329,6 +331,29 @@ HOOK_FUNC(CheckAppOwnership, bool, void* pObj, uint32_t appId, void* pOwn) {
     }
 
     bool result = oCheckAppOwnership ? oCheckAppOwnership(pObj, appId, pOwn) : false;
+    if (result && pOwn) {
+        // Layout probe for core_status.json / the smoke gate. The client just
+        // filled this AppOwnership for a license it really holds, so the three
+        // fields the injection writes must decode sanely AT OUR OFFSETS:
+        // bOwnsLicense (0x24) set, a non-zero PackageId (0x00), and a
+        // ReleaseState (0x04) inside the enum. A layout that shifted by a byte
+        // fails all three at once, which is precisely the failure an attached
+        // hook and a living process cannot show.
+        const auto* filled = reinterpret_cast<const AppOwnership*>(pOwn);
+        const bool coherent = filled->bOwnsLicense && filled->PackageId != 0 &&
+                              static_cast<uint32_t>(filled->ReleaseState) <=
+                                  static_cast<uint32_t>(EAppReleaseState::Disabled);
+        HookStatus::RecordOwnershipProbe(coherent);
+        if (!coherent) {
+            static std::atomic<bool> layoutWarned{false};
+            bool expected = false;
+            if (layoutWarned.compare_exchange_strong(expected, true)) {
+                spdlog::warn("Hooks_Package: AppOwnership layout probe mismatch (appId={} owns={} packageId={} "
+                             "releaseState={}) - offsets no longer match this client build",
+                             appId, filled->bOwnsLicense, filled->PackageId, static_cast<uint32_t>(filled->ReleaseState));
+            }
+        }
+    }
     TryInitFakeLicenseOnce();
     if (newlyCaptured) {
         g_licenseRefreshPending.store(true);

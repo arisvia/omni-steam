@@ -95,7 +95,8 @@ void UpdateCoreStatus(bool active, const std::string& targetModule = "", size_t 
                 .count();
         const std::string json = HookStatus::BuildCoreStatusJson(
             OmniPlatform::Process::GetCurrentProcessId(), OMNISTEAM_VERSION, OMNISTEAM_GIT_COMMIT, targetModule,
-            luaCount, static_cast<int64_t>(now), HookManager::GetHookStates(), PatternLoader::GetResolvedAddresses());
+            luaCount, static_cast<int64_t>(now), HookManager::GetHookStates(), PatternLoader::GetResolvedAddresses(),
+            HookStatus::SnapshotLayoutProbes());
         ReplaceFile(statusPath, json);
     } catch (const std::exception& ex) {
         spdlog::debug("Failed to update core status: {}", ex.what());

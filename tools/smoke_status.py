@@ -4,7 +4,8 @@
 Validates the per-hook status document published by the injected core
 (`src/main.cpp` -> `HookStatus::BuildCoreStatusJson`) or the Manager's
 `/api/status` projection. Every expected hook must be present AND attached;
-resolved-only license anchors must be present. Known degraded paths are
+resolved-only license anchors must be present; the core's live struct-layout
+probes must report no drift (see LAYOUT_PROBES below). Known degraded paths are
 reported separately so the gate stays green for everything else while the
 issue remains visible.
 
@@ -50,6 +51,19 @@ CORE_ANCHORS = ["MarkLicenseAsChanged", "ProcessPendingLicenseUpdates"]
 # GCC's register-primed key compare, so the ELF TOML publishes it (0xf812a0).
 KNOWN_ISSUES = {}
 KNOWN_ISSUES_BY_PLATFORM = {}
+
+# Live struct-layout evidence published by the core's own probes (HookStatus.h).
+# observed = times the client handed us a real object of that shape, matched =
+# times it decoded coherently at the offsets the hooks WRITE. Never reaching the
+# probe is a warning (an anonymous CI session may simply have nothing to check);
+# reaching it and never decoding is layout drift - the one failure mode an
+# attached hook plus a living process cannot show.
+LAYOUT_PROBES = [
+    ("ownershipObserved", "ownershipMatched",
+     "AppOwnership (bOwnsLicense 0x24 / bFreeLicense 0x28 / ReleaseState 0x04)"),
+    ("packetObserved", "packetMatched",
+     "CNetPacket (m_pubData 0x10 / m_cubData 0x18)"),
+]
 
 PLATFORM_BY_MODULE = {
     "steamclient64.dll": "windows",
@@ -162,6 +176,23 @@ def check_document(doc, platform, ui_expectation, max_age):
                 fail(f"anchor {name} unresolved (license broadcast pipeline broken)")
         if "CUtlMemoryGrow" not in anchors:
             warn("CUtlMemoryGrow unresolved (deferred by design; malloc fallback active)")
+
+    # -- layout probes -------------------------------------------------------
+    layout = doc.get("layout")
+    if not isinstance(layout, dict):
+        fail("missing layout object (this core build does not publish its layout probes)")
+    else:
+        for observed_key, matched_key, claim in LAYOUT_PROBES:
+            observed, matched = layout.get(observed_key), layout.get(matched_key)
+            if not isinstance(observed, int) or not isinstance(matched, int):
+                fail(f"layout probe {observed_key}/{matched_key} absent or not a number "
+                     f"(got {observed!r}/{matched!r})")
+            elif observed == 0:
+                warn(f"layout probe unobserved: {claim} - the client never reached it on this run")
+            elif matched == 0:
+                fail(f"layout drift: {claim} decoded 0/{observed} coherently at the assumed offsets")
+            else:
+                ok(f"layout {observed_key[:-len('Observed')]}: {matched}/{observed} coherent - {claim}")
 
     return failures, warnings, passes
 

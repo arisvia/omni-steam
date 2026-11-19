@@ -24,6 +24,9 @@ struct CoreStatusInfo {
     std::vector<std::pair<std::string, bool>> hooks;
     // Resolved-only anchors (name, hex address) used by smoke regression.
     std::vector<std::pair<std::string, std::string>> anchors;
+    // Live layout-probe counters published by the core (name, value): what the
+    // client itself filled at the offsets the hooks write. See HookStatus.h.
+    std::vector<std::pair<std::string, uint64_t>> layout;
     uint64_t lastHeartbeat = 0;
 };
 

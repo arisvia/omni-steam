@@ -201,6 +201,7 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
             coreStatus.ipcHook = false;
             coreStatus.hooks.clear();
             coreStatus.anchors.clear();
+            coreStatus.layout.clear();
         }
 
         std::ostringstream hooksJson;
@@ -216,6 +217,16 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
                 anchorsJson << ",";
             anchorsJson << "\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.anchors[i].first) << "\":\""
                         << OmniPlatform::Encoding::EscapeJson(coreStatus.anchors[i].second) << "\"";
+        }
+        // Layout probes pass through as numbers: tools/smoke_status.py gates
+        // them the same way through /api/status as through the raw file, so a
+        // missing key means "never observed" and must not serialize as "0/0 ok".
+        std::ostringstream layoutJson;
+        for (size_t i = 0; i < coreStatus.layout.size(); ++i) {
+            if (i != 0)
+                layoutJson << ",";
+            layoutJson << "\"" << OmniPlatform::Encoding::EscapeJson(coreStatus.layout[i].first) << "\":"
+                       << coreStatus.layout[i].second;
         }
         std::ostringstream json;
         json << "{"
@@ -234,7 +245,8 @@ std::string ApiRouter::HandleRequest(const std::string& request) {
              << "\"configStoreHook\":" << (coreStatus.configStoreHook ? "true" : "false") << ","
              << "\"ipcHook\":" << (coreStatus.ipcHook ? "true" : "false") << ","
              << "\"hooks\":{" << hooksJson.str() << "},"
-             << "\"anchors\":{" << anchorsJson.str() << "}}"
+             << "\"anchors\":{" << anchorsJson.str() << "},"
+             << "\"layout\":{" << layoutJson.str() << "}}"
              << "}";
         return MakeHttpResponse(200, "application/json", json.str());
     }

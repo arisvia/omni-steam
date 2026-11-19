@@ -137,6 +137,30 @@ void TestJsonEscapingAndDeterminism() {
     OMNI_CHECK(a == b);
 }
 
+void TestLayoutProbeCounters() {
+    // Coherent observations raise both counters; an incoherent one raises only
+    // "observed". observed > 0 with matched == 0 is what the smoke gate reads
+    // as struct-layout drift, so the asymmetry must survive serialization.
+    HookStatus::RecordOwnershipProbe(true);
+    HookStatus::RecordOwnershipProbe(false);
+    HookStatus::RecordPacketProbe(false);
+    const HookStatus::LayoutProbes probes = HookStatus::SnapshotLayoutProbes();
+    OMNI_CHECK(probes.ownershipObserved == 2 && probes.ownershipMatched == 1);
+    OMNI_CHECK(probes.packetObserved == 1 && probes.packetMatched == 0);
+
+    const std::string json = HookStatus::BuildCoreStatusJson(9, "1.0.0", "c", "m", 0, 1, {}, {}, probes);
+    OMNI_CHECK(Contains(json, "\"ownershipObserved\": 2"));
+    OMNI_CHECK(Contains(json, "\"ownershipMatched\": 1"));
+    OMNI_CHECK(Contains(json, "\"packetObserved\": 1"));
+    OMNI_CHECK(Contains(json, "\"packetMatched\": 0"));
+
+    // The default is the "never reached the probe" state, which the gate must
+    // be able to tell apart from a mismatch.
+    const std::string legacy = HookStatus::BuildCoreStatusJson(9, "1.0.0", "c", "m", 0, 1, {}, {});
+    OMNI_CHECK(Contains(legacy, "\"ownershipObserved\": 0"));
+    OMNI_CHECK(Contains(legacy, "\"packetObserved\": 0"));
+}
+
 } // namespace
 
 int main() {
@@ -145,5 +169,6 @@ int main() {
     TestFullHookMapAndKeyMapping();
     TestAnchorsHexAndZeroFilter();
     TestJsonEscapingAndDeterminism();
+    TestLayoutProbeCounters();
     return 0;
 }

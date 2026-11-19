@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -27,6 +28,7 @@
 #include "Utils/Tickets/LegacyCDKey.h"
 
 #include "Hook/HookMacros.h"
+#include "Hook/HookStatus.h"
 #include "Hook/Hooks_Misc.h"
 
 namespace {
@@ -63,6 +65,12 @@ struct CNetPacket {
     uint8_t* m_pubData;
     uint32_t m_cubData;
 };
+// Our side of the anchor: this must stay the (payload, length) pair the client
+// uses at +0x10/+0x18. The other half of the proof is live - the RecvPkt layout
+// probe cross-checks the two fields against each other on every real packet and
+// publishes the counters in core_status.json ("layout" -> "packet").
+static_assert(offsetof(CNetPacket, m_pubData) == 0x10, "CNetPacket::m_pubData offset drifted");
+static_assert(offsetof(CNetPacket, m_cubData) == 0x18, "CNetPacket::m_cubData offset drifted");
 
 uint8_t g_RecvPacketPool[kPacketPoolSize][kMaxPacketSize];
 int g_RecvPacketPoolIdx = 0;
@@ -1062,7 +1070,16 @@ HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket) {
         uint32_t eMsg = 0, cbHdr = 0, cbBody = 0;
         const uint8_t *pHdr = nullptr, *pBody = nullptr;
 
-        if (UnpackRaw(pPacket->m_pubData, pPacket->m_cubData, eMsg, pHdr, cbHdr, pBody, cbBody)) {
+        const bool unpacked = UnpackRaw(pPacket->m_pubData, pPacket->m_cubData, eMsg, pHdr, cbHdr, pBody, cbBody);
+        // Layout probe for core_status.json / the smoke gate: m_pubData
+        // (+0x10) and m_cubData (+0x18) are correct exactly when a payload
+        // pointer read at one offset yields a message header whose declared
+        // header length fits inside the length read at the other, with the
+        // protobuf bit set and a plausible EMsg. Wrong offsets make that
+        // cross-check fail on every packet (the 2026-10-31 sentinel read was
+        // the same event, but as a crash instead of a counter).
+        HookStatus::RecordPacketProbe(unpacked && eMsg < 100000u);
+        if (unpacked) {
             if (eMsg == k_EMsgServiceMethodResponse) {
                 uint64_t jobid_source = 0, jobid_target = 0;
                 std::string target_job_name;

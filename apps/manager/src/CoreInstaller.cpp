@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -90,6 +91,23 @@ std::vector<std::pair<std::string, std::string>> ExtractJsonStringMap(const std:
     return out;
 }
 
+// Numeric sibling of ExtractJsonBoolMap: the core publishes its layout-probe
+// counters as a flat name -> count object, and the Manager must hand them to
+// /api/status unmodified so smoke_status can check them through --url too.
+std::vector<std::pair<std::string, uint64_t>> ExtractJsonUintMap(const std::string& json, const std::string& objectKey) {
+    std::vector<std::pair<std::string, uint64_t>> out;
+    std::regex objRe("\"" + objectKey + "\"\\s*:\\s*\\{([^}]*)\\}");
+    std::smatch om;
+    if (!std::regex_search(json, om, objRe) || om.size() < 2)
+        return out;
+    const std::string body = om[1].str();
+    std::regex kvRe("\"([^\"]+)\"\\s*:\\s*([0-9]+)");
+    for (std::sregex_iterator it(body.begin(), body.end(), kvRe), end; it != end; ++it) {
+        out.emplace_back((*it)[1].str(), std::strtoull((*it)[2].str().c_str(), nullptr, 10));
+    }
+    return out;
+}
+
 // Copies harvested signature TOMLs (tools/harvest_signatures.py output) from
 // a deployment sibling directory into the cache so PatternLoader can consume
 // them on the next Steam start.
@@ -166,6 +184,7 @@ CoreStatusInfo CoreInstaller::GetStatus() {
             info.ipcHook = ExtractJsonBool(json, "IPCProcessMessage");
             info.hooks = ExtractJsonBoolMap(json, "hooks");
             info.anchors = ExtractJsonStringMap(json, "anchors");
+            info.layout = ExtractJsonUintMap(json, "layout");
         }
     }
 
@@ -178,6 +197,7 @@ CoreStatusInfo CoreInstaller::GetStatus() {
         info.ipcHook = false;
         info.hooks.clear();
         info.anchors.clear();
+        info.layout.clear();
         std::error_code ec;
         fs::remove(statusJsonPath, ec);
     }
