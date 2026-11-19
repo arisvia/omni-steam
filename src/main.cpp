@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -136,15 +137,16 @@ static bool IsSteamHostProcess() {
 }
 
 static void InitializeOmniSteam() {
-    // Pre-log stderr breadcrumb: spdlog sinks only exist after the host guard
-    // passes, so CI needs this to tell "library never loaded" apart from
-    // "guard rejected the process" on injected platforms.
-    std::fprintf(stderr, "[omnisteam] constructor pid=%u exe=%s\n", OmniPlatform::Process::GetCurrentProcessId(),
-                 OmniPlatform::Process::GetExecutablePath().c_str());
     if (!IsSteamHostProcess()) {
-        std::fprintf(stderr, "[omnisteam] host guard rejected (not a steam host)\n");
         return; // Never hook into steamwebhelper.exe or helper processes
     }
+
+    // Pre-log stderr breadcrumb (stderr is unbuffered): CI needs it to tell
+    // "library never loaded" apart from "host died before spdlog flushed".
+    // Printed only for accepted hosts — every Steam child process inherits the
+    // preload, so an unconditional line buries the real signal.
+    std::fprintf(stderr, "[omnisteam] attached pid=%u exe=%s\n", OmniPlatform::Process::GetCurrentProcessId(),
+                 OmniPlatform::Process::GetExecutablePath().c_str());
 
     Log::Init();
     spdlog::info("OmniSteam cross-platform core initializing (Version: {}, Commit: {})...", OMNISTEAM_VERSION,
@@ -163,16 +165,26 @@ static void InitializeOmniSteam() {
         const std::string targetModule = "steamclient.so";
 #endif
 
-        constexpr int kMaxWaitAttempts = 600;
-        spdlog::info("Waiting for target module {} to load (max {}s)...", targetModule, kMaxWaitAttempts / 10);
+        // Cold-start environments (SteamRT under pressure-vessel, CI runners)
+        // spend minutes in their bootstrap dance before steamclient.so is
+        // mapped, so the deadline is operator-tunable; the default keeps the
+        // interactive behaviour unchanged.
+        int maxWaitAttempts = 600;
+        if (const char* envWait = std::getenv("OMNISTEAM_TARGET_MODULE_WAIT_SECONDS")) {
+            const int seconds = std::atoi(envWait);
+            if (seconds > 0 && seconds <= 3600) {
+                maxWaitAttempts = seconds * 10;
+            }
+        }
+        spdlog::info("Waiting for target module {} to load (max {}s)...", targetModule, maxWaitAttempts / 10);
         int waitAttempts = 0;
-        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < kMaxWaitAttempts) {
+        while (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule) && waitAttempts < maxWaitAttempts) {
             OmniPlatform::Thread::Sleep(100);
             waitAttempts++;
         }
         if (!OmniPlatform::DynamicLibrary::GetLoadedModule(targetModule)) {
             spdlog::error("Target module {} did not load within {}s; aborting hook initialization", targetModule,
-                          kMaxWaitAttempts / 10);
+                          maxWaitAttempts / 10);
             return;
         }
         spdlog::info("Target module {} ready (waited {}ms)", targetModule, waitAttempts * 100);

@@ -50,6 +50,10 @@
   仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过。
 
 - Manager `InstallCore` 自动下载/解压并校验 `libomnisteam.so` 落位 `ubuntu12_64/`；`Manager::SteamLauncher`（`POST /api/steam/launch`）以双 fork+setsid detached 启动 Steam 并前置 `LD_PRELOAD=<steam>/ubuntu12_64/libomnisteam.so`（保留既有 preload 链）。`scripts/omnisteam.sh` 支持 build 树与已安装路径双回退。
+- **SteamRT（pressure-vessel）穿透要点**（2026-11-19 run 44444922527 实测）：
+  ① `LD_PRELOAD` 必须指向容器内可见路径——`ubuntu12_64/libomnisteam.so`（bootstrap 复制而来）可用，`/tmp` 副本不可见；pv 只把 preload 转成 `--ld-preload`，**其余环境变量一律清洗**，故 `OMNISTEAM_CACHE_DIR` 到不了内层宿主，状态文件落在默认 `$HOME/.cache/omnisteam/`（`$HOME` 以同路径 bind 进容器，宿主外可读）。
+  ② 进程链：`steamrt64/steam`（wrapper）→ `srt-client-container` → `srt-bwrap` → pv-adverb → 容器内 `steamrt64/steam`（真宿主）。每一跳都继承 preload；32 位子进程的 `wrong ELF class: ELFCLASS64` 是预期忽略，不是故障。
+  ③ 冷启动容器里真宿主数分钟后才 `dlopen` `steamclient.so`（此前一直在跑 bootstrap 自检），核心等待上限由 `OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` 调节（默认 60s，CI 冒烟设 600s）。
 
 ## 4. macOS 平台
 
