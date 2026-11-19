@@ -1,0 +1,10 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "48e48023b7b5035b-steamui.so"
+binary_sha256 = "48e48023b7b5035b6a7cad5e12590ea73ca3305c6052a28db42309b8fc81fe40"
+kind = "elf"
+
+[functions]
+BBuildAndAsyncSendFrame = { rva = "0x1f70960", source = "derived:string-xref" }
+BuildCompleteAppOverviewChange = { rva = "0x19d4700", source = "derived:string-xref" }
+FillInAppOverview = { rva = "0x19bfac0", source = "derived:string-xref-callee-proof" }

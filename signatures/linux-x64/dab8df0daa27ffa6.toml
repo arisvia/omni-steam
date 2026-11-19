@@ -1,0 +1,24 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "dab8df0daa27ffa6-steamclient.so"
+binary_sha256 = "dab8df0daa27ffa6594ef5d6bc8cf707f37990220628f1f249fb30f4d88ade91"
+kind = "elf"
+
+[functions]
+BBuildAndAsyncSendFrame = { rva = "0x2909560", source = "derived:string-xref" }
+BParseResponseMessage = { rva = "0x105d020", source = "derived:string-xref" }
+BUpdateLicenses = { rva = "0x18fd120", source = "derived:string-xref" }
+CheckAppOwnership = { rva = "0x18ea640", source = "derived:string-xref" }
+CloseAppCloud = { rva = "0x197f3a0", source = "derived:vtable-slot-transfer" }
+ConfigStoreGetBinary = { rva = "0x11f0430", source = "derived:vtable-slot-transfer" }
+GetAppDataFromAppInfo = { rva = "0x1061330", source = "derived:vtable-slot-transfer" }
+GetPackageInfo = { rva = "0x10544c0", source = "derived:callee-fingerprint" }
+IPCProcessMessage = { rva = "0x1a653a0", source = "derived:vtable-slot-transfer" }
+LoadDepotDecryptionKey = { rva = "0x11f0430", source = "derived:vtable-slot-transfer" }
+MarkLicenseAsChanged = { rva = "0x18e5aa0", source = "derived:license-dual-chain" }
+OnLicensesUpdated = { rva = "0x11e9720", source = "derived:string-xref" }
+OptedInMask = { rva = "0x1249d40", source = "derived:vtable-slot-transfer" }
+OptedInMaskImpl = { rva = "0x1249b00", source = "derived:hotpatch-thunk-fallback" }
+ProcessPendingLicenseUpdates = { rva = "0x18e64e0", source = "derived:license-dual-chain" }
+RecvPkt = { rva = "0x11c87a0", source = "derived:vtable-slot-transfer" }
+SpawnProcess = { rva = "0x1919260", source = "derived:string-xref" }

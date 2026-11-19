@@ -1,0 +1,9 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "steamui.dll"
+binary_sha256 = "2dfb0a5d50dd90667549cc7d413c7bfb0794c9af4ebaf08bf1cf7d938a11ea93"
+kind = "pe"
+
+[functions]
+BuildCompleteAppOverviewChange = { rva = "0x634280", source = "derived:string-xref" }
+FillInAppOverview = { rva = "0x63b0d0", source = "derived:ui-dual-chain" }
