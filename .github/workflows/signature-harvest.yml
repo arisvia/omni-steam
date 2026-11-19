@@ -23,6 +23,7 @@ on:
       - 'tools/harvest_signatures.py'
       - 'tools/derive_signatures.py'
       - 'tools/sync_upstream_patterns.py'
+      - 'tools/verify_abi_layout.py'
       # Manually dropped anchor TOMLs ("放入即生效") re-validate and redistribute.
       - 'signatures/**'
 # Two loop guards: (1) the bot commit message carries [skip ci] which GitHub
@@ -216,6 +217,19 @@ jobs:
           python3 tools/validate_signatures.py --scan-root steam-dist-cls/linux-x64 \
             --map signatures/anchor-map-windows.json
 
+      - name: Verify ABI layout anchors
+        run: |
+          # A correct RVA is not a correct hook: Hooks_Package writes
+          # AppOwnership at offsets transcribed from the Windows client. This
+          # disassembles CheckAppOwnership AT THE PUBLISHED RVA and proves the
+          # Linux client itself uses those same offsets (dword head, 18-byte
+          # bool tail, +0x24 read as a predicate). --negative-control re-runs
+          # with the layout shifted a byte and requires rejection, so the step
+          # cannot go green by checking nothing.
+          python3 tools/verify_abi_layout.py --scan-root steam-dist-cls/linux-x64 \
+            --signatures signatures-out --strict --negative-control \
+            --json signatures-out/linux-x64/layout-report.json
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         if: always()  # keep forensic evidence even when the validate gate fails
@@ -378,6 +392,18 @@ jobs:
           python tools/validate_signatures.py --scan-root steam-dist `
             --map signatures/anchor-map-windows.json
 
+      - name: Verify ABI layout anchors
+        shell: pwsh
+        run: |
+          pip install pefile capstone
+          # Windows is the reference platform the AppOwnership layout was
+          # transcribed from, so its verdict is what the Linux/macOS jobs are
+          # compared against. If this ever stops holding, every platform is
+          # wrong and the hook must change, not the verifier.
+          python tools/verify_abi_layout.py --scan-root steam-dist `
+            --signatures signatures-out --strict --negative-control `
+            --json signatures-out/windows-x64/layout-report.json
+
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7
         if: always()  # keep forensic evidence even when later steps fail
@@ -469,6 +495,16 @@ jobs:
           # validate_signatures imports capstone too, so run it from the venv.
           .derive-venv/bin/python3 tools/validate_signatures.py --scan-root steam-dist \
             --map signatures/anchor-map-windows.json
+
+      - name: Verify ABI layout anchors
+        run: |
+          # Both Mach-O slices are judged: the fat steamclient.dylib carries
+          # rva (x86_64) and rva_arm64, and the hook runs on whichever slice
+          # the host loaded. Same rules as Windows/Linux, including the
+          # one-byte-off negative control.
+          .derive-venv/bin/python3 tools/verify_abi_layout.py --scan-root steam-dist \
+            --signatures signatures-out --strict --negative-control \
+            --json signatures-out/macos-universal/layout-report.json
 
       - name: Upload binaries artifact (private, 7 days)
         uses: actions/upload-artifact@v7

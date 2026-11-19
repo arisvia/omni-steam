@@ -101,3 +101,54 @@ help text, SysV in `rdx` after it, so the handler is identified as the only LEA
 in the constructor block targeting executable code. MSVC inlines the package
 creation path into that handler, so Windows reports `n/a` for this particular
 cross-check instead of failing a check it cannot run.
+
+## Offset semantics: the layout gate (`tools/verify_abi_layout.py`)
+
+Correct RVAs are half the contract. The hooks also **write into client-owned
+structures** at offsets transcribed from the Windows client
+(`AppOwnership::bOwnsLicense` at +0x24, `PackageId` at +0x00, `ReleaseState` at
++0x04, `CNetPacket::m_pubData`/`m_cubData` at +0x10/+0x18). If those offsets stop
+describing the live layout, nothing fails loudly: the hook attaches at a correct
+RVA, the client survives, and the unlock simply does nothing. A `static_assert`
+in `SteamTypes.h` cannot see that - our struct always agrees with itself.
+
+Each harvest job therefore runs the layout gate over the same official binaries
+it just derived RVAs from, against the TOMLs it is about to publish:
+
+```
+tools/verify_abi_layout.py --scan-root <64-bit images> --signatures <out> --strict --negative-control
+```
+
+The gate disassembles the client's own `CheckAppOwnership` at the published RVA,
+follows the third argument register (MSVC `r8`, SysV `rdx`, AAPCS `x2`) through
+its prologue copies, and requires the client to touch the assumed offsets with
+the assumed widths - plus two semantic shapes that a coincidental width match
+would not produce: the byte at +0x24 is loaded and branched on, and the dword at
++0x04 is compared against `Released`(4). AArch64 runs the same rules on the
+fat binary's arm64 slice.
+
+`--negative-control` shifts the whole assumed layout by one byte and requires
+every image to come back `CONTRADICTED`; without it a green run could mean the
+rules never match anything.
+
+`CNetPacket` is deliberately **not** covered here: on all three platforms
+`RecvPkt` reaches the payload only through the packet object's own vtable, so the
+concrete class is not statically identifiable and a "+0x10 pointer / +0x18
+length" pair found in that function would belong to some unrelated struct. That
+anchor is proven at runtime instead - `Hooks_NetPacket` cross-checks the two
+fields against each other on every real packet, `Hooks_Package` re-reads the
+struct the client itself filled, and `tools/smoke_status.py` fails the smoke run
+on a probe that observed objects and decoded none of them. See
+`docs/TESTING.md` §五.
+
+## What the symbol tier (`harvest_signatures.py`) is for
+
+It reads symbol tables. Official clients are stripped (Linux/macOS entirely; the
+Windows export table only carries the C-level `SteamClient`/`SteamAPI_*` entry
+points), so on a production harvest it resolves **0 targets on every platform**
+and publishes nothing - that is the expected outcome, and the publishing path is
+`derive_signatures.py`. Its purpose is symbol-bearing internal builds, where its
+resolutions are an independent third opinion on the same names. Its scan step
+matches `<sha16>-steamclient.so` style names by suffix and **fails** if a
+non-empty scan root yields no library at all, so "the inputs were never opened"
+can no longer masquerade as "the client has no symbols".
