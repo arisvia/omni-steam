@@ -1,6 +1,8 @@
 #include "omni_check.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -90,6 +92,43 @@ void TestAntiCheatGuard() {
     std::cout << "[PASS] TestAntiCheatGuard\n";
 }
 
+void TestHash() {
+    // SHA-256 keys the signature-DB cache and validates depot-key CDN downloads,
+    // and each platform answers it from a different implementation (bcrypt /
+    // CommonCrypto / in-house), so all three must reproduce the FIPS 180-4
+    // vectors. The 55/56/64-byte inputs pin the padding boundary where
+    // hand-rolled digests go wrong; the 1000-byte one covers multi-block.
+    auto Bytes = [](const std::string& s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes("")) ==
+               "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes("abc")) ==
+               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes(std::string(55, 'a'))) ==
+               "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318");
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes(std::string(56, 'a'))) ==
+               "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a");
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes(std::string(1000, 'a'))) ==
+               "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3");
+    OMNI_CHECK(OmniPlatform::Hash::Sha256(Bytes("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")) ==
+               "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+
+    // File hashing streams through fixed-size chunks, so it must agree with the
+    // one-shot digest of the same bytes, and a missing file must come back empty
+    // rather than as the hash of nothing.
+    const std::string path = "omnisteam_hash_test.tmp";
+    const std::string payload(20000, 'z');
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    }
+    const std::string fileHash = OmniPlatform::Hash::Sha256File(path);
+    OMNI_CHECK(fileHash == OmniPlatform::Hash::Sha256(Bytes(payload)));
+    OMNI_CHECK(!fileHash.empty());
+    OMNI_CHECK(OmniPlatform::Hash::Sha256File("omnisteam-hash-missing-file.tmp") == "");
+    std::remove(path.c_str());
+    std::cout << "[PASS] TestHash\n";
+}
+
 int main() {
     std::cout << "Running OmniSteam Platform Tests...\n";
     TestClientIdentity();
@@ -97,6 +136,7 @@ int main() {
     TestByteSearch();
     TestCredentialStore();
     TestAntiCheatGuard();
+    TestHash();
     std::cout << "All Phase 1 Platform Tests Passed!\n";
     return 0;
 }

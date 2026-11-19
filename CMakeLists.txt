@@ -249,30 +249,15 @@ elseif(APPLE)
     set(PLATFORM_LIBS CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 else()
     add_compile_definitions(OMNI_PLATFORM_LINUX)
-    # Static OpenSSL: the bullseye toolchain builds against 1.1 while the
-    # CI host (24.04) only ships 3.x; a dynamic libcrypto.so.1.1 dependency
-    # makes the preload kill even /usr/bin/env on the host (run 44251540185).
-    # Static linking keeps the .so self-contained on host AND in SteamRT.
-    set(OPENSSL_USE_STATIC_LIBS TRUE)
-    find_package(OpenSSL REQUIRED)
+    # No OpenSSL: the core's only digest need is SHA-256, which
+    # src/Platform/Linux/Hash.cpp implements in-house. Linking OpenSSL was
+    # doubly fatal - dynamic 1.1 from the bullseye toolchain unresolved on the
+    # 3.x host (the preload killed even /usr/bin/env, run 44251540185), and
+    # OPENSSL_USE_STATIC_LIBS drags non-PIC libz.a into the shared object
+    # (R_X86_64_PC32 against z_errmsg). libcurl keeps TLS for HTTP.
     find_package(CURL REQUIRED)
-    # FindOpenSSL's static mode biases the suffix search for the ZLIB it
-    # resolves internally, so ZLIB::ZLIB comes back as non-PIC libz.a - which
-    # cannot be linked into a shared object (R_X86_64_PC32 against z_errmsg).
-    # libcrypto only needs zlib's symbols, so bind them to the shared zlib,
-    # the same one libcurl already pulls into SteamRT. Done after every
-    # find_package that may re-create the target from its cached static hit.
-    set(_omni_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so")
-    find_library(OMNI_ZLIB_SHARED NAMES z)
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_omni_saved_suffixes})
-    if(OMNI_ZLIB_SHARED AND TARGET ZLIB::ZLIB)
-        set_target_properties(ZLIB::ZLIB PROPERTIES IMPORTED_LOCATION "${OMNI_ZLIB_SHARED}")
-    elseif(NOT OMNI_ZLIB_SHARED)
-        message(WARNING "shared zlib not found; the static OpenSSL import will fail to link into libomnisteam.so")
-    endif()
     find_package(Threads REQUIRED)
-    set(PLATFORM_LIBS OpenSSL::Crypto OpenSSL::SSL CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
+    set(PLATFORM_LIBS CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 endif()
 
 # Include directories
