@@ -6,9 +6,9 @@
 
 | 模块 | 实施状态 | 核心实现与保障 |
 | :--- | :--- | :--- |
-| **跨平台底层 (OmniPlatform)** | ✅ Windows / Linux / macOS | funchook 统一挂钩；系统目录监视双缓冲热重载；跨平台统一进程探测（`/proc`、`sysctl`、Toolhelp）；macOS universal（arm64+x86_64）构建。**注意：非 Windows 平台的函数寻址仍依赖不完整的签名库，解锁链路尚未全量打通（见 §3）**。 |
-| **协议与所有权核心 (Core)** | ✅ Windows；⚠️ Linux/macOS 受签名覆盖限制 | Package 0 原生增量扩容；AES 密钥快速回填；追加字段式请求码与令牌改写；无锁化 RichPresence 状态投递。逻辑全平台共享，但依赖的函数锚点目前仅 Windows 全量可解析。 |
-| **成就系统与高可用** | ✅ Windows；⚠️ Linux/macOS 同上 | Player.GetUserStats / eMsg 818 双协议劫持；stats 节点宕机/断网 Tier 3 自动本地合成空响应保底。 |
+| **跨平台底层 (OmniPlatform)** | ✅ Windows / Linux / macOS | funchook 统一挂钩；系统目录监视双缓冲热重载；跨平台统一进程探测（`/proc`、`sysctl`、Toolhelp）；macOS universal（arm64+x86_64）构建。**注意：steamclient 签名已三平台全覆盖（win 15 / lin 16 / mac 16，mac 含 arm64 双字段）；Linux 侧仍缺 `steamui` 模块（`steamui.so` 只随桌面客户端发布，CI 的 steamcmd 拿不到），故 UI 可见性钩子在 Linux 按缺模块降级**。 |
+| **协议与所有权核心 (Core)** | ✅ Windows / macOS（arm64 真机 12 钩子全附着）；⚠️ Linux 待真机复核 | Package 0 原生增量扩容；AES 密钥快速回填；追加字段式请求码与令牌改写；无锁化 RichPresence 状态投递。逻辑全平台共享，函数锚点三平台均已发布（Linux TOML 16/16）。 |
+| **成就系统与高可用** | ✅ Windows / macOS；⚠️ Linux 待真机复核 | Player.GetUserStats / eMsg 818 双协议劫持；stats 节点宕机/断网 Tier 3 自动本地合成空响应保底。 |
 | **安全与防崩溃机制** | ✅ 全平台 | 30+ 款竞技游戏反作弊白名单直通；进程退出 detours 由 OS 回收杜绝 Loader Lock 崩溃；`g_watchThread` 显式分离。 |
 | **Manager 独立管理端** | ✅ Web / CLI / 托盘 | 本地 23 万+ Depot 密钥与 CDN 实时同步；Lua 一键生成与 Base/DLC Depot 密钥单趟合并；Windows 状态托盘与有序关停。 |
 | **跨平台云存档** | ✅ WebDAV / 本地快照 | `remotecache.vdf` 零开销路径解析；游戏退出单次文件事件唤醒；本地滚动快照与 WebDAV 双通道。 |
@@ -18,7 +18,7 @@
 按打通顺序排列：
 
 1. ~~**签名锚点补全（核心阻塞）**~~ **已完成主链路**：重定位解析层（ELF `R_X86_64_RELATIVE` addend / Mach-O `LC_DYLD_INFO` rebase 与 chained fixups）打通了 strip 后的 RTTI 遍历，Windows 锚点图按 Itanium 同序槽位跨 ABI 移植；限定名 VProf 探针修复了 `RecvPkt`/`BBuildAndAsyncSendFrame` 的"0 xref"。Windows 15 / Linux 16 / macOS 16 函数，`tools/validate_signatures.py` 双机制交叉校验守门。
-2. **Package 0 扩容（部分完成）**：`GetPackageInfo` **已三平台自动派生**（Windows `0x49b040` / Linux `0xeb8b70` / macOS `0x59a008`，随版本自动重算）。它是非虚函数，vtable 槽位无法覆盖，改用新增的**被调指纹派生**：先按字面量锚定调用方 `CheckAppOwnership`，再在其直接 callee 中匹配 utlrbtree 查找结构（`[this+0x20]` 根索引、`[this+0x38]` 节点数组、`shl 5` 步长、`[node+0x10]` 键比较、且含创建路径调用）。第二机制 `package_info_print` 控制台命令注册点独立复核，已纳入 CI 守门。
+2. **Package 0 扩容（部分完成）**：`GetPackageInfo` **已三平台自动派生**（当前客户端 Windows `0x4df9f0` / Linux `0xf812a0` / macOS x86_64 `0x5619c6`+arm64 `0x5bb318`，随版本自动重算；Linux 这条 2026-11-19 才补齐——被调指纹原先只认 MSVC/clang 的原地 `cmp [node+0x10]`，GCC 先发 `mov ecx,[rdx+0x10]` 再 `cmp ebx,ecx`，ELF 因此零候选）。它是非虚函数，vtable 槽位无法覆盖，改用新增的**被调指纹派生**：先按字面量锚定调用方 `CheckAppOwnership`，再在其直接 callee 中匹配 utlrbtree 查找结构（`[this+0x20]` 根索引、`[this+0x38]` 节点数组、`shl 5` 步长、`[node+0x10]` 键比较、且含创建路径调用）。第二机制 `package_info_print` 控制台命令注册点独立复核，已纳入 CI 守门。
    许可子系统调用方已锚定：`CUser::BUpdateLicenses` 与 `CCompatManager::OnLicensesUpdated` 的限定名 VProf 字面量在 WIN/LIN/MAC 上均为唯一 xref，已作为 `STRING_PROBES` 加入派生层（win 15 / lin 16 / mac 16 函数，`validate_signatures.py` 10 项交叉校验 0 失败，损坏 anchor-map 的负向对照正确非零退出）。二者 RVAs：
 
    | 锚点 | Windows | Linux | macOS |
@@ -44,8 +44,8 @@
    **2026-11-17 全量审计 + 已拍板落地（降级不删除）**：13 条内置特征全在 Windows 分支；
    ① `BBuildAndAsyncSendFrame` 必留——当前 Windows TOML 不含它（MSVC 限定名 VProf 字面量进指针表，string-xref 拿不到），内置特征是唯一机制（根治待 derive 指针表 xref 层）；
    ② `g_patterns` 兼任"期望目标清单"，驱动远程 CDN 触发、缓存完整性判定、RVA 缓存模块归属、导出兜底模块选择四处非特征逻辑——已改为**三平台统一清单 + 空特征降级**（扫描前 `pattern.empty()` 短路），远程触发改用"已加载模块中存在未解析注册目标"判据，修复 POSIX 自愈层永不触发的缺陷；完整性判定跳过未加载模块（steamui 可选）；`CUtlMemoryGrow` 不入清单（挂起项，避免远程层每次启动空转）；
-   ③ `GetOrAddAppData` 命名断裂已接别名（`NormalizeFunctionName`：`GetAppDataFromAppInfo → GetOrAddAppData`），语义同一性由双重门把关：`tools/verify_appdata_alias.py` 静态形状探针（.pdata 定界 + capstone 校验 edx/r8b 参数消费 + 许可管线调用点佐证）与 hook-smoke 真机动态冒烟。**Windows 真机裁决已通过（2026-11-17）：探针 PASS + 钩子附着 + Steam 存活，别名在 Windows 复活**；Linux/macOS 待冒烟通过；
-   ④ Linux 当前 TOML 缺 `GetPackageInfo`（callee-fingerprint 层 ELF 缺口，冒烟工具 warn 保持可见）。
+   ③ `GetOrAddAppData` 命名断裂已接别名（`NormalizeFunctionName`：`GetAppDataFromAppInfo → GetOrAddAppData`），语义同一性由双重门把关：`tools/verify_appdata_alias.py` 静态形状探针（.pdata 定界 + capstone 校验 edx/r8b 参数消费 + 许可管线调用点佐证）与 hook-smoke 真机动态冒烟。**Windows 真机裁决已通过（2026-11-17）：探针 PASS + 钩子附着 + Steam 存活，别名在 Windows 复活**；macOS arm64 原生冒烟已通过（2026-11-19 run 44440919734，12 钩子全附着含 `GetOrAddAppDataHook`）；Linux 待本轮冒烟复核；
+   ④ Linux `GetPackageInfo` 缺口**已闭合（2026-11-19）**：被调指纹的 `[node+0x10]` 键比较子句原先只认 MSVC/clang 的原地 `cmp`，加上 GCC 的"先 load 进寄存器再 cmp"形态后，ELF 客户端唯一命中 `0xf812a0`（`validate_signatures.py` 独立复核同值），Linux TOML 升至 16/16，`smoke_status.py` 的 linux 降级白名单随之撤销。
    维护性：清单只在钩子面变化时维护，客户端更新零维护（RVA 全部来自 data 分支 TOML 自动重算）；唯一残留漂移项是 ① 的单条字节特征。
    另：仓库内参考 `steamui.dll` 为 i386 二进制（特征 0 命中属位宽失配）；**真机 64 位客户端确认附带 64 位 `steamui.dll`**（2026-11-14 CI 采集，`FillInAppOverview` 字面量在 x64 PE 命中 `0x63b0d0`），i386 参考仅作历史样本保留。
 11. **新客户端编码漂移（2026-11-14 CI 实测三处，均已适配）**：

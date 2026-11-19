@@ -41,16 +41,15 @@ CORE_HOOKS = [
 # Resolved-only anchors consumed by the license broadcast pipeline.
 CORE_ANCHORS = ["MarkLicenseAsChanged", "ProcessPendingLicenseUpdates"]
 
-# Known degraded paths: reported as warnings, never gate failures.
-# - GetPackageInfo on Linux: the callee-fingerprint derive layer does not
-#   publish it for the current ELF client yet (win/mac TOMLs have it).
+# Known degraded paths: reported as warnings, never gate failures. Add an
+# entry only while a derivation mechanism is genuinely absent for a platform.
 # GetOrAddAppDataHook graduated to CORE_HOOKS: the NormalizeFunctionName alias
 # (GetAppDataFromAppInfo -> GetOrAddAppData) is gated by the static shape probe
 # (tools/verify_appdata_alias.py) and the real-machine hook-smoke jobs.
+# GetPackageInfo on Linux graduated too: the callee fingerprint now decodes
+# GCC's register-primed key compare, so the ELF TOML publishes it (0xf812a0).
 KNOWN_ISSUES = {}
-KNOWN_ISSUES_BY_PLATFORM = {
-    "linux": {"GetPackageInfo": "derive callee-fingerprint gap on current ELF client TOML"},
-}
+KNOWN_ISSUES_BY_PLATFORM = {}
 
 PLATFORM_BY_MODULE = {
     "steamclient64.dll": "windows",
