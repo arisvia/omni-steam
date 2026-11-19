@@ -2013,6 +2013,11 @@ def main() -> int:
         details.extend(arm_details)
         arm_refs: list[tuple[str, int, str]] = []
         for name, meta in resolved.items():
+            if name == "FillInAppOverview":
+                # FillInAppOverview is owned by the UI dual chain below; a
+                # vtable slot wrapper must not compete with it and trip the
+                # conflict veto (which would drop the published arm64 RVA).
+                continue
             for ti_name, slot, _vtable in vtable_slots_for_rva(img, int(meta["rva"], 16)):
                 if ti_name:
                     arm_refs.append((name, slot, ti_name))
