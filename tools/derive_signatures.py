@@ -1053,9 +1053,14 @@ def is_package_cache_accessor(img: Image, rva: int, md) -> bool:
         for i in head
     )
     stride = any(i.mnemonic == "shl" and i.op_str.endswith(", 5") for i in seq[:32])
+    # MSVC/clang compare the node key in place (`cmp [node+0x10], reg`); GCC
+    # primes a register first (`mov ecx, [rdx+0x10]` then `cmp ebx, ecx`).
+    # Accept either memory form - the create-path `call` below is what keeps
+    # this distinct from the pure Find helper, not the compare encoding.
     key = any(
-        i.mnemonic == "cmp" and any(o.type == X86_OP_MEM and o.mem.disp == 0x10 for o in i.operands)
+        i.mnemonic in loads or i.mnemonic == "cmp"
         for i in seq[:32]
+        if any(o.type == X86_OP_MEM and o.mem.disp == 0x10 for o in i.operands)
     )
     creates = any(i.mnemonic == "call" for i in seq)
     return root and nodes and stride and key and creates
