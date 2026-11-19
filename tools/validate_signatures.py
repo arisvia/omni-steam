@@ -62,20 +62,15 @@ CROSS_CHECKS: dict[str, str] = {
 PKG_CMD_HELP = "Dumps package info for packageID"
 
 
-def load_image(path: Path) -> Image | None:
+def load_image(path: Path) -> Image:
     head = path.read_bytes()[:8]
     if head[:4] == b"\x7fELF":
-        if head[4] != 2:  # 64-bit only
-            return None
-        return parse_elf(path)
+        return parse_elf(path)  # raises unless the image is x86_64
     if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
         return parse_macho(path)
     if head[:2] == b"MZ":
-        try:
-            return parse_pe(path)
-        except ValueError:
-            return None  # 32-bit PE: no 64-bit runtime consumes its RVAs
-    return None
+        return parse_pe(path)  # raises unless the image is PE32+ x86_64
+    raise ValueError(f"{path.name}: not a Mach-O/ELF/PE image")
 
 
 def package_cmd_handlers(img: Image, md) -> set[int]:
@@ -322,8 +317,6 @@ def main() -> int:
         if "steamclient" not in name and "steamui" not in name:
             continue
         img = load_image(path)
-        if img is None:
-            continue
         scanned += 1
         checked, failed = validate(img, anchor_map)
         total_checked += checked
@@ -331,7 +324,7 @@ def main() -> int:
 
     print(f"[validate] {scanned} binary/binaries, {total_checked} cross-check(s), {total_failed} failure(s)")
     if not scanned:
-        print("[validate] no 64-bit steamclient binaries found", file=sys.stderr)
+        print("[validate] no steamclient/steamui binaries found", file=sys.stderr)
         return 1
     return 1 if total_failed else 0
 

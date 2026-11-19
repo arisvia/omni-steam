@@ -171,10 +171,7 @@ def collect_symbols_pe(binary: Path) -> tuple[dict[str, int], list[str]]:
 def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     data_sha = sha256_file(binary)
     detected = kind or detect_kind(binary)
-    platform = platform_dir(binary, detected)
-    if platform == "unsupported":
-        print(f"[harvest] {binary.name}: 32-bit binary skipped (64-bit targets only)")
-        return 0
+    platform = platform_dir(detected)
     out_dir = out_dir / platform
     print(f"[harvest] {binary.name} sha256={data_sha} kind={detected} platform={out_dir.name}")
     notes: list[str] = []
@@ -256,42 +253,44 @@ def harvest(binary: Path, out_dir: Path, kind: str | None) -> int:
     return 0
 
 
-def platform_dir(binary: Path, kind: str) -> str:
+def platform_dir(kind: str) -> str:
     """Canonical platform directory consumed by PatternLoader's remote tier
     (see PatternLoader::GetSignaturePlatformDir) and by the collect step of
     signature-harvest.yml.
-
-    OmniSteam targets 64-bit platforms only. A 32-bit ELF is reported as
-    "unsupported" so the caller skips it instead of publishing RVAs into a
-    namespace no runtime consumes.
     """
-    if kind == "pe":
-        with binary.open("rb") as fh:
-            head = fh.read(4096)
-        if len(head) >= 0x40:
-            pe_off = struct.unpack_from("<I", head, 0x3C)[0]
-            if pe_off + 6 <= len(head) and struct.unpack_from("<H", head, pe_off + 4)[0] != 0x8664:
-                return "unsupported"  # i386 PE: no 64-bit runtime consumes it
-        return "windows-x64"
-    if kind == "macho":
-        return "macos-universal"
-    if kind == "elf":
-        with binary.open("rb") as fh:
-            ident = fh.read(5)
-        if len(ident) >= 5 and ident[4] == 2:  # ELFCLASS64
-            return "linux-x64"
-        return "unsupported"
-    return "unknown"
+    return {"pe": "windows-x64", "macho": "macos-universal", "elf": "linux-x64"}[kind]
 
 
 def detect_kind(binary: Path) -> str:
+    """Format tag for a 64-bit Steam library, or raise.
+
+    OmniSteam publishes RVAs that only a 64-bit runtime consumes, so a 32-bit
+    image is not a category to filter out at this layer: the 64-bit inputs are
+    chosen by their location upstream (cmd/linux64, steamrt64, ubuntu12_64).
+    Reaching here with a 32-bit file means the caller handed over the wrong
+    file, which is a hard error, not something to skip past.
+    """
     with binary.open("rb") as fh:
-        magic = fh.read(4)
-    if magic.startswith(b"\x7fELF"):
+        head = fh.read(0x40)
+    magic = head[:4]
+    if magic == b"\x7fELF":
+        if len(head) < 20 or head[4] != 2 or int.from_bytes(head[18:20], "little") != 0x3E:
+            raise ValueError(f"{binary.name}: not an x86_64 ELF image")
         return "elf"
-    if magic in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe"):
+    if magic in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xcf"):
         return "macho"
     if magic.startswith(b"MZ"):
+        # e_lfanew lives at 0x3C but points far past the DOS stub, so seek to
+        # it instead of assuming a fixed-size header window.
+        with binary.open("rb") as fh:
+            fh.seek(0x3C)
+            raw_off = fh.read(4)
+            if len(raw_off) < 4:
+                raise ValueError(f"{binary.name}: truncated DOS header")
+            fh.seek(struct.unpack("<I", raw_off)[0] + 4)
+            machine = fh.read(2)
+        if len(machine) < 2 or int.from_bytes(machine, "little") != 0x8664:
+            raise ValueError(f"{binary.name}: not an x86_64 PE image")
         return "pe"
     return "unknown"
 

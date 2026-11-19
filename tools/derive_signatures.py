@@ -2032,12 +2032,7 @@ def main() -> int:
         print(f"[derive] anchor map written: {args.emit_map} ({len(anchor_map['anchors'])} names, {total} slots)")
         return 0
 
-    try:
-        img = parser_cls(args.binary)
-    except ValueError as e:
-        print(f"[derive] skipping {args.binary.name}: {e}")
-        return 0
-
+    img = parser_cls(args.binary)
 
     digest = sha256_file(args.binary)
     resolved: dict[str, dict] = {}
