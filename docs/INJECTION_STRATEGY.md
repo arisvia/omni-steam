@@ -49,8 +49,9 @@
   Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview` 也已补齐：前者靠被调指纹接受 GCC 的
   "先 load 再 cmp" 形态（`GetPackageInfo = 0xf812a0`），后者靠"已解析调用者的直接被调"消解克隆体歧义
   （`0x19bfac0`，详见 ROADMAP §2 条目 13）。
-  仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过（容器内的 `e14535f98ebff8c3-steamui.so`
-  即 i386，运行时不消费其 RVA，属预期）。
+  仅支持 64 位客户端：32 位镜像没有进入管线的路径——收割按 64 位目录（`cmd/linux64`、`ubuntu12_64`、`steamrt64`）
+  枚举输入，工具层遇到非 x86_64 镜像直接报错而非跳过（客户端确实并行分发 `cmd/linux32`、`ubuntu12_32` 的同名件，
+  但运行时从不消费它们）。
 
 - Manager `InstallCore` 自动下载/解压并校验 `libomnisteam.so` 落位 `ubuntu12_64/`；`Manager::SteamLauncher`（`POST /api/steam/launch`）以双 fork+setsid detached 启动 Steam 并前置 `LD_PRELOAD=<steam>/ubuntu12_64/libomnisteam.so`（保留既有 preload 链）。`scripts/omnisteam.sh` 支持 build 树与已安装路径双回退。
 - **SteamRT（pressure-vessel）穿透要点**（2026-11-19 run 44444922527 实测）：
