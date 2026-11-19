@@ -99,17 +99,33 @@ jobs:
           # the only fix is to harvest that build too: install the launcher deb
           # and let its bootstrap download the runtime files (the GUI start
           # itself is irrelevant headless, hence xvfb + || true).
-          DEB=$(ls steam-dist/steam-launcher_*_all.deb 2>/dev/null | head -1)
-          if [ -n "$DEB" ]; then
-            sudo dpkg -i "$DEB" || sudo apt-get -f -y install || true
+          DEB=steam-launcher.deb
+          if ! curl -fsSL -o "$DEB" https://repo.steampowered.com/steam/archive/precise/steam_latest.deb; then
+            echo "::warning::launcher deb unreachable; SteamRT signatures stay unpublished"
+            exit 0
           fi
-          if [ -x "$HOME/.local/share/Steam/steam.sh" ]; then
-            yes | timeout 900 xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +quit >steamrt-bootstrap.log 2>&1 || true
-            tail -4 steamrt-bootstrap.log 2>/dev/null || true
-          else
-            echo "::warning::launcher did not install steam.sh; skipping SteamRT bootstrap"
+          sudo dpkg -i "$DEB" || sudo apt-get -f -y install || true
+          if [ ! -x "$HOME/.local/share/Steam/steam.sh" ]; then
+            echo "::warning::launcher did not install steam.sh; SteamRT signatures stay unpublished"
+            exit 0
           fi
-          find "$HOME/.local/share/Steam" -path '*steamrt*' -name 'steamclient*.so' -printf '%p %s\n' 2>/dev/null || true
+          # The client is written during the bootstrap's download phase, well
+          # before the GUI comes up, so poll for the file and stop the launcher
+          # as soon as it exists (headless the client cannot fully start anyway).
+          ( yes | timeout 900 xvfb-run -a "$HOME/.local/share/Steam/steam.sh" +login anonymous \
+              >steamrt-bootstrap.log 2>&1 || true ) &
+          BOOT=$!
+          for i in $(seq 1 90); do
+            sleep 10
+            if [ -f "$HOME/.local/share/Steam/steamrt64/steamclient.so" ]; then break; fi
+          done
+          wait $BOOT 2>/dev/null || true
+          pkill -f "steamrt64/steam" 2>/dev/null || true
+          tail -4 steamrt-bootstrap.log 2>/dev/null || true
+          if [ ! -f "$HOME/.local/share/Steam/steamrt64/steamclient.so" ]; then
+            echo "::warning::steamrt64/steamclient.so never appeared on this runner; SteamRT signatures stay unpublished"
+          fi
+          find "$HOME/.local/share/Steam" -path '*steamrt*' -name '*.so' -printf '%p %s\n' 2>/dev/null || true
           # Keep the two steamui.so builds apart by hashing the names, exactly
           # as the 64-bit selector does for steamclient.
           for f in $(find "$HOME" -name 'steamui*.so' -type f 2>/dev/null); do
