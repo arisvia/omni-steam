@@ -64,3 +64,56 @@ python tools/check_code.py --fix
 
 自动完成：标准 include 完整性校验、括号/预处理器配平检查、全量 C++ 文件 clang-format。
 （上游参考目录 `source/` 已排除在检查与构建之外。）
+
+## 五、布局锚点复看（钩子写进去的偏移，客户端真的读它吗）
+
+`static_assert(offsetof(...))` 只能证明我们自己的头文件自洽。钩子真正写进客户端对象的两处布局——
+`AppOwnership`（`PackageId 0x00` / `ReleaseState 0x04` / `ExistInPackageNums 0x14` / `bOwnsLicense 0x24` /
+`bFreeLicense 0x28` / `bFamilyShared 0x35`）与 `CNetPacket`（`m_pubData 0x10` / `m_cubData 0x18`）——
+需要外部证据。偏移错位时 RVA 仍是错的概率为零（派生层每次重算），钩子照样附着、进程照样活着，
+**唯一症状是解锁静默失效**，所以两层证据都要看。
+
+### 1. 静态语义门禁（无需账号，已进 `signature-harvest.yml` 三平台 job）
+
+对**当前官方客户端**在**已发布的 RVA** 上反汇编客户端自己的 `CheckAppOwnership`，核对我们写入的每个偏移：
+
+```bash
+# 单个镜像 + 它自己的签名 TOML（data 分支 signatures/<platform>/<sha16>.toml）
+python tools/verify_abi_layout.py --binary <sha16>-steamclient.so --toml <sha16>.toml
+
+# 整批（CI 用法：hash 前缀命名的目录 + 平台签名目录），并跑负向对照
+python tools/verify_abi_layout.py --scan-root steam-dist-cls/linux-x64 \
+  --signatures signatures-out --strict --negative-control
+```
+
+判读：`CONFIRMED` 全部规则命中；`PARTIAL` 有规则只是没观察到（编译器把比较搬进了被调方，正常）；
+`CONTRADICTED` = **该 build 的布局与钩子假定不符，禁止发布这套 RVA**（退出码 1）。
+`--negative-control` 把整套偏移整体位移 1 字节再跑一遍，必须被判 CONTRADICTED——否则说明规则空转，
+门禁绿了也不算证据。`CNetPacket` 故意不在此工具覆盖范围内：RecvPkt 只通过包对象自己的 vtable 取载荷，
+静态看不到具体类，配对匹配只会命中别的结构。
+
+### 2. 运行时布局探针（真机，`core_status.json` 的 `layout` 段）
+
+```bash
+python tools/smoke_status.py ~/.cache/omnisteam/core_status.json --platform windows
+```
+
+`layout` 由两个探针组成，`observed` = 客户端交给我们多少个真实对象，`matched` = 其中按**我们的偏移**
+解释得通的个数：
+
+| 观察结果 | 含义 | 门禁 |
+| :--- | :--- | :--- |
+| `ownership 8/9 coherent` | 客户端自填的结构在 0x24/0x00/0x04 三项上同时自洽 | ok |
+| `layout drift: ... 0/N coherently` | 偏移漂了：钩子写对了函数、写错了字段 | **FAIL** |
+| `layout probe unobserved` | 这一轮客户端没走到（`+login anonymous` 会话没有可检查的许可） | warn |
+| `missing layout object` | 跑在旧核心上（没发布探针） | **FAIL** |
+
+### 3. 关闭 ROADMAP §2 条目 4 需要的产品级复看（要真实账号）
+
+CI 用匿名会话，只能证明"没漂"；还需要一次**解锁结果**的复看，每台机器各一次即可：
+
+1. 装当前核心，用真实账号登录，Lua 里注入一个未拥有的 AppID 及其一个 DLC AppID。
+2. 打开库：两者都应出现（`FillInAppOverview` 的合成 `PurchasedTime` 路径）且状态可安装。
+3. 起一次下载：manifest 请求码由 `Hooks_NetPacket` 注入，CDN 应直接开跑，不出现 "No Internet Connection"。
+4. 读 `core_status.json` 的 `layout`：`ownershipObserved > 0` 且 `ownershipMatched > 0`（Windows/Linux/macOS 各一份）。
+5. 把三份计数与客户端哈希贴回 `docs/ROADMAP.md` §2 条目 4，该条目即可关闭。

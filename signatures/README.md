@@ -12,7 +12,9 @@ All dynamic client signatures are automatically harvested by CI and hosted on th
 Only 64-bit targets are published: `windows-x64`, `linux-x64`, `macos-universal`.
 There is no 32-bit namespace: OmniSteam does not build or ship a 32-bit core.
 CMake rejects 32-bit toolchains at configure time, and the harvest/derive tools
-skip 32-bit ELF images outright.
+treat a 32-bit image as a hard error - the 64-bit inputs are selected by
+location (`cmd/linux64`, `ubuntu12_64`, `steamrt64`), so nothing 32-bit enters
+the pipeline to be sniffed and quietly skipped.
 
 ## How the anchor map crosses ABIs
 
@@ -72,18 +74,18 @@ identified from the call graph are listed in `docs/ROADMAP.md` §2.2 but are
 **not** published: two independent mechanisms must agree before any of them
 reaches a TOML. A wrong RVA hooks unrelated code and crashes the client.
 
-## steamui reference binary
+## steamui is its own module
 
-The macOS harvest artifact now publishes `steamui.dylib` (Linux steamcmd has
-no `steamui.so`). Its qualified budget literal
-`CSteamUIAppController::FillInAppOverview` has exactly one RIP xref and
-`derive_signatures.py` now probes the qualified spelling first — the bare
-substring sits 0x17 bytes into the literal and never matches a LEA target.
-The Windows `steamui.dll` has zero xrefs (pointer-table reference) and
-correctly derives 0 functions. **No steamui TOML is published**: PatternLoader
-hashes only the target module (`steamclient*`), so a steamui-keyed document
-would be rejected by `DeclaresMatchingHash` and never consumed. See
-`docs/ROADMAP.md` §2.3 for the remaining wiring work.
+`steamui` ships as `steamui.dll` / `steamui.dylib` / `steamui.so` and each CI job
+derives and publishes a TOML keyed by **that module's own hash**
+(`FillInAppOverview` etc.). PatternLoader consumes per-module documents: it
+hashes the module a target belongs to and validates the document with
+`DeclaresMatchingHash(moduleHash)`, so a steamui-keyed file is loaded against the
+steamui base address and never against steamclient. The cache key covers **both**
+modules, so an update to either invalidates the resolved set. On Linux the module
+comes from the bootstrapped desktop client (`ubuntu12_64` / `steamrt64`) - the
+steamcmd distribution has no `steamui.so` - so a host that never booted the
+desktop client leaves that attach optional. See `docs/ROADMAP.md` §2.3.
 
 ## Two-mechanism CI gate
 
