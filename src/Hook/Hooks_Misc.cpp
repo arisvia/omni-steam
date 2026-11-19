@@ -174,6 +174,26 @@ HOOK_FUNC(OptedInMask, int64_t, void* pThis, AppId_t appId) {
     return oOptedInMask ? oOptedInMask(pThis, appId) : 0;
 }
 
+// Same function, entered past Valve's hot-patch thunk. The thunk's guard is a
+// `jcc rel8`, which funchook refuses to relocate ("Could not fix ip-relative
+// address. The size is not 32."), and both current Linux client builds encode it
+// that way - hence this second entry, published as OptedInMaskImpl by the
+// derivation pipeline only after proving the thunk rewrites rdi and tail-calls
+// (so esi still carries the app id and every other register is forwarded).
+// Three parameters because the implementation reads edx: dropping it would hand
+// Steam a garbage third argument, which the two-arg thunk trampoline above never
+// has to worry about.
+HOOK_FUNC(OptedInMaskImpl, int64_t, void* pCache, AppId_t appId, int64_t a3) {
+    if (appId == kOnlineFixAppId) {
+        AppId_t realAppId = g_OnlineFixRealAppId.load();
+        if (realAppId != 0) {
+            spdlog::debug("Hooks_Misc: OptedInMask(impl) rerouting AppID {} -> {}", appId, realAppId);
+            appId = realAppId;
+        }
+    }
+    return oOptedInMaskImpl ? oOptedInMaskImpl(pCache, appId, a3) : 0;
+}
+
 } // namespace
 
 namespace {
@@ -220,10 +240,35 @@ void Install() {
     uintptr_t fnOptedIn = PatternLoader::GetFunctionAddress("OptedInMask");
     if (fnOptedIn) {
         ATTACH_HOOK(fnOptedIn, OptedInMask);
-        spdlog::info("Hooks_Misc: Successfully installed OptedInMask hook at {:p}", reinterpret_cast<void*>(fnOptedIn));
+        if (HookManager::IsHookActive("OptedInMask")) {
+            spdlog::info("Hooks_Misc: Successfully installed OptedInMask hook at {:p}",
+                         reinterpret_cast<void*>(fnOptedIn));
+        } else {
+            spdlog::warn("Hooks_Misc: OptedInMask thunk at {:p} cannot be relocated; trying the implementation entry",
+                         reinterpret_cast<void*>(fnOptedIn));
+        }
     } else {
         spdlog::warn("Hooks_Misc: OptedInMask signature not resolved");
-        HookManager::SetHookActive("OptedInMask", false);
+    }
+    if (!HookManager::IsHookActive("OptedInMask")) {
+        uintptr_t fnImpl = PatternLoader::GetFunctionAddress("OptedInMaskImpl");
+        if (fnImpl) {
+            oOptedInMaskImpl = reinterpret_cast<OptedInMaskImpl_t>(fnImpl);
+            bool implAttached = OmniPlatform::Detour::Attach(reinterpret_cast<void**>(&oOptedInMaskImpl),
+                                                             reinterpret_cast<void*>(hOptedInMaskImpl));
+            // Report under the canonical name: the gate tracks the behaviour,
+            // not which of the two entries carries it.
+            HookManager::SetHookActive("OptedInMask", implAttached);
+            if (implAttached) {
+                spdlog::info("Hooks_Misc: Installed OptedInMask via implementation entry at {:p}",
+                             reinterpret_cast<void*>(fnImpl));
+            } else {
+                spdlog::warn("Hooks_Misc: OptedInMask implementation hook failed at {:p}",
+                             reinterpret_cast<void*>(fnImpl));
+            }
+        } else if (fnOptedIn == 0) {
+            HookManager::SetHookActive("OptedInMask", false);
+        }
     }
 
     uintptr_t fnAppData = PatternLoader::GetFunctionAddress("GetOrAddAppData");
@@ -245,6 +290,9 @@ void Uninstall() {
     uintptr_t fnOptedIn = PatternLoader::GetFunctionAddress("OptedInMask");
     if (fnOptedIn) {
         DETACH_HOOK(fnOptedIn, OptedInMask);
+    }
+    if (oOptedInMaskImpl != nullptr) {
+        DETACH_HOOK(PatternLoader::GetFunctionAddress("OptedInMaskImpl"), OptedInMaskImpl);
     }
     uintptr_t fnAppData = PatternLoader::GetFunctionAddress("GetOrAddAppData");
     if (fnAppData) {

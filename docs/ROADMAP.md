@@ -52,6 +52,11 @@
     - macOS 客户端从 classic `LC_DYLD_INFO` rebase 切到 `LC_DYLD_CHAINED_FIXUPS`（`DYLD_CHAINED_PTR_64_OFFSET`，fmt 6）。旧 chained 解析器位域全错，按 Apple `fixup-chains.h` 重写：ptr64 的 `next` 在 bits 51-62（4 字节步长）、`high8`（bits 36-43）补目标 bits 56-63、`segment_offset` 相对 image base 而非段 vmaddr、page_start 逐页累加且 MULTI 项是 chain_starts[] 索引。四处任一错都会让指针索引静默为空、整条 RTTI 族失效（新 mac 客户端曾因此 transfer 0）。重写后新 mac 客户端 RTTI 族复活，trio 双链恢复。
     - 待处理许可向量的排空循环从指针步长（`sub reg, 0x50`）改为索引步长（`lea r,[r+r*4]` + scale-8 索引 / `shl 4`），且 tag 比较出现反向位移编码（指针自向量尾向前跑：`[end-0x50+0x14]` == `[end-0x3c]`，与 `[elem+0x14]` 同字段）。谓词接受两种步长与两种位移，并加两条收紧子句防假阳性：tag 比较必须唯一（许可 dispatcher 会比多个 tag）、函数体 ≤256 条指令（真排空 31-75 条，dispatcher 数百条）。
     - Windows `steamui.dll` 的 `FillInAppOverview` 调用点落在冷块，且 MSVC 把新追加消息经 `r9` 中转（`mov [rax+rcx*8+8], r9` + `mov rdx, r9`）。M2 指纹改为"元素槽存储源寄存器 == arg2（rsi/rdx）最后写入源"，并在整个热/冷簇内扫描调用点。
+12. **Linux 真实运行体覆盖与热补丁桩（2026-11-19 实测）**：
+    - **签名必须按"宿主真正 dlopen 的那份"发布**。Linux 有两个并行构建：steamcmd 的 `ubuntu12_64`（`744bfba676ac5155`）与 Steam 自更新落盘的 `steamrt64`；真机容器里宿主加载的是后者（`dab8df0daa27ffa6`），而收割只取前者 → 11 钩子里 9 个 "manifest-only entry, no fallback pattern"，只有导出符号与运行时符号表能兜住的 3 个起来。收割现已安装 launcher deb、解包 bootstrap tar、起真客户端自更新，**并等 sha256 连续两次采样不变**才收——文件"出现"时还是 deb 自带的滞后构建（体积 52.8MB → 稳定后 53.6MB），早期版本就是被这一步骗过，发布了两把无人加载的哈希。
+    - **funchook 搬不动 Valve 热补丁桩的 8 位条件跳转**：`OptedInMask` 在两个 Linux 构建里都是 `cmp esi,0xf` / `ja rel8`(`77 13`) / `mov rdi,[rdi+0x180]` / `jmp rel32`，funchook 对被窃取指令区里的 ip-relative 位移只支持 32 位，直接 `FUNCHOOK_ERROR_CANNOT_FIX_IP_RELATIVE`（"Could not fix ip-relative address. The size is not 32."）→ 该钩子在 Linux 从未挂上过（与签名无关，是引擎限制）。修法在派生侧：证明桩只改写 rdi、其余寄存器由尾跳原样转发后，发布 **`OptedInMaskImpl`**（尾跳目标，`is_func_start` 且长度 ≥20 条才发），核心在桩 attach 失败时改挂 impl（**三参数**转发，因为实现体读 `edx`），状态仍登记在规范名 `OptedInMask` 下，不进 `g_patterns` 期望清单、不参与完整性判定。Windows/macOS 走桩路径成功，逻辑不变。
+    - 另：`find -iname 'steamui*.so'` 这类 glob 从前导字符锚定，对 `<sha16>-steamui.so` 一律不匹配，曾让 Linux `steamui.so`（真机在 `steamrt64/` 里就有，`48e48023b7b5035b`）既没被派生也没进取证工件。
+
 10. **macOS universal CI 构建**：首次 push 触发的 CI 暴露三处 macOS runner 问题，均已修复：
    `cmake_args` 里 `arm64;x86_64` 未加引号被 shell 当命令分隔符（exit 127）→ 单引号包裹；
    Homebrew Python 受 PEP 668 保护导致 `pip install capstone` 退出 1 → harvest job 改用一次性 venv（derive 与 validate 两步都走 venv）；

@@ -1870,6 +1870,54 @@ def derive_ui_overview(img: Image, resolved: dict) -> tuple[dict[str, dict], lis
     return {}, details
 
 
+# Valve's Linux OptedInMask is a hot-patch thunk: `cmp esi,0xf` / `ja rel8` /
+# `mov rdi,[rdi+0x180]` / `jmp rel32`. funchook refuses to relocate an
+# ip-relative branch whose displacement is 8 bits
+# (FUNCHOOK_ERROR_CANNOT_FIX_IP_RELATIVE - "Could not fix ip-relative address.
+# The size is not 32."), so that entry can never be hooked on x86-64: BOTH
+# current Linux client builds encode the guard as rel8 (0x77 0x13), which is why
+# OptedInMask has never attached on Linux at all. The tail-jump target is the
+# real function, and because the thunk rewrites only rdi - esi keeps the app id
+# and every other incoming register is forwarded by the tail call - hooking the
+# target is argument-faithful. Publish it as <Name>Impl; the core falls back to
+# it when the thunk attach fails.
+IMPL_FALLBACK_NAMES = ("OptedInMask",)
+
+
+def hotpatch_thunk_target(img: Image, rva: int, md) -> int | None:
+    """The tail-call target of a hot-patch thunk, or None if the shape is not provable."""
+    if img.cpu_type == CPU_ARM64:
+        return None
+    seq = function_instructions(img, rva, md)
+    if len(seq) < 2:
+        return None
+    rewrote_this = False
+    jmp = None
+    for ins in seq[:8]:
+        m = ins.mnemonic
+        if m in ("cmp", "test") or (m.startswith("j") and m != "jmp"):
+            continue
+        if m == "mov" and ins.op_str.startswith("rdi, "):
+            rewrote_this = True
+            continue
+        if m == "jmp":
+            jmp = ins
+            break
+        return None  # anything else: the forwarding proof no longer holds
+    if jmp is None or not rewrote_this or not jmp.op_str.startswith("0x"):
+        return None
+    try:
+        target = int(jmp.op_str, 16) - img.base
+    except ValueError:
+        return None
+    if img.func_starts and (target + img.base) not in set(img.func_starts):
+        return None
+    # A single-instruction target is another thunk, not the implementation.
+    if len(function_instructions(img, target, md)) < 20:
+        return None
+    return target
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     text_va, text = img.text()
     if img.cpu_type == CPU_ARM64:
@@ -2045,6 +2093,22 @@ def main() -> int:
             else:
                 resolved[name] = {"rva_arm64": meta["rva"], "source": meta["source"]}
         print(f"[derive] arm64 slice: {len(arm_resolved)} function(s) merged")
+    # Hot-patch thunks funchook cannot relocate: publish the tail-call target so
+    # the core has a hookable entry for the same function.
+    md_impl = _capstone()
+    impl_added: dict[str, dict] = {}
+    for name in IMPL_FALLBACK_NAMES:
+        meta = resolved.get(name)
+        if not meta or "rva" not in meta:
+            continue
+        target = hotpatch_thunk_target(img, int(meta["rva"], 16), md_impl)
+        if target is not None:
+            impl_added[f"{name}Impl"] = {"rva": f"0x{target:x}", "source": "derived:hotpatch-thunk-fallback"}
+    if impl_added:
+        resolved.update(impl_added)
+        details.append({"hotpatch_thunk_fallback": impl_added})
+        print(f"[derive] hotpatch-thunk impl fallback: {', '.join(sorted(impl_added))}")
+
     print(f"[derive] {args.binary.name} sha256={digest[:16]} kind={kind}: {len(resolved)} function(s) derived")
 
 
