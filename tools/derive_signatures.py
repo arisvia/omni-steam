@@ -1918,6 +1918,26 @@ def hotpatch_thunk_target(img: Image, rva: int, md) -> int | None:
     return target
 
 
+# Some VProf budget names are referenced by two GCC clones of one function
+# (measured on the Linux steamui.so, hash 48e48023b7b5035b: the qualified
+# literal is logged from both 0x19bd3c0 and 0x19bfac0, ~2200 instructions
+# each). Guessing here publishes a wrong RVA, and a wrong RVA crashes the
+# client, so the tier vetoes. The veto is what a positive proof can lift: the
+# public entry is the clone that the already-resolved caller actually calls,
+# so intersect the candidates with that caller's direct callees and accept
+# only when exactly one survives.
+AMBIGUITY_CALLER: dict[str, str] = {"FillInAppOverview": "BuildCompleteAppOverviewChange"}
+
+
+def disambiguate_by_caller(img: Image, resolved: dict, caller_name: str, starts: set[int]) -> set[int]:
+    meta = resolved.get(caller_name)
+    if not meta:
+        return starts
+    callee = set(direct_call_targets(img, int(meta["rva"], 16), _capstone()))
+    keep = {s for s in starts if (s - img.base) in callee}
+    return keep if len(keep) == 1 else starts
+
+
 def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     text_va, text = img.text()
     if img.cpu_type == CPU_ARM64:
@@ -1932,6 +1952,7 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
     # the string tier publishes chunk RVAs that disagree with every other
     # mechanism (and with the hook, which needs the entry).
     md_pe = _capstone() if img.kind == "pe" else None
+    ambiguous: dict[str, set[int]] = {}
     for name, probes in STRING_PROBES.items():
         starts: set[int] = set()
         probe_report = []
@@ -1961,9 +1982,20 @@ def derive(img: Image) -> tuple[dict[str, dict], list[dict]]:
             rva = starts.pop() - img.base
             resolved[name] = {"rva": f"0x{rva:x}", "source": "derived:string-xref"}
         elif len(starts) > 1:
+            ambiguous[name] = set(starts)
             details.append({"target": name, "status": "ambiguous", "candidates": len(starts)})
         if probe_report:
             details.append({"target": name, "probes": probe_report, "resolved": name in resolved})
+    for name, caller in AMBIGUITY_CALLER.items():
+        cands = ambiguous.get(name)
+        if not cands or name in resolved:
+            continue
+        keep = disambiguate_by_caller(img, resolved, caller, cands)
+        if len(keep) == 1:
+            rva = next(iter(keep)) - img.base
+            resolved[name] = {"rva": f"0x{rva:x}", "source": "derived:string-xref-callee-proof"}
+            details.append({"target": name, "status": "disambiguated", "via_caller": caller,
+                            "candidates": sorted(hex(c - img.base) for c in cands)})
     return resolved, details
 
 
@@ -2047,8 +2079,13 @@ def main() -> int:
         print(f"[derive] license-trio tier: {', '.join(sorted(trio_resolved))}")
     ui_resolved, ui_details = derive_ui_overview(img, resolved)
     details.extend(ui_details)
-    if "FillInAppOverview" in resolved and "FillInAppOverview" not in ui_resolved:
-        # A single-mechanism literal hit is not publishable (iron rule).
+    if (resolved.get("FillInAppOverview", {}).get("source") == "derived:string-xref"
+            and "FillInAppOverview" not in ui_resolved):
+        # A single-mechanism literal hit is not publishable (iron rule). The
+        # callee-proof source is exempt on purpose: it only exists because the
+        # qualified literal hit MORE THAN ONE function, and what narrowed it to
+        # one was a call-graph edge from an independently resolved function -
+        # two mechanisms agreeing, not a lone substring match.
         resolved.pop("FillInAppOverview")
     for name, meta in ui_resolved.items():
         resolved[name] = meta
