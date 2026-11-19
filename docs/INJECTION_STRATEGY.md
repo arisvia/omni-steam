@@ -40,7 +40,7 @@
 | 动态库篡改 / 符号覆盖 steamclient.so | 极低 (自检触发重下) | 极低 (更新即失效) | 极低 | 坚决避免 |
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
-### 实施状态：✅ 注入载体、函数寻址与库可见性全部闭环（真机冒烟 19 ok / 1 warn / 0 fail）
+### 实施状态：✅ 注入载体、函数寻址与库可见性全部闭环（真机冒烟 19 ok / 3 warn / 0 fail，基线见 ROADMAP §2.8）
 - 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；Manager 侧 `SteamLauncher` 自动前置 `LD_PRELOAD`（见下）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
 - Hook 层：`derive_signatures.py` 经 ELF `.eh_frame_hdr` 边界表 + `R_X86_64_RELATIVE` addend 解析后的
