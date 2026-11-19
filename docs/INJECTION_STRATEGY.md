@@ -40,14 +40,17 @@
 | 动态库篡改 / 符号覆盖 steamclient.so | 极低 (自检触发重下) | 极低 (更新即失效) | 极低 | 坚决避免 |
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
-### 实施状态：✅ 注入载体与函数寻址均已落地（steamclient 16/16），真机冒烟复核中
+### 实施状态：✅ 注入载体、函数寻址与库可见性全部闭环（真机冒烟 19 ok / 1 warn / 0 fail）
 - 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；Manager 侧 `SteamLauncher` 自动前置 `LD_PRELOAD`（见下）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
 - Hook 层：`derive_signatures.py` 经 ELF `.eh_frame_hdr` 边界表 + `R_X86_64_RELATIVE` addend 解析后的
   RTTI/vtable 遍历，已产出 9 个函数锚点（含 `ConfigStore_GetBinary`/`RecvPkt`/`BBuildAndAsyncSendFrame`/
   `IPCProcessMessage`/`OptedInMask`），另有 `Steam_BGetCallback`/`Steam_FreeLastCallback` 走导出符号。
-  仍缺 Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview`（见 ROADMAP §2）。
-  仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过。
+  Package 0 扩容三件套与 `steamui.so` 的 `FillInAppOverview` 也已补齐：前者靠被调指纹接受 GCC 的
+  "先 load 再 cmp" 形态（`GetPackageInfo = 0xf812a0`），后者靠"已解析调用者的直接被调"消解克隆体歧义
+  （`0x19bfac0`，详见 ROADMAP §2 条目 13）。
+  仅支持 64 位客户端：32 位 ELF 在 harvest/derive 阶段直接跳过（容器内的 `e14535f98ebff8c3-steamui.so`
+  即 i386，运行时不消费其 RVA，属预期）。
 
 - Manager `InstallCore` 自动下载/解压并校验 `libomnisteam.so` 落位 `ubuntu12_64/`；`Manager::SteamLauncher`（`POST /api/steam/launch`）以双 fork+setsid detached 启动 Steam 并前置 `LD_PRELOAD=<steam>/ubuntu12_64/libomnisteam.so`（保留既有 preload 链）。`scripts/omnisteam.sh` 支持 build 树与已安装路径双回退。
 - **SteamRT（pressure-vessel）穿透要点**（2026-11-19 run 44444922527 实测）：
