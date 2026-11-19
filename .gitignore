@@ -29,6 +29,9 @@ dump*.txt
 .code-review-graph/
 .codegraph/
 
+# Agent MCP wiring (absolute JAVA_HOME / GHIDRA_INSTALL_DIR of one workstation)
+.omp/
+
 # Local depot key database (6MB binary) - fetched from CDN at runtime
 depotkeys.bin
 
