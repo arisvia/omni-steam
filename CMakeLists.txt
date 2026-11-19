@@ -256,6 +256,21 @@ else()
     set(OPENSSL_USE_STATIC_LIBS TRUE)
     find_package(OpenSSL REQUIRED)
     find_package(CURL REQUIRED)
+    # FindOpenSSL's static mode biases the suffix search for the ZLIB it
+    # resolves internally, so ZLIB::ZLIB comes back as non-PIC libz.a - which
+    # cannot be linked into a shared object (R_X86_64_PC32 against z_errmsg).
+    # libcrypto only needs zlib's symbols, so bind them to the shared zlib,
+    # the same one libcurl already pulls into SteamRT. Done after every
+    # find_package that may re-create the target from its cached static hit.
+    set(_omni_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so")
+    find_library(OMNI_ZLIB_SHARED NAMES z)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_omni_saved_suffixes})
+    if(OMNI_ZLIB_SHARED AND TARGET ZLIB::ZLIB)
+        set_target_properties(ZLIB::ZLIB PROPERTIES IMPORTED_LOCATION "${OMNI_ZLIB_SHARED}")
+    elseif(NOT OMNI_ZLIB_SHARED)
+        message(WARNING "shared zlib not found; the static OpenSSL import will fail to link into libomnisteam.so")
+    endif()
     find_package(Threads REQUIRED)
     set(PLATFORM_LIBS OpenSSL::Crypto OpenSSL::SSL CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 endif()
