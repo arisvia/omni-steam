@@ -230,6 +230,11 @@ jobs:
           path: |
             steam-dist/**/steamclient*.so*
             steam-dist/**/steamui*.so*
+            # the selector's hash-prefixed 64-bit set, which is the only place
+            # the settled SteamRT build exists (steam-dist predates the client
+            # bootstrap) - without it a hook that only misbehaves in the
+            # container cannot be re-checked offline.
+            steam-dist-cls/**/steamclient*.so*
           retention-days: 7
           if-no-files-found: warn
 
