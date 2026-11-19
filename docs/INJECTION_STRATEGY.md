@@ -61,13 +61,13 @@
 | LC_LOAD_DYLIB 篡改 | 低 (破坏签名, Gatekeeper 阻止) | 低 | 低 | 不推荐 |
 | task_for_pid / mach_vm 注入 | 极低 (受 SIP 限制) | 低 | 极低 | 坚决避免 |
 
-### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
-- Universal 构建目标（arm64 + x86_64）已配置；`Manager::SteamLauncher` 直接 exec `Steam.app/Contents/MacOS/steam_osx` 并前置 `DYLD_INSERT_LIBRARIES=<steam>/libomnisteam.dylib`（`open -a` 不转发 DYLD 环境变量，故不走 LaunchServices）；`scripts/omnisteam-macos.sh` 提供脚本等价路径。SIP/library-validation 是否剥离 DYLD 插入、steam_osx 重 exec 链行为，由 `.github/workflows/hook-smoke.yml` 的 macos-14 真机 job 首跑确认。
-- 签名库通过 Mach-O `LC_FUNCTION_STARTS` 边界表 + `LC_DYLD_INFO` rebase / chained fixups 解析后的
-  RTTI/vtable 遍历，已产出 9 个函数锚点，与 Linux 同源（同一份 Windows 锚点图跨 ABI 移植）。
-  完整解锁链路仍需 Package 0 扩容三件套与 steamui 锚点（见 ROADMAP §2）。
-- Steam macOS 客户端是 x86_64 进程（Apple Silicon 经 Rosetta 2），universal dylib 两 slice 都会装载；
-  arm64 路径下 funchook 的 mprotect 行为需真机验证。
+### 实施状态：✅ 注入链与全钩子寻址已在 Apple Silicon 真机闭环
+- **启动链测绘结论（真机）**：SIP 不剥离 `DYLD_INSERT_LIBRARIES`（Valve 开发者签名可插入）；`Steam.app/steam_osx` 先 *exec* 到 `Steam.AppBundle/Steam/Contents/MacOS/steam_osx`（同 pid，DYLD 穿透，插入路径必须绝对）；随后**最终宿主是一次新 pid 的 spawn，环境被清洗，DYLD 在该跳丢失**。因此单靠外层环境变量注入永远只能命中中间进程。
+- **落地方案：`__DATA,__interpose` 重注入**（`src/Platform/Darwin/SpawnInterpose.cpp`，直接编入核心源码——静态库会被 dead-strip）。拦截 `posix_spawn`/`posix_spawnp`/`execve`，在目标为 steam 宿主时把 `DYLD_INSERT_LIBRARIES=<本 dylib 绝对路径>` 写回 envp 再放行，故最终宿主与中间进程同样装载核心。文件包装脚本路线已否决：Steam 包完整性修复会还原被替换的二进制。
+- **两条硬约束（踩过坑）**：① 解析被拦截函数必须 `extern "C"` 直绑 libsystem_kernel 的 `__posix_spawn`/`__execve` 系统调用桩——插入型 dylib 装载在 libSystem 之后，`dlsym(RTLD_NEXT)` 找不到它们（全部 ENOSYS），而 `dlopen`+`dlsym` 可能解析回我们自己的 interposer 造成无限递归；② 重注入按目标 basename 门控（只注入 `steam_osx`/`steam`），Steam Helper/CEF 带 library-validation 签名，插入未签名 dylib 会被 dyld abort。
+- **运行前提**：headless runner 无 LaunchServices，需 `-inhibitbootstrap -skipinitialbootstrap` 跳过更新器循环（等价 `steam.cfg` 的 `BootStrapperInhibitAll enable`），并直接拉起 `ipcserver`（launchd headless 不会重启它，否则 `SteamAPI_Init failed`）。
+- **Hook 寻址**：universal dylib 两 slice 各自按已装载 slice 的 `mach_header.cputype` 选择 `rva` / `rva_arm64`（缺字段 fail-closed）。arm64 slice 现由四类 slice 原生机制覆盖 16/16 函数（见 ROADMAP §2.3）。**funchook 在 macOS arm64 的 mprotect 实测可用**：run 44440919734 中 arm64 原生宿主 12 个钩子全部改写成功、`core_status.json` 19 ok / 1 warn / 0 fail。
+- Rosetta x86_64 路径：签名解析与钩子安装同样全部成功，但 x64 Chromium-on-arm 在装钩后崩溃，故该探针仅作签名校验（warning），门控由 arm64 原生探针承担。
 
 ---
 
