@@ -48,7 +48,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y binutils file curl dpkg-dev xvfb
           # Best-effort Steam client libraries (names drift across releases):
           # without them steam.sh stops at its dependency dialog and never
-          # reaches the self-update that downloads the steamrt64 build.
+          # reaches the self-update that downloads the steamrt64 build. The
+          # :i386 set is Valve's own 32-bit bootstrap requirement, not an
+          # OmniSteam compatibility layer - the pipeline never reads a 32-bit
+          # client image (inputs come from the 64-bit trees only).
           sudo dpkg --add-architecture i386 || true
           sudo apt-get update || true
           sudo apt-get install -y lib32gcc-s1 lib32stdc++6 libc6:i386 libgl1:i386 \
