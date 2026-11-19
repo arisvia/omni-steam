@@ -40,7 +40,7 @@
 | 动态库篡改 / 符号覆盖 steamclient.so | 极低 (自检触发重下) | 极低 (更新即失效) | 极低 | 坚决避免 |
 | ptrace 注入 | 低 (yama 限制) | 中 (需 root/CAP_SYS_PTRACE) | 低 | 不推荐 |
 
-### 实施状态：⚠️ 注入载体已落地，Hook 函数寻址部分落地
+### 实施状态：✅ 注入载体与函数寻址均已落地（steamclient 16/16），真机冒烟复核中
 - 注入：`scripts/omnisteam.sh` 与 SteamOS 免 root 安装脚本（environment.d）就绪；Manager 侧 `SteamLauncher` 自动前置 `LD_PRELOAD`（见下）；
   Core 以 `LD_PRELOAD` 进入 Steam 进程后可正常初始化、解析 Lua、写心跳。
 - Hook 层：`derive_signatures.py` 经 ELF `.eh_frame_hdr` 边界表 + `R_X86_64_RELATIVE` addend 解析后的
@@ -83,3 +83,12 @@
 | 目录监视热重载 | Windows `ReadDirectoryChangesW` / Linux `inotify` / macOS `kqueue`，双缓冲快照切换 |
 | HTTP 栈 | WinHTTP（TLS 1.2+ 强制）/ libcurl，统一 UA 与端点常量 (`OmniEndpoints.h`) |
 | 配置契约 | TOML 全局配置 + Lua 解锁脚本 + 二进制密钥库，三平台完全一致 |
+
+### 运行时可调环境变量（默认值即生产行为，仅诊断/CI 覆盖）
+
+| 变量 | 平台 | 默认 | 作用 |
+| :--- | :--- | :--- | :--- |
+| `OMNISTEAM_CACHE_DIR` | 全部 | Win `%LOCALAPPDATA%\OmniSteam\cache`；macOS `$HOME/Library/Caches/OmniSteam`；Linux `$XDG_CACHE_HOME/omnisteam`，无则 `$HOME/.cache/omnisteam` | Lua/密钥库/`core_status.json` 落位目录。**注意**：SteamRT pressure-vessel 会清洗环境变量，容器内真宿主只能用默认值（`$HOME` 同路径 bind 挂载，外挂可读），因此外部工具必须两处都认（见 §3）。 |
+| `OMNISTEAM_TARGET_MODULE_WAIT_SECONDS` | 全部 | `60` | 等宿主装载 `steamclient`（.dll/.so/.dylib）的上限，超时则放弃挂钩（不崩宿主）。冷启动容器需数分钟，CI 冒烟设 `600`；取值范围 1–3600，越界回退默认。 |
+| `OMNISTEAM_INTERPOSE_DEBUG` | macOS | 关 | `=1` 时逐条打印被拦截的 `posix_spawn`/`posix_spawnp`/`execve`。默认关闭：Steam 每个子进程都会触发，一次启动上万行会淹没真正的证据。 |
+| `OMNISTEAM_FORCE_DIRECT_SPAWN` | macOS | 关 | `=1` 时把更新器最后一跳 `sh -c "sleep 1; open -n '<App>'"` 改写成直接 exec 宿主二进制（headless runner 没有可用的 LaunchServices 会话）。产品默认不动 Steam 的启动方式。 |
