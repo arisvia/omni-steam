@@ -962,9 +962,9 @@ PACKAGE_CACHE_CALLER = "CheckAppOwnership"
 def _capstone():
     """Return a configured x86-64 disassembler, or None when unavailable.
 
-    Only the x86-64 slices are fingerprinted: the macOS arm64 slice is covered
-    by transferring the x86_64 result, since both slices are built from the
-    same source and the runtime consumes one RVA namespace per platform.
+    The macOS arm64 slice runs the arm64 twins of the call-graph tiers (and
+    the slice-invariant vtable transfer), so every published rva_arm64 comes
+    from a mechanism that actually decoded that slice.
     """
     try:
         from capstone import Cs, CS_ARCH_X86, CS_MODE_64
@@ -1008,6 +1008,8 @@ def direct_call_targets(img: Image, rva: int, md) -> set[int]:
     A local `jmp` (loop back-edge, hot/cold split) points INSIDE the body and
     is not a callee; keeping those produced self-referential "candidates".
     """
+    if img.cpu_type == CPU_ARM64:
+        return arm64_direct_call_targets(img, rva, md)
     seq = function_instructions(img, rva, md)
     if not seq:
         return set()
@@ -1029,6 +1031,8 @@ def direct_call_targets(img: Image, rva: int, md) -> set[int]:
 
 def is_package_cache_accessor(img: Image, rva: int, md) -> bool:
     """Structural fingerprint of CPackageInfoCache::GetPackageInfo."""
+    if img.cpu_type == CPU_ARM64:
+        return arm64_is_package_cache_accessor(img, rva, md)
     from capstone.x86 import X86_OP_MEM
 
     seq = function_instructions(img, rva, md)
@@ -1058,7 +1062,7 @@ def is_package_cache_accessor(img: Image, rva: int, md) -> bool:
 
 
 def derive_callee_fingerprints(img: Image) -> tuple[dict[str, dict], list[dict]]:
-    md = _capstone()
+    md = _arm64_capstone() if img.cpu_type == CPU_ARM64 else _capstone()
     if md is None:
         return {}, [{"target": "GetPackageInfo", "status": "skipped", "reason": "capstone not installed"}]
     callers, _ = derive(img)
@@ -1123,6 +1127,8 @@ def license_instructions(img: Image, rva: int, md) -> list:
     first int3 lost the MarkLicenseAsChanged call in the Windows cold chunk).
     """
     if img.kind != "pe":
+        if img.cpu_type == CPU_ARM64:
+            return arm64_function_instructions(img, rva, md)
         return function_instructions(img, rva, md)
     import bisect
 
@@ -1180,6 +1186,8 @@ def license_cluster(img: Image, rva: int, md) -> tuple[list, set]:
 
 
 def cluster_call_targets(img: Image, rva: int, md) -> set[int]:
+    if img.cpu_type == CPU_ARM64:
+        return arm64_direct_call_targets(img, rva, md)
     seq, covered = license_cluster(img, rva, md)
     out = set()
     for ins in seq:
@@ -1202,6 +1210,8 @@ def _bool_and_this_setup(img: Image, seq: list, n: int) -> tuple[int | None, boo
     unrelated overwrite. The this check requires a load from a heap object
     field ([base+disp], base neither rsp nor rbp) - the cache->user pointer.
     """
+    if img.cpu_type == CPU_ARM64:
+        return _arm64_bool_and_this_setup(img, seq, n)
     from capstone.x86 import X86_OP_MEM, X86_REG_RBP, X86_REG_RSP
 
     if img.kind == "pe":
@@ -1238,13 +1248,7 @@ def mark_call_targets(img: Image, rva: int, md) -> set[int]:
     """External calls from rva's cluster passing (this=[obj+field], pkg, false)."""
     seq, covered = license_cluster(img, rva, md)
     out = set()
-    for n, ins in enumerate(seq):
-        if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
-            continue
-        try:
-            tgt = int(ins.op_str, 16) - img.base
-        except ValueError:
-            continue
+    for n, tgt in call_sites(img, seq):
         if tgt in covered or not in_text(img, img.base + tgt):
             continue
         boolval, fieldload = _bool_and_this_setup(img, seq, n)
@@ -1260,6 +1264,8 @@ def has_pending_drain_shape(img: Image, rva: int, md) -> bool:
     Both clauses exclude stack-relative operands: CheckAppOwnership compares
     a stack local at [rbp+0x14] and takes stack addresses at [rsp+0x50],
     which the loose form matched as a false drain."""
+    if img.cpu_type == CPU_ARM64:
+        return arm64_has_pending_drain_shape(img, rva, md)
     from capstone.x86 import X86_OP_MEM, X86_REG_RBP, X86_REG_RSP
 
     seq = license_instructions(img, rva, md)
@@ -1398,18 +1404,21 @@ def license_producer(img: Image, md) -> tuple[int | None, int | None, list]:
             return None, None, details
     text_va, text = img.text()
     target = img.base + mark
-    callers: set[int] = set()
-    i = 0
-    while True:
-        i = text.find(b"\xe8", i)
-        if i < 0 or i + 5 > len(text):
-            break
-        rel = struct.unpack_from("<i", text, i + 1)[0]
-        if text_va + i + 5 + rel == target:
-            fn = img.containing_function(text_va + i)
-            if fn is not None:
-                callers.add(fn - img.base)
-        i += 1
+    if img.cpu_type == CPU_ARM64:
+        callers = arm64_call_sites_to(img, target)
+    else:
+        callers = set()
+        i = 0
+        while True:
+            i = text.find(b"\xe8", i)
+            if i < 0 or i + 5 > len(text):
+                break
+            rel = struct.unpack_from("<i", text, i + 1)[0]
+            if text_va + i + 5 + rel == target:
+                fn = img.containing_function(text_va + i)
+                if fn is not None:
+                    callers.add(fn - img.base)
+            i += 1
     drains = set()
     for c in sorted(callers):
         if has_pending_drain_shape(img, c, md):
@@ -1450,13 +1459,7 @@ def license_via_rtti(img: Image, md) -> tuple[int | None, int | None, list]:
     pplu = drains.pop()
     seq, covered = license_cluster(img, pplu, md)
     marks: set[int] = set()
-    for n, ins in enumerate(seq):
-        if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
-            continue
-        try:
-            tgt = int(ins.op_str, 16) - img.base
-        except ValueError:
-            continue
+    for n, tgt in call_sites(img, seq):
         if tgt in covered or not in_text(img, img.base + tgt):
             continue
         boolval, _ = _bool_and_this_setup(img, seq, n)
@@ -1469,7 +1472,7 @@ def license_via_rtti(img: Image, md) -> tuple[int | None, int | None, list]:
 
 
 def derive_license_trio(img: Image) -> tuple[dict[str, dict], list[dict]]:
-    md = _capstone()
+    md = _arm64_capstone() if img.cpu_type == CPU_ARM64 else _capstone()
     if md is None:
         return {}, [{"target": "license-trio", "status": "skipped", "reason": "capstone not installed"}]
     mark_p, pplu_p, det_p = license_producer(img, md)
@@ -1491,6 +1494,239 @@ def derive_license_trio(img: Image) -> tuple[dict[str, dict], list[dict]]:
     details.append({"target": "CUtlMemoryGrow", "status": "deferred",
                     "reason": "optional hook with malloc fallback; no unique anchor across template instantiations"})
     return resolved, details
+
+
+# --------------------------------------------------------------------------
+# arm64 twins for tiers 4 and 5
+#
+# The x86 predicates above read capstone's x86 operand model. The arm64 slice
+# of the same fat Mach-O is built from the same source, so every structural
+# fingerprint here describes the SAME facts (field offsets, the 80-byte
+# pending-license element, the 32-byte rbtree node stride, the bool=false
+# third argument) encoded in AArch64: AAPCS args x0 / w2, decimal ldr
+# displacements, `bl #imm` for direct calls.
+# --------------------------------------------------------------------------
+
+_ARM64_BOOL_REG = ("w2", "x2")
+_ARM64_THIS_REG = ("x0", "w0")
+_ARM64_LOADS = ("ldr", "ldur", "ldrb", "ldurb", "ldursb", "ldrsb", "ldar", "ldaxr")
+
+
+def _arm64_bl_target(ins) -> int | None:
+    if ins.mnemonic != "bl" or not ins.op_str.startswith("#0x"):
+        return None
+    try:
+        return int(ins.op_str[1:], 16)
+    except ValueError:
+        return None
+
+
+def _arm64_imm(op_str: str) -> int | None:
+    """Numeric value of the LAST operand when it is an immediate.
+
+    capstone's ARM64 printer renders both displacements and immediates in
+    hex ("#0x50"), so every comparison here must parse, never string-match.
+    """
+    parts = op_str.rsplit(",", 1)
+    if len(parts) != 2:
+        return None
+    tok = parts[1].strip()
+    if not tok.startswith("#"):
+        return None
+    try:
+        return int(tok[1:], 0)
+    except ValueError:
+        return None
+
+
+def _arm64_mem_disp(op_str: str) -> int | None:
+    """Displacement of the (single) memory operand, in bytes, or None."""
+    m = re.search(r"\[(x[a-z0-9]+|sp)(?:, #(-?0x[0-9a-fA-F]+|-?\d+))?(?:!)?\]", op_str)
+    if not m:
+        return None
+    return int(m.group(2), 0) if m.group(2) is not None else 0
+
+
+def _arm64_mem_base(op_str: str) -> str | None:
+    m = re.search(r"\[(x[a-z0-9]+|sp)(?:, #(-?0x[0-9a-fA-F]+|-?\d+))?(?:!)?\]", op_str)
+    return m.group(1) if m else None
+
+
+def arm64_direct_call_targets(img: Image, rva: int, md_arm) -> set[int]:
+    """External `bl` targets of one arm64 function (Mach-O has no chunks)."""
+    seq = arm64_function_instructions(img, rva, md_arm)
+    if not seq:
+        return set()
+    lo = seq[0].address - img.base
+    hi = seq[-1].address - img.base
+    out: set[int] = set()
+    for ins in seq:
+        tgt = _arm64_bl_target(ins)
+        if tgt is None:
+            continue
+        rva_tgt = tgt - img.base
+        if in_text(img, tgt) and not (lo <= rva_tgt <= hi):
+            out.add(rva_tgt)
+    return out
+
+
+def call_sites(img: Image, seq: list):
+    """(index, callee_rva) for every direct call in a decoded sequence.
+
+    x86 spells the direct call `call 0x...`; AArch64 spells it `bl #0x...`.
+    Everything else about the traversal is architecture-neutral.
+    """
+    for n, ins in enumerate(seq):
+        if img.cpu_type == CPU_ARM64:
+            tgt = _arm64_bl_target(ins)
+        else:
+            if ins.mnemonic != "call" or not ins.op_str.startswith("0x"):
+                continue
+            try:
+                tgt = int(ins.op_str, 16)
+            except ValueError:
+                continue
+        if tgt is None:
+            continue
+        yield n, tgt - img.base
+
+
+def _arm64_bool_and_this_setup(img: Image, seq: list, n: int) -> tuple[int | None, bool]:
+    """arm64 twin of _bool_and_this_setup: last writes to w2 / x0 before bl."""
+    boolval = None
+    fieldload = False
+    seen_bool = seen_this = False
+    for prev in reversed(seq[max(0, n - 12) : n]):
+        ops = [o.strip() for o in prev.op_str.split(",")]
+        if not ops:
+            continue
+        dst = ops[0]
+        if not seen_bool and dst in _ARM64_BOOL_REG:
+            seen_bool = True
+            if prev.mnemonic == "mov" and len(ops) == 2:
+                src = ops[1]
+                val = _arm64_imm(prev.op_str)
+                if val in (0, 1):
+                    boolval = val
+                elif src == "wzr":
+                    boolval = 0
+            elif prev.mnemonic == "eor" and len(ops) == 3 and ops[1] == ops[2] == dst:
+                boolval = 0
+        if not seen_this and dst in _ARM64_THIS_REG:
+            seen_this = True
+            # The memory operand itself contains commas ("x0, [x20, #0x190]"),
+            # so parse the whole op_str instead of splitting on commas.
+            if prev.mnemonic in _ARM64_LOADS:
+                disp = _arm64_mem_disp(prev.op_str)
+                base = _arm64_mem_base(prev.op_str)
+                if disp is not None and disp > 0 and base not in (None, "sp"):
+                    fieldload = True
+            elif prev.mnemonic == "mov":
+                # clang hoists the object into a callee-saved register, so the
+                # argument can be a copy instead of a field load. Specificity
+                # stays in the dual-chain agreement, not in this clause.
+                src = prev.op_str.rsplit(",", 1)[-1].strip()
+                fieldload = src.startswith(("x", "w")) and src not in ("sp", "xzr")
+        if seen_bool and seen_this:
+            break
+    return boolval, fieldload
+
+
+def arm64_has_pending_drain_shape(img: Image, rva: int, md_arm) -> bool:
+    """arm64 twin of has_pending_drain_shape: tag load [elem+0x14] (or the
+    backwards [end-0x3c] spelling) followed by a compare against 80, plus
+    80-byte element stride arithmetic, plus at least one call."""
+    seq = arm64_function_instructions(img, rva, md_arm)
+    if not seq or len(seq) > 256:
+        return False
+    tag_disps = (PENDING_TAG_DISP, PENDING_TAG_DISP - PENDING_ELEM_STRIDE)
+    tags = 0
+    for i, ins in enumerate(seq):
+        if ins.mnemonic not in _ARM64_LOADS:
+            continue
+        base = _arm64_mem_base(ins.op_str)
+        if base is None or base == "sp":
+            continue
+        if _arm64_mem_disp(ins.op_str) not in tag_disps:
+            continue
+        if any(n.mnemonic in ("cmp", "tst", "cmn") and _arm64_imm(n.op_str) == PENDING_ELEM_STRIDE
+               for n in seq[i + 1 : i + 8]):
+            tags += 1
+    if tags != 1:
+        return False
+    pointer_stride = any(
+        ins.mnemonic in ("add", "sub")
+        and _arm64_imm(ins.op_str) == PENDING_ELEM_STRIDE
+        and not ins.op_str.startswith("sp")
+        for ins in seq
+    )
+    scaled: set[str] = set()
+    for ins in seq:
+        if ins.mnemonic == "mov" and _arm64_imm(ins.op_str) == PENDING_ELEM_STRIDE:
+            scaled.add(ins.op_str.split(",")[0].strip())
+    index_stride = any(
+        ins.mnemonic in ("mul", "umull", "smull", "msub", "madd", "smaddl", "umaddl")
+        and any(o.strip() in scaled for o in ins.op_str.split(","))
+        for ins in seq
+    )
+    has_call = any(ins.mnemonic == "bl" for ins in seq)
+    return tags == 1 and has_call and (pointer_stride or index_stride)
+
+
+def arm64_call_sites_to(img: Image, target_va: int) -> set[int]:
+    """RVAs whose function body contains a `bl` to target_va.
+
+    AArch64 direct branches are fixed-width (0x94000000 | imm26), so the
+    whole .text is scanned as words instead of a byte needle.
+    """
+    import array
+
+    text_va, text = img.text()
+    words = array.array("I")
+    words.frombytes(bytes(text[: (len(text) // 4) * 4]))
+    callers: set[int] = set()
+    for i, w in enumerate(words):
+        if w & 0xFC000000 != 0x94000000:
+            continue
+        off = w & 0x03FFFFFF
+        if off & 0x02000000:
+            off -= 0x04000000
+        if text_va + i * 4 + off * 4 == target_va:
+            fn = img.containing_function(text_va + i * 4)
+            if fn is not None:
+                callers.add(fn - img.base)
+    return callers
+
+
+def arm64_is_package_cache_accessor(img: Image, rva: int, md_arm) -> bool:
+    """arm64 twin of is_package_cache_accessor (same rbtree facts)."""
+    seq = arm64_function_instructions(img, rva, md_arm)
+    if not seq:
+        return False
+    head = seq[:24]
+    root = any(i.mnemonic in ("ldr", "ldur") and _arm64_mem_disp(i.op_str) == 0x20 for i in head)
+    nodes = any(i.mnemonic in ("ldr", "ldur") and _arm64_mem_disp(i.op_str) == 0x38 for i in head)
+    stride = any(i.mnemonic == "lsl" and _arm64_imm(i.op_str) == 5 for i in seq[:32])
+    key = any(i.mnemonic in _ARM64_LOADS and _arm64_mem_disp(i.op_str) == 0x10 for i in seq[:32])
+    creates = any(i.mnemonic == "bl" for i in seq)
+    return root and nodes and stride and key and creates
+
+
+def merge_arm64_mechanism(arm_resolved: dict, extra: dict, details: list) -> None:
+    """Fold one more arm64 mechanism into the slice results with a veto.
+
+    Agreement between mechanisms is required to publish a name: when two
+    independent paths land on different RVAs, both are dropped (fail closed)
+    and the conflict is recorded in the report.
+    """
+    for name, meta in extra.items():
+        cur = arm_resolved.get(name)
+        if cur is None:
+            arm_resolved[name] = meta
+        elif cur["rva"] != meta["rva"]:
+            arm_resolved.pop(name)
+            details.append({"target": name, "status": "arm64-mechanism-conflict",
+                            "first": cur["rva"], "second": meta["rva"]})
 
 
 # --------------------------------------------------------------------------
@@ -1765,12 +2001,28 @@ def main() -> int:
         resolved[name] = meta
     if ui_resolved:
         print(f"[derive] steamui tier: {', '.join(sorted(ui_resolved))}")
-    # Fat Mach-O: merge the arm64 slice (string-xref + UI tiers only; the
-    # call-graph tiers are x86 disassembly and stay on the primary slice).
+    # Fat Mach-O: merge the arm64 slice. Vtable slots are slice-invariant
+    # (same typeinfo name, same slot order), so the x86_64 half of THIS
+    # binary is the reference for the arm64 half; the call-graph tiers run
+    # their arm64 twins directly. Ambiguity or a mechanism conflict drops
+    # the name: a wrong RVA crashes the client, a missing one only disables
+    # a hook.
     if kind == "macho" and img.cpu_type != CPU_ARM64 and CPU_ARM64 in macho_slice_cpus(args.binary):
         arm_img = parse_macho(args.binary, CPU_ARM64)
         arm_resolved, arm_details = derive(arm_img)
         details.extend(arm_details)
+        arm_refs: list[tuple[str, int, str]] = []
+        for name, meta in resolved.items():
+            for ti_name, slot, _vtable in vtable_slots_for_rva(img, int(meta["rva"], 16)):
+                if ti_name:
+                    arm_refs.append((name, slot, ti_name))
+        merge_arm64_mechanism(arm_resolved, transfer_via_vtable(arm_img, arm_refs), details)
+        arm_fp, arm_fp_details = derive_callee_fingerprints(arm_img)
+        details.extend(arm_fp_details)
+        merge_arm64_mechanism(arm_resolved, arm_fp, details)
+        arm_trio, arm_trio_details = derive_license_trio(arm_img)
+        details.extend(arm_trio_details)
+        merge_arm64_mechanism(arm_resolved, arm_trio, details)
         arm_ui, arm_ui_details = derive_ui_overview(arm_img, arm_resolved)
         details.extend(arm_ui_details)
         if "FillInAppOverview" in arm_resolved and "FillInAppOverview" not in arm_ui:
