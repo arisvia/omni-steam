@@ -46,6 +46,15 @@ ctest --test-dir build --output-on-failure -C Release
 ./build/bin/test_pics_token             # PICS 令牌注入器
 ./build/bin/test_stats_proto            # 成就与统计 Protobuf 字段解析
 
+### 3. 本地工件目录（全部在项目内、全部已忽略）
+
+中间产物一律放这两处，不要新建 `source/`、`tmp/` 之类的顶层目录：
+
+| 目录 | 内容 | 用途 |
+| :--- | :--- | :--- |
+| `.deps/` | `capstone-src`、`funchook_src-src`、`lua_source-src`、`spdlog-src`、`tomlplusplus-src`（FetchContent 检出） | Windows 上 FetchContent 走 git 拉浅克隆子模块会卡死，配置时显式指向本地检出：`-DFETCHCONTENT_SOURCE_DIR_CAPSTONE=.deps/capstone-src -DFETCHCONTENT_SOURCE_DIR_FUNCHOOK_SRC=.deps/funchook_src-src -DFETCHCONTENT_SOURCE_DIR_LUA_SOURCE=.deps/lua_source-src -DFETCHCONTENT_SOURCE_DIR_SPDLOG=.deps/spdlog-src -DFETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS=.deps/tomlplusplus-src` |
+| `.cache/` | `binrt/`（Linux SteamRT 容器真运行体两版）、`run-<id>/`（按 harvest run 取的当前三平台客户端 + 发布签名）、`refs/`（**旧版参考客户端**：`71b391fe…steamclient64.dll` / `abd32eb3…steamclient64.so` / `42776e12…steamclient.dylib` / `1bf1a790…steamui.dylib`）、`watch_run.sh`、`fetch_run_artifacts.sh` | 本地跑 `derive_signatures.py` / `validate_signatures.py` / `verify_abi_layout.py` 的输入镜像。`refs/` 里是 Valve 已不再分发的历史构建，删了取不回；当前版镜像用 `bash .cache/fetch_run_artifacts.sh <run-id> <artifact-name>...` 重取 |
+
 ---
 
 ## 三、测试设计规范

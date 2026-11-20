@@ -20,9 +20,6 @@ __pycache__/
 # Debug dumps
 dump*.txt
 
-# Upstream reference sources (local only)
-/source/
-
 # Code review tool cache
 .opencode/
 .serena/
