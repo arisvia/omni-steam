@@ -1,0 +1,15 @@
+# OmniSteam derived signatures - DO NOT EDIT MANUALLY
+# Derived semantically from the official binary listed below.
+source_binary = "steamclient64.dll"
+binary_sha256 = "71b391fe9f3e2006cbc81a5c75eef3eb4186012deabfdb2c8b7e8d4850ecf640"
+kind = "pe"
+
+[functions]
+CloseAppCloud = { rva = "0xa01f20", source = "derived:vtable-slot-transfer" }
+ConfigStoreGetBinary = { rva = "0x5a9490", source = "derived:vtable-slot-transfer" }
+GetAppDataFromAppInfo = { rva = "0x499aa0", source = "derived:vtable-slot-transfer" }
+IPCProcessMessage = { rva = "0x8686e0", source = "derived:vtable-slot-transfer" }
+LoadDepotDecryptionKey = { rva = "0x5a9490", source = "derived:vtable-slot-transfer" }
+OptedInMask = { rva = "0x5bdf90", source = "derived:vtable-slot-transfer" }
+RecvPkt = { rva = "0x58ca00", source = "derived:vtable-slot-transfer" }
+SpawnProcess = { rva = "0x9b9060", source = "derived:string-xref" }
